@@ -262,6 +262,8 @@
    'beta-challenge ep-beta-challenge 'beta-signup ep-beta-signup
    'beta-prospects ep-beta-prospects 'beta-decide ep-beta-decide
    'bootstrap ep-bootstrap 'provision ep-provision 'activate ep-activate
+   'password-reset-request ep-password-reset-request
+   'password-reset-confirm ep-password-reset-confirm
    'tenant-suspend (lambda (req) (ep-tenant req suspend!))
    'tenant-resume (lambda (req) (ep-tenant req resume!))
    'instance-quota ep-instance-quota

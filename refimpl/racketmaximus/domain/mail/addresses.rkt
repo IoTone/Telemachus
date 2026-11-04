@@ -38,7 +38,7 @@
          (only-in "./transport.rkt" mail-address-problem printable))
 
 (provide VERIFY-TTL
-         user-address user-address-state
+         user-address user-address-state user-by-verified-address
          address-claim! address-verify! address-clear! address-pending)
 
 ;; A day. Long enough for somebody who asked at the end of the afternoon, short
@@ -61,6 +61,31 @@
        (not (sql-null? (vector-ref r 0)))
        (not (sql-null? (vector-ref r 1)))
        (vector-ref r 0)))
+
+;; The reverse lookup, for a caller holding an address and no user: a password
+;; reset, where the address IS the identifier somebody typed.
+;;
+;; IT MATCHES ONLY A VERIFIED ADDRESS AND ONLY AN ACTIVE ACCOUNT, and both halves
+;; are the rule rather than caution. MAIL-5 is that nothing is sent to an address
+;; that has not answered, so an unverified one is not a place this instance will
+;; mail a credential; and `authenticate` admits `status = 'active'` alone, so
+;; offering a reset to a SUSPENDED account would mail a link that sets a password
+;; nobody can then use — and would tell whoever holds that mailbox that the
+;; account exists and was suspended.
+;;
+;; The comparison is case-folded on the way in, because an address typed into a
+;; sign-in screen is typed by a person. The domain is case-insensitive by RFC and
+;; the local part is not, in theory — in practice no mail system anybody deploys
+;; distinguishes them, and treating `Alice@` as a different person from `alice@`
+;; would make the reset silently find nothing for the commonest possible typo.
+(define (user-by-verified-address conn address)
+  (define a (string-downcase (string-trim (format "~a" address))))
+  (and (not (string=? a ""))
+       (let ([v (query-maybe-value conn
+                  (string-append "SELECT id FROM users WHERE LOWER(email) = ? "
+                                 "AND email_verified_epoch IS NOT NULL AND status = 'active'")
+                  a)])
+         (and v (not (sql-null? v)) (format "~a" v)))))
 
 ;; What a profile card renders: the verified address if there is one, the pending
 ;; one if a verification is outstanding, and when each happened. The TOKEN is

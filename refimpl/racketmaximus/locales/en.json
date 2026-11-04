@@ -35,13 +35,17 @@
       "text": "{age} ago",
       "hash": "1ebef83b6f3881bed47f04d4eabef9ee2108c73d"
     },
-    "doc.route.get.api.admin.email-deliveries": {
-      "text": "Every email delivery on the instance, newest first, including the two transactional messages — a confirmation and a transport test — which belong to no team. `?status=dead` is the dead-letter list an operator watches. `instance:read` rather than `:manage`, so a monitoring credential can see that mail is failing without being able to rewrite the relay's password.",
-      "hash": "63d99c2efddfbe3ad2701cf78784907188139f1a"
+    "doc.tool.note_autotag.id": {
+      "text": "The note id",
+      "hash": "fd02a584451d28a275838f32365a74f1b2293116"
     },
     "ui.mltransport": {
       "text": "Email delivery",
       "hash": "3776c7a872f8ffc28af593480694373ad89025c0"
+    },
+    "doc.route.get.api.admin.email-deliveries": {
+      "text": "Every email delivery on the instance, newest first, including the two transactional messages — a confirmation and a transport test — which belong to no team. `?status=dead` is the dead-letter list an operator watches. `instance:read` rather than `:manage`, so a monitoring credential can see that mail is failing without being able to rewrite the relay's password.",
+      "hash": "63d99c2efddfbe3ad2701cf78784907188139f1a"
     },
     "doc.route.get.api.repo-obj.id.form-fields": {
       "text": "The AcroForm fields a PDF carries — name, kind, current value and, for a choice field, its options — which is what a caller needs before sending `doc_fill_form` any values (#88 req 2). A document that is not a form answers an empty list, because whether it is one is the question being asked; a box without pdfcpu answers 501, since the question is fine and this instance cannot answer it. `can_flatten` says whether `flatten: true` will work here, flattening being a second binary.",
@@ -50,10 +54,6 @@
     "doc.workflow.index-documents": {
       "text": "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.",
       "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
-    },
-    "doc.tool.note_autotag.id": {
-      "text": "The note id",
-      "hash": "fd02a584451d28a275838f32365a74f1b2293116"
     },
     "ui.edzenhint": {
       "text": "full width, Esc to leave",
@@ -344,8 +344,8 @@
       "hash": "9dee43b9c3f299103d6cc68724bb51f11ad1a816"
     },
     "doc.route.post.api.admin.users.id.password": {
-      "text": "Set a user's password when they are locked out: {new_password}. Their sessions are revoked. The only way back in for someone who cannot sign in — there is no mail transport to send a reset link.",
-      "hash": "8c61f220aef15351f9b6ad32b51f802e508f3983"
+      "text": "Set a user's password when they are locked out: {new_password}. Their sessions are revoked. The way back in for someone who cannot sign in and cannot receive mail — no verified address, or an instance with no transport configured. Where mail works, POST /api/password-reset is the self-service path and needs no operator.",
+      "hash": "60ef7bc4ced71a7eec02fe064163bda59a073ee3"
     },
     "doc.tool.repo_embed_chunks": {
       "text": "Chunk one repository document's extracted text and store an embedding per chunk, replacing any previous set for that version.",
@@ -635,6 +635,10 @@
       "text": "How often the team let the AI's output stand: approve / revise / reject per workflow and step, with the mean time to a decision. A query over decisions already made, not a separate evaluation system. ?since=<epoch ms> narrows the window.",
       "hash": "bbb9fa1bd8d56749050fd3a56e8c196483c7405c"
     },
+    "ui.prasked": {
+      "text": "If that address has an account, a reset link is on its way.",
+      "hash": "9aac040b95179f5834b9d123e53418c4cee8b230"
+    },
     "doc.workflow.index-knowledge.name": {
       "text": "Index Knowledge",
       "hash": "25914663dfac64e6314732a7e89badcc8c3ff7b0"
@@ -686,6 +690,14 @@
     "ui.foldercut": {
       "text": "More paths than fit one listing — open one to narrow it.",
       "hash": "77b288ada4c448587232604023831437a7cbfe13"
+    },
+    "ui.prset2fa": {
+      "text": "Your password is set. Sign in with your authenticator code.",
+      "hash": "a2766703cd44fb9f33d83acf838ff160d552c8fe"
+    },
+    "doc.perm.localization:manage": {
+      "text": "Import and export catalogs, queue AI drafts, discard machine drafts.",
+      "hash": "b52a77e55ac80e83559f56f228f3b8afe522ff18"
     },
     "ui.definitions": {
       "text": "Definitions",
@@ -811,6 +823,14 @@
       "text": "Security",
       "hash": "f25ce1b8a399bd8621a57427a20039b4b13935db"
     },
+    "ui.autotag": {
+      "text": "Auto-tag",
+      "hash": "638fca57745c2779ad7b83dd16cdd5f89c33e561"
+    },
+    "doc.route.put.api.email-address": {
+      "text": "Claim `address` as the caller's notification address. It is NOT used until it has answered: this sends the one message this platform sends to an unconfirmed address, and the token is in that message and not in this reply — returning it would let anyone who can set an address confirm it without holding the mailbox. A working verified address is left in place until the new one is confirmed, so a typo does not silence somebody. `queued` is false when the instance has no transport, and the note says so rather than reporting success.",
+      "hash": "514fbe359317e0f139146370aa7b737ff9d7e1da"
+    },
     "ui.trigger_types": {
       "text": "Content types (blank = any)",
       "hash": "c233fa078f402f539dcc118a797d48b63f1bb591"
@@ -818,14 +838,6 @@
     "doc.route.delete.api.admin.users.id.2fa": {
       "text": "Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment.",
       "hash": "7c21af626d3ee4c2e83c97ec1a19ea5610206384"
-    },
-    "doc.route.put.api.email-address": {
-      "text": "Claim `address` as the caller's notification address. It is NOT used until it has answered: this sends the one message this platform sends to an unconfirmed address, and the token is in that message and not in this reply — returning it would let anyone who can set an address confirm it without holding the mailbox. A working verified address is left in place until the new one is confirmed, so a typo does not silence somebody. `queued` is false when the instance has no transport, and the note says so rather than reporting success.",
-      "hash": "514fbe359317e0f139146370aa7b737ff9d7e1da"
-    },
-    "ui.autotag": {
-      "text": "Auto-tag",
-      "hash": "638fca57745c2779ad7b83dd16cdd5f89c33e561"
     },
     "doc.tool.doc_set_type.verdict": {
       "text": "The review verdict this came from: approve, revise or reject",
@@ -907,6 +919,10 @@
       "text": "How many passages to return (default 8, at most 20)",
       "hash": "c68398b05eb3eed67e372e9629d5562e8b261e38"
     },
+    "doc.route.post.api.password-reset.confirm": {
+      "text": "Set a new password from a reset link: {token, password}. PUBLIC and carrying no bearer, which it cannot avoid — the person asking is by definition one who cannot sign in. The token is single-use, expires in an hour and is refused if it was minted for anything else. Every session is revoked and the login throttle is cleared; `users.status` is deliberately NOT touched, so a suspended account stays suspended. A session is returned ONLY when the account has no second factor — with TOTP enrolled `signed_in` is false and the person signs in with their code, because this path does not go through the check that enforces it. Every way it can fail answers one refusal.",
+      "hash": "91b695fd8901c52f6569fd892b925450af1290f9"
+    },
     "doc.route.post.api.translate.catalog": {
       "text": "Translate a whole locale catalog, placeholders preserved.",
       "hash": "7080352270302db86101fdcff7b1226d37276738"
@@ -947,10 +963,6 @@
       "text": "Logo",
       "hash": "83fce8327410848c9eb609acb21732c7c0fec96a"
     },
-    "doc.perm.localization:manage": {
-      "text": "Import and export catalogs, queue AI drafts, discard machine drafts.",
-      "hash": "b52a77e55ac80e83559f56f228f3b8afe522ff18"
-    },
     "ui.hmt": {
       "text": "Multi-tenancy",
       "hash": "437ca7ee46f783347bd4c1eaa273bc99f6df4265"
@@ -971,6 +983,14 @@
       "text": "Path",
       "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
     },
+    "ui.mlfromname": {
+      "text": "From name",
+      "hash": "1e77633a8cea91776699e1af692228b813f0b237"
+    },
+    "ui.prnew": {
+      "text": "Set a new password",
+      "hash": "1e83ae49d16225081033781c393444f03c5385ea"
+    },
     "ui.qvleaseshint": {
       "text": "a lease quietly not being refreshed is what a failover looks like, 90 seconds early",
       "hash": "7b5419581c8cbebb0c7937c9a61c348251af58b3"
@@ -978,10 +998,6 @@
     "ui.qvexpired": {
       "text": "expired",
       "hash": "45a6f9adb1df3a78aafc71391c7d3bfa7680229b"
-    },
-    "ui.mlfromname": {
-      "text": "From name",
-      "hash": "1e77633a8cea91776699e1af692228b813f0b237"
     },
     "doc.perm.jobs:execute": {
       "text": "Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run.",
@@ -1026,6 +1042,10 @@
     "doc.route.post.api.feeds.id.probe": {
       "text": "Fetch the feed's URL once, now, with its credential, and answer what happened: the status, whether the body parsed as JSON, and how many bytes came back. Nothing is stored but the outcome — no document is created, so this is safe to run while configuring. A wrong credential shows up here as the source's own 401 rather than as silence on a timer. The recorded error names the host, the path and the status and never the query string, a header or the body.",
       "hash": "0f6d28d436b570e60612363f1fc93fed03975005"
+    },
+    "ui.prpass2": {
+      "text": "New password again",
+      "hash": "a57913650f0343443c19f193108c99c45fe5292b"
     },
     "doc.tool.shipment_eta": {
       "text": "Estimate arrival days for a shipment lane.",
@@ -1166,6 +1186,14 @@
     "doc.route.options.api.beta.challenge": {
       "text": "CORS preflight for a sandboxed Tier-C template.",
       "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "ui.prmismatch": {
+      "text": "The two passwords do not match.",
+      "hash": "d9ae819c0970defb170b5633c8efddd8abb5a01f"
+    },
+    "ui.prsetting": {
+      "text": "Setting…",
+      "hash": "97d836e747ce7741bd4e6fbe5bfa9a364000a5b8"
     },
     "doc.route.delete.api.schedules.id": {
       "text": "Delete a job schedule. Jobs it already fired are ordinary jobs and are untouched.",
@@ -1362,6 +1390,10 @@
     "ui.quotaheldteam": {
       "text": "This team has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
       "hash": "66b9019ebeec34d2bca09f92ab6d5030f9759227"
+    },
+    "ui.praddrneeded": {
+      "text": "An address is needed.",
+      "hash": "d0eeda4f2eef1fba466675586dfbd9eafa78fd91"
     },
     "ui.hdb": {
       "text": "Database",
@@ -1587,6 +1619,10 @@
       "text": "The producer's id for the fact, stable across re-raises",
       "hash": "e745c98e38d13180112846b4be5c11eb337fd877"
     },
+    "ui.tagsph": {
+      "text": "survey, levee 7",
+      "hash": "00367c4bc07f9b7e7b5329339baf5276d02665a1"
+    },
     "doc.route.put.api.l10n.messages.id": {
       "text": "Submit a translation for one message.",
       "hash": "62e7cea67142cba640a3f07fd52ff2e3981406c5"
@@ -1594,10 +1630,6 @@
     "doc.route.delete.api.email-address": {
       "text": "Remove the caller's address and withdraw any pending confirmation. Mail stops at once. There is deliberately no \"keep the address but stop the mail\" here — that is what the per-category preferences are for, and two ways to say one thing is how they come to disagree.",
       "hash": "df9bb1f1954979c74b6a89eb6098a904c5964a9b"
-    },
-    "ui.tagsph": {
-      "text": "survey, levee 7",
-      "hash": "00367c4bc07f9b7e7b5329339baf5276d02665a1"
     },
     "ui.edcount": {
       "text": "{words} words · {chars} chars · {lines} lines",
@@ -1799,6 +1831,10 @@
       "text": "The label set the decision was made against — the same one doc_classify was given",
       "hash": "8e03264f54aff7b19f2b84f775e26148159ff8a6"
     },
+    "ui.prset": {
+      "text": "Set the password",
+      "hash": "924f39d4663a01436b704aa1eec79a6f41aed8d4"
+    },
     "doc.tool.inbox_raise.title": {
       "text": "What a person reads first",
       "hash": "44a8688a8fc73c93211767a7d651d36a57d11c77"
@@ -1870,6 +1906,10 @@
     "ui.helpnone": {
       "text": "Nothing in the documentation is close to that question.",
       "hash": "c7f3ca885c6d94efd37d9641e8de577f51b6aba6"
+    },
+    "ui.prhint": {
+      "text": "Enter the address on your account. If it has one, a link to set a new password is sent there. Nothing is sent to an address that has not been confirmed.",
+      "hash": "f25f7e7722ec06e653e3d61d40b9a51b0c58d169"
     },
     "ui.upload": {
       "text": "Upload",
@@ -2018,6 +2058,10 @@
     "doc.perm.jobs:purge": {
       "text": "Clear the payload and result of SOMEBODY ELSE'S settled job, destroying the input it was given and the output it produced. You may always purge your own. The row, its status, its timings and the audit trail survive — the audit log is the record of what happened, so a purged job stays accountable while its content does not.",
       "hash": "60247ae2461e8f3963ef7a63792bbadf58d0ab28"
+    },
+    "ui.prpass": {
+      "text": "New password",
+      "hash": "d850ee188c7c55b64bc3624534de5c5051a57dc6"
     },
     "doc.route.post.api.profile": {
       "text": "Update the caller's own durable preferences: `locale` and `timezone` (an IANA zone name, e.g. \"Europe/London\"). Either may be sent alone. An unknown timezone is refused rather than silently substituted — somebody quietly given UTC for a typo finds out from a report that arrives at the wrong hour. The reply carries the effective timezone and which layer answered it.",
@@ -2303,13 +2347,17 @@
       "text": "Testing tools",
       "hash": "3d3998625037d01c3f0c18b46c8e2f6a0db08edf"
     },
-    "doc.route.post.api.repo-obj.id.legal-hold": {
-      "text": "Place or release a legal hold on an object: `{\"hold\": true|false}`. While held, deletion BY RULE is refused — a retention sweep skips it and says how many it skipped. This is the flag r4 will build a prefix-level surface on; it ships with the rules because a schedule that deletes is a one-way door and a hold is the only thing that can stop one.",
-      "hash": "c571267be0e2aa366a173a800e261cbeb9b57829"
-    },
     "ui.requestaccess": {
       "text": "Request access",
       "hash": "859ca6c24228b6fe9c9010bed75d2933884d7b49"
+    },
+    "ui.praddr": {
+      "text": "Email address",
+      "hash": "c94d3175a6560565410511df2cebab9cda96027e"
+    },
+    "doc.route.post.api.repo-obj.id.legal-hold": {
+      "text": "Place or release a legal hold on an object: `{\"hold\": true|false}`. While held, deletion BY RULE is refused — a retention sweep skips it and says how many it skipped. This is the flag r4 will build a prefix-level surface on; it ships with the rules because a schedule that deletes is a one-way door and a hold is the only thing that can stop one.",
+      "hash": "c571267be0e2aa366a173a800e261cbeb9b57829"
     },
     "doc.tool.doc_redact.text": {
       "text": "The text to redact (default: extracted from the document)",
@@ -2602,6 +2650,10 @@
     "ui.canceled": {
       "text": "canceled",
       "hash": "140e7351379dcf91c8a2461ed5cf53e1b9d1414b"
+    },
+    "ui.prsend": {
+      "text": "Send a reset link",
+      "hash": "49d8a1bddf8a3e8856919940a2d2dbdb47eb5256"
     },
     "ui.wkmodelnone": {
       "text": "Nothing declared. A job that names a model will not be offered to this worker; a job that names none can be.",
@@ -3119,6 +3171,10 @@
       "text": "One item with its events, numbered in the order they happened: who acknowledged and when, the note they gave, every revision and wake.",
       "hash": "972f95ddadc5f7960c11841dbb7e7215cd0e8e64"
     },
+    "ui.prpassneeded": {
+      "text": "A new password is needed.",
+      "hash": "9e4f5fd147c0c35f6bf247931c694d9e72f03729"
+    },
     "ui.pass": {
       "text": "Password",
       "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
@@ -3170,6 +3226,10 @@
     "ui.edempty": {
       "text": "nothing to save",
       "hash": "a0e92e059b9b0c33b6d0d368dbe5bc292b7141e9"
+    },
+    "ui.prnewhint": {
+      "text": "This link works once. Every other session is signed out when you use it.",
+      "hash": "98619a5c84904f314db830a34468c0f240a0ecb5"
     },
     "doc.tool.doc_render.template": {
       "text": "The template document's object id or key",
@@ -3230,6 +3290,10 @@
     "doc.route.get.api.kg.entities": {
       "text": "Find entities by ?q= and ?type=; only those with a mention the caller can read.",
       "hash": "5c2bb39d66573cf937e6ed22690d5ceadbc3a831"
+    },
+    "doc.route.post.api.password-reset": {
+      "text": "Ask for a password reset link: {address}. PUBLIC, and it answers the SAME thing whether or not that address has an account — a reset endpoint that distinguished them would enumerate accounts for anybody who can type, which is the question #117 closed a timing oracle on at the sign-in screen. The link is mailed to a VERIFIED address only, and only for an active account, so nothing is sent to an address that has never answered. Throttled per address AND per source with a 429, because this is an endpoint that makes the instance send mail to somebody a stranger named. With no transport configured nothing is queued and the answer is still the same. The reset is transactional: it ignores the notification categories, or turning the last one off would be a way to lock yourself out permanently.",
+      "hash": "724a1679d0be4daea7fa9a40c256909728d872b7"
     },
     "ui.reviewof": {
       "text": "Under review",
@@ -3303,6 +3367,14 @@
       "text": "Connected MCP servers.",
       "hash": "ee2175d19262c5c0d8e0ded042d864a035929822"
     },
+    "ui.prsending": {
+      "text": "Sending…",
+      "hash": "cf765512cc6dcf8d2870b8038ce0ffc6cbaa817d"
+    },
+    "doc.perm.notes:write": {
+      "text": "Create and edit notes.",
+      "hash": "fdd2d6a55dcb86b65c6617635e455431b1e7f095"
+    },
     "ui.wkpaused": {
       "text": "paused",
       "hash": "11b1b5ec9167678979a0e6e703210380431292a8"
@@ -3310,10 +3382,6 @@
     "ui.palrefresh": {
       "text": "Refresh this screen",
       "hash": "e84ed1932b12f7820117929bab99fcceeac40f36"
-    },
-    "doc.perm.notes:write": {
-      "text": "Create and edit notes.",
-      "hash": "fdd2d6a55dcb86b65c6617635e455431b1e7f095"
     },
     "doc.route.get.api.admin.audit.verify": {
       "text": "Verify the audit log's hash chain for one org, naming the first broken entry.",
@@ -4370,6 +4438,10 @@
     "ui.uploadhint": {
       "text": "Any format. The path may contain slashes; uploading the same path again keeps the old copy as a version.",
       "hash": "f5f77acd95ec7cf3b7c708ab20228dace868bc92"
+    },
+    "ui.prforgot": {
+      "text": "Forgotten your password?",
+      "hash": "19dda05128bca657bda59fd4ada178cc349f00ec"
     },
     "ui.uploading": {
       "text": "Uploading",

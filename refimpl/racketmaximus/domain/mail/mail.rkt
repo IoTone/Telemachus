@@ -71,8 +71,8 @@
          ;; the queue
          mail-enqueue! mail-notify! mail-deliver-due! mail-deliver-one!
          mail-deliveries mail-delivery-get mail-redeliver!
-         ;; the two transactional messages
-         mail-enqueue-verification! mail-send-test!
+         ;; the three transactional messages
+         mail-enqueue-verification! mail-enqueue-password-reset! mail-send-test!
          ;; composition, exported FOR the tests: what a message SAYS is the half
          ;; worth asserting without a mail server, and it is where the
          ;; never-content rule either holds or does not
@@ -102,12 +102,21 @@
 
 (define MAIL-CATEGORIES (map car CATEGORY-EVENTS))
 
-;; The two messages that are NOT notifications and are therefore not subject to
-;; any of the layers above: a verification, which is the one message sent to an
-;; UNVERIFIED address (MAIL-5), and the transport test, which is sent to an
-;; address the operator typed. Both are transactional — somebody asked for this
-;; exact message, now — and neither is routed to a team's members.
-(define TRANSACTIONAL-CATEGORIES '("verify" "test"))
+;; The messages that are NOT notifications and are therefore not subject to any
+;; of the layers above: a verification, which is the one message sent to an
+;; UNVERIFIED address (MAIL-5); the transport test, which is sent to an address
+;; the operator typed; and a password reset, which somebody asked for because
+;; they cannot sign in. All three are transactional — somebody asked for this
+;; exact message, now — and none is routed to a team's members.
+;;
+;; A RESET IS THE ONE CASE WHERE BEING TRANSACTIONAL IS A SECURITY PROPERTY AND
+;; NOT A CONVENIENCE (RESET-5). The preference layers exist so a person can stop
+;; this instance mailing them, and a person who has turned every category off
+;; must still be able to recover their account — otherwise the preference is a
+;; way to lock yourself out, permanently, from a screen that does not warn you.
+;; So the categories are not consulted, and the console says so where somebody
+;; turns the last one off.
+(define TRANSACTIONAL-CATEGORIES '("verify" "test" "reset"))
 
 (define (category? c) (and (member c MAIL-CATEGORIES) #t))
 
@@ -458,6 +467,52 @@
      "\n"))
   (mail-enqueue! conn #:recipient address #:category "verify"
                  #:subject "Confirm your TMach notification address"
+                 #:body body #:user user))
+
+;; A PASSWORD RESET LINK (RESET-5…7).
+;;
+;; THE LINK IS A CONSOLE PATH AND THE TOKEN IS IN THE SEARCH STRING, for the
+;; verification message's reasons exactly: the console reads `?reset_token=` and
+;; STRIPS it from the address bar at once, and it cannot strip what sits in the
+;; fragment without fighting #230's router. `#/` is the sign-in screen, which is
+;; where somebody who cannot sign in already is.
+;;
+;; THE MESSAGE NAMES NO USERNAME AND NO TEAM. MTX-8's rule binds hardest here:
+;; this message is sent to an address somebody typed into a PUBLIC endpoint, so
+;; everything in it is readable by whoever holds that mailbox, and an inbox is
+;; indexed by a third party and forwarded onwards. "Somebody asked to reset the
+;; password for this address" tells the holder everything they need and tells an
+;; attacker who guessed an address nothing they did not already supply.
+;;
+;; IT SAYS WHAT TO DO IF IT WAS NOT YOU, and that sentence is load-bearing rather
+;; than polite: a reset request is the one message this platform will send to a
+;; person because a STRANGER asked, so the message has to be safe to ignore and
+;; has to say that ignoring it is safe. Nothing changes until the link is used.
+(define (mail-enqueue-password-reset! conn #:user user #:address address #:token token
+                                      #:ttl-hours [ttl-hours 1])
+  (define base (transport-base-url conn))
+  (define link (and base (format "~a/?reset_token=~a#/"
+                                 (string-trim base "/" #:left? #f) token)))
+  (define body
+    (string-join
+     (append
+      (list "Somebody asked to reset the TMach password for this address."
+            (format "This link works once, and stops working in ~a."
+                    (if (= ttl-hours 1) "an hour" (format "~a hours" ttl-hours)))
+            "")
+      (if link
+          (list link "")
+          ;; With no base URL the token is the only actionable thing, so it is
+          ;; printed — single-use, short-lived, and in a message already
+          ;; addressed to its own subject, which is the only place it could go.
+          (list "Use this code to set a new password:" token ""))
+      (list "If it was not you, ignore this message. Nothing has changed and"
+            "nothing will: your current password still works, and this link"
+            "does nothing until somebody uses it."
+            "" "— TMach"))
+     "\n"))
+  (mail-enqueue! conn #:recipient address #:category "reset"
+                 #:subject "Reset your TMach password"
                  #:body body #:user user))
 
 ;; THE TRANSPORT TEST IS SYNCHRONOUS AND STORES ONLY THE OUTCOME — #85's ping,

@@ -6,7 +6,7 @@
 // the "empty login field" this exists to stop. Carry the values across the swap,
 // and the caret with them, or focus jumps back to the top of the form.
 function paintAuth(app){
-  const ids=['lu','lp','lc','bu','bp'];
+  const ids=['lu','lp','lc','bu','bp','pra','prp','prp2'];
   const keep=ids.map(id=>{ const e=document.getElementById(id); return [id, e?e.value:null]; });
   const had=document.activeElement && document.activeElement.id;
   const sel=(()=>{ const e=document.activeElement;
@@ -33,6 +33,7 @@ function authView(){
       <label>${t('code')}</label><input id="lc">
       <button class="btn" style="width:100%" id="lbtn" data-h-click="${H((el,ev)=>doLogin())}">${t('signin')}</button>
     </div>
+    ${resetCard()}
     <details class="card" style="margin-top:14px">
       <summary style="cursor:pointer" class="muted">${t('firstrun')}</summary>
       <div style="margin-top:12px">
@@ -42,6 +43,102 @@ function authView(){
       </div>
     </details>
   </div>`;
+}
+// THE RESET LIVES ON THE SIGN-IN SCREEN because that is where somebody who
+// cannot sign in already is. It has two shapes and never both: following a
+// mailed link means setting a new password, and everything else means asking for
+// one.
+//
+// THE TOKEN IS IN `S`, NOT IN THE DOM AND NOT IN THE URL BY THE TIME THIS RUNS.
+// `claimResetToken()` strips it from the address bar on the first pass — a
+// credential in a URL is logged by proxies and kept in history, which is why
+// /activate has always stripped its own and why MAIL-19 put the verification
+// token in the search string rather than the fragment.
+function resetCard(){
+  if(S.resetToken) return `<div class="card" style="margin-top:14px">
+      <h2>${t('prnew')}</h2>
+      <p class="muted">${esc(t('prnewhint'))}</p>
+      <label>${t('prpass')}</label><input id="prp" type="password" autofocus>
+      <label>${t('prpass2')}</label><input id="prp2" type="password">
+      <button class="btn" style="width:100%" id="prbtn" data-h-click="${H((el,ev)=>doResetConfirm())}">${t('prset')}</button>
+    </div>`;
+  return `<details class="card" style="margin-top:14px">
+      <summary style="cursor:pointer" class="muted">${t('prforgot')}</summary>
+      <div style="margin-top:12px">
+        <p class="muted">${esc(t('prhint'))}</p>
+        <label>${t('praddr')}</label><input id="pra" type="email">
+        <button class="btn ghost" id="prask" data-h-click="${H((el,ev)=>doResetRequest())}">${t('prsend')}</button>
+      </div>
+    </details>`;
+}
+// `?reset_token=` is read once and STRIPPED at once, `claimVerifyToken`'s shape.
+// Unlike that one this runs before anybody is signed in, so it cannot wait for
+// `S.me`.
+function claimResetToken(){
+  let tok = null;
+  try { tok = new URLSearchParams(location.search).get('reset_token'); } catch(e){}
+  if(!tok) return;
+  S.resetToken = tok;
+  try {
+    const u = new URL(location.href);
+    u.searchParams.delete('reset_token');
+    history.replaceState(null, '', u.pathname + (u.search||'') + (u.hash||''));
+  } catch(e){}
+}
+// ONE SEND, and the flag IS the guard and the pending state — #174's shape, with
+// nothing awaited between the check and the set. Without the `finally` one
+// network error leaves the button dead with no way back but a reload.
+async function doResetRequest(){
+  if(S.resetAsking) return;
+  const address=val('pra');
+  if(!address){ toast(t('praddrneeded')); return; }
+  S.resetAsking=true; const btn=document.getElementById('prask');
+  if(btn){ btn.disabled=true; btn.textContent=t('prsending'); }
+  try{
+    const r=await api('/api/password-reset',{method:'POST',body:{address}});
+    // The server answers the same thing whether or not that address has an
+    // account, so the console must not improve on it: "sent" would be a claim
+    // the server deliberately declines to make.
+    if(r.ok) toast((r.json&&r.json.message)||t('prasked'),true);
+    else toast((r.json&&r.json.error)||t('error'));
+  } finally {
+    S.resetAsking=false;
+    const b=document.getElementById('prask');
+    if(b){ b.disabled=false; b.textContent=t('prsend'); }
+  }
+}
+// The two fields are compared HERE and not on the server: a mistyped new
+// password is the one failure a confirmation field can catch, and the token is
+// single-use — so getting it wrong server-side costs the person their link.
+async function doResetConfirm(){
+  if(S.resetSetting) return;
+  const pw=val('prp'); const pw2=val('prp2');
+  if(!pw){ toast(t('prpassneeded')); return; }
+  if(pw!==pw2){ toast(t('prmismatch')); return; }
+  S.resetSetting=true; const btn=document.getElementById('prbtn');
+  if(btn){ btn.disabled=true; btn.textContent=t('prsetting'); }
+  try{
+    const r=await api('/api/password-reset/confirm',{method:'POST',body:{token:S.resetToken,password:pw}});
+    if(r.ok){
+      S.resetToken=null;
+      if(r.json && r.json.signed_in && r.json.token){ setTok(r.json.token); await render(); }
+      else {
+        // No session, which is not a failure: the account has a second factor
+        // and this path does not go through the check that enforces it. The
+        // password IS set, so the person signs in with their code.
+        toast(t('prset2fa'),true);
+        await render();
+      }
+    } else {
+      S.resetToken=null;       // spent once, whatever happened
+      const b=document.getElementById('prbtn');
+      if(b){ b.disabled=false; b.textContent=t('prset'); }
+      toast((r.json&&r.json.error)||t('error'));
+      await render();
+    }
+  } finally {
+    S.resetSetting=false;
+  }
 }
 // Signing in is two rounds of API calls deep (see render), so without this the
 // card sits unchanged and unresponsive while they run and the click looks lost —

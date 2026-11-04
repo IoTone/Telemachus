@@ -2837,6 +2837,35 @@ mail_wait(){ local n="$1" t="${2:-40}" i=0
   while [ $i -lt $t ]; do grep -qF -- "$n" "$MS_OUT" 2>/dev/null && return 0; i=$((i+1)); sleep 0.5; done
   return 1; }
 
+# `mail_body <recipient>` — the DECODED body of the NEWEST captured message to
+# that address.
+#
+# IT HAS TO DECODE, and my first reset block did not: the transport sends
+# `Content-Transfer-Encoding: base64`, so a grep over the raw capture finds
+# neither the link nor a word of the prose. What that looked like was "no reset
+# message arrived" while the message was sitting in the file — and two body
+# assertions beside it PASSED VACUOUSLY for the same reason, which is the worse
+# half. One helper with two askers, because a second copy of this is the drift
+# that hid it.
+mail_body(){ python3 - "$MS_OUT" "$1" <<'PYBODY'
+import base64, re, sys
+blob = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+want = sys.argv[2]
+out = ""
+for m in re.finditer(r"=== MOCK-SMTP MESSAGE to ([^=]*) ===\n(.*?)\n=== MOCK-SMTP END ===", blob, re.S):
+    if want not in m.group(1):
+        continue
+    parts = m.group(2).split("\n\n", 1)
+    if len(parts) < 2:
+        continue
+    try:
+        out = base64.b64decode(parts[1].replace("\n", "")).decode("utf-8", "replace")
+    except Exception:
+        pass
+print(out)
+PYBODY
+}
+
 echo "== email: the transport (operator) =="
 assert "email: no transport is configured to begin with" \
   "$(curl -s $B/api/email-transport -H "Authorization: Bearer $OP")" '"transport":null'
@@ -2943,32 +2972,7 @@ refute "email: the token is not in the reply"      "$ADDR" 'tk_'
 if mail_wait "To: alice@example.test"; then ok "email: the confirmation message arrived"
 else bad "email: the confirmation message never arrived"; fi
 # The body is base64, so the token is extracted by decoding rather than grepping.
-VTOK=$(python3 - "$MS_OUT" <<'PYEOF'
-import base64, re, sys
-blob = open(sys.argv[1], encoding="utf-8", errors="replace").read()
-best = ""
-for m in re.finditer(r"=== MOCK-SMTP MESSAGE to ([^=]*) ===\n(.*?)\n=== MOCK-SMTP END ===", blob, re.S):
-    if "alice@example.test" not in m.group(1):
-        continue
-    body = m.group(2).split("\n\n", 1)
-    if len(body) < 2:
-        continue
-    try:
-        txt = base64.b64decode(body[1].replace("\n", "")).decode("utf-8", "replace")
-    except Exception:
-        continue
-    # `?verify_email=<token>#/usage` — the token is in the SEARCH string and the
-    # destination in the fragment (the console strips the first and keeps the
-    # second), so the token stops at the `#`. This read `token=(\S+)` when the
-    # link had a different shape, and kept passing on a run that predated the
-    # change — a stale extractor is indistinguishable from a message that never
-    # arrived, which is why the failure branch now prints the spool.
-    t = re.search(r"verify_email=([^#\s]+)", txt)
-    if t:
-        best = t.group(1)
-print(best)
-PYEOF
-)
+VTOK=$(mail_body "alice@example.test" | grep -oP 'verify_email=\K[^#[:space:]]+' | head -1)
 if [ -n "$VTOK" ]; then ok "email: the confirmation carries a token"
 else
   # SAY WHY. "No token" has three causes that look identical from here — the
@@ -3072,6 +3076,105 @@ TEAMV=$(curl -s "$B/api/email-deliveries" -H "Authorization: Bearer $OP")
 refute "email: a team's view has no confirmation message" "$TEAMV" '"category":"verify"'
 assert "email: the operator's view does"                 "$MD" '"category":"verify"'
 assert "email: …and the transport test"                  "$MD" '"category":"test"'
+
+echo "== email: a password reset, end to end =="
+# A USER OF THIS BLOCK'S OWN, and that is not tidiness: a reset REVOKES EVERY
+# SESSION, so running it on alice would invalidate `$OP` and break the two
+# teardown calls below — and anything anybody adds after them. The
+# second-team-owner fixture paid for this lesson once and #239's e2e block paid
+# it again.
+MIRA_R=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" \
+  -d '{"username":"mira","password":"mira-pass-1","role":"member"}')
+MIRA=$(printf '%s' "$MIRA_R" | grep -oP '"token":\s*"\K[^"]+')
+assert "reset: a member to reset exists" "$MIRA_R" '"token"'
+
+# She needs a VERIFIED address, because that is the only place a reset is sent
+# (MAIL-5): nothing goes to an address that has never answered.
+: > "$MS_OUT"
+curl -s -X PUT $B/api/email-address -H "Authorization: Bearer $MIRA" \
+  -H 'Content-Type: application/json' -d '{"address":"mira@example.test"}' >/dev/null
+if mail_wait "To: mira@example.test"; then ok "reset: the confirmation reached mira"
+else bad "reset: no confirmation for mira"; fi
+MVTOK=$(mail_body "mira@example.test" | grep -oP 'verify_email=\K[^#[:space:]]+' | head -1)
+curl -s -X POST $B/api/email-address/verify -H "Authorization: Bearer $MIRA" \
+  -H 'Content-Type: application/json' -d "{\"token\":\"$MVTOK\"}" >/dev/null
+# NOT a grep for the address: `email-prefs` reports the PENDING one too, so the
+# first version of this matched that and passed against a verify that had failed.
+# `verified_epoch` is the field that says it answered.
+MPREF=$(curl -s $B/api/email-prefs -H "Authorization: Bearer $MIRA")
+refute "reset: mira has no PENDING address left" "$MPREF" '"pending":"mira@example.test"'
+assert "reset: mira's address is confirmed"     "$MPREF" '"address":"mira@example.test"'
+
+# THE ENUMERATION PROPERTY IS THE ONE THAT MATTERS, so it is asserted by
+# COMPARING THE TWO BODIES rather than by grepping each: a known address and an
+# unknown one must be indistinguishable. #117 closed a timing oracle on exactly
+# this question at the sign-in screen; answering it in words one route along
+# would be worse, because it needs no measurement.
+: > "$MS_OUT"
+RR_KNOWN=$(curl -s -X POST $B/api/password-reset -H 'Content-Type: application/json' \
+  -d '{"address":"mira@example.test"}')
+RR_UNKNOWN=$(curl -s -X POST $B/api/password-reset -H 'Content-Type: application/json' \
+  -d '{"address":"nobody-at-all@example.test"}')
+if [ "$RR_KNOWN" = "$RR_UNKNOWN" ]; then ok "reset: a known and an unknown address answer IDENTICALLY"
+else bad "reset: the answer differs — got '$RR_KNOWN' vs '$RR_UNKNOWN'"; fi
+# and the wording is conditional rather than a claim that something was sent
+assert "reset: the answer does not claim a message was sent" "$RR_KNOWN" 'if that address has an account'
+# PUBLIC: it carried no bearer at all above, which is forced — the person asking
+# is by definition one who cannot sign in.
+assert "reset: the request needs no bearer" "$RR_KNOWN" '"ok":true'
+
+if mail_wait "To: mira@example.test"; then ok "reset: the reset link really arrived"
+else bad "reset: no reset message arrived"; fi
+# NEVER THE USERNAME AND NEVER THE TEAM (MTX-8): this message goes to an address
+# somebody typed into a PUBLIC endpoint.
+RBODY=$(mail_body "mira@example.test")
+refute "reset: the message names no username" "$RBODY" 'mira'
+assert "reset: …and says it is safe to ignore" "$RBODY" 'If it was not you'
+RTOK=$(mail_body "mira@example.test" | grep -oP 'reset_token=\K[^#[:space:]]+' | head -1)
+if [ -n "$RTOK" ]; then ok "reset: the message carries a token"
+else bad "reset: no reset token in the message"; fi
+
+# REDEEMING: public, no bearer, and it revokes every session.
+RC=$(curl -s -X POST $B/api/password-reset/confirm -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$RTOK\",\"password\":\"mira-pass-2\"}")
+assert "reset: the new password is set"            "$RC" '"ok":true'
+assert "reset: …and a session comes back (no 2FA)" "$RC" '"signed_in":true'
+assert "reset: …and sessions were revoked"         "$RC" '"sessions_revoked":'
+# RESET-9: the session she held BEFORE the reset is gone. This is the case a
+# reset exists for — an account somebody else may be holding a session on.
+assert "reset: the pre-reset session is rejected" \
+  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/whoami -H "Authorization: Bearer $MIRA")" '401'
+# the new password works and the old one does not
+assert "reset: the new password signs in" \
+  "$(curl -s -X POST $B/api/login -H 'Content-Type: application/json' \
+     -d '{"username":"mira","password":"mira-pass-2"}')" '"token"'
+refute "reset: the old password does not" \
+  "$(curl -s -X POST $B/api/login -H 'Content-Type: application/json' \
+     -d '{"username":"mira","password":"mira-pass-1"}')" '"token"'
+# SINGLE USE, and every way it can fail answers ONE refusal — distinguishing
+# them tells whoever holds a stale link something about the account.
+REPLAY=$(curl -s -X POST $B/api/password-reset/confirm -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$RTOK\",\"password\":\"mira-pass-3\"}")
+assert "reset: a replayed link is refused"  "$REPLAY" 'no longer valid'
+GARB=$(curl -s -X POST $B/api/password-reset/confirm -H 'Content-Type: application/json' \
+  -d '{"token":"not-a-real-token","password":"mira-pass-3"}')
+if [ "$REPLAY" = "$GARB" ]; then ok "reset: a spent link and an unknown one are ONE answer"
+else bad "reset: the two refusals differ — '$REPLAY' vs '$GARB'"; fi
+assert "reset: a short password is named rather than stored" \
+  "$(curl -s -X POST $B/api/password-reset/confirm -H 'Content-Type: application/json' \
+     -d '{"token":"x","password":"xx"}')" 'too short'
+
+# THE THROTTLE IS ASSERTED LAST because it EXHAUSTS the per-source allowance for
+# fifteen minutes, so no reset request after it can succeed. This endpoint makes
+# the instance send mail to somebody a stranger named, so it is an amplification
+# primitive and not merely a guessing surface.
+RT_CODE=""
+for i in 1 2 3 4 5 6 7; do
+  RT_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/password-reset \
+    -H 'Content-Type: application/json' -d '{"address":"flood@example.test"}')
+  [ "$RT_CODE" = "429" ] && break
+done
+assert "reset: repeated requests are throttled with a 429" "$RT_CODE" '429'
 
 echo "== email: the only way off =="
 curl -s -X DELETE $B/api/email-transport -H "Authorization: Bearer $OP" >/dev/null

@@ -61,6 +61,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/instance/suspend` | provision | — | — | — | ホストモード：テナントを一時停止（書き込みは402で拒否されます） |
 | POST | `/api/instance/resume` | provision | — | — | — | ホストモード：一時停止したテナントを再開 |
 | POST | `/api/instance/quota` | provision | — | — | — | ホストモード：テナントチームのクォータ制限を設定します。 |
+| POST | `/api/password-reset` | public | — | — | — | パスワードリセットのリンクを要求します：{address}。公開エンドポイントであり、そのアドレスにアカウントがあるかどうかに関わらず同じ応答を返します — 両者を区別するリセットエンドポイントは、入力できる者すべてにアカウントを列挙させることになり、これは #117 がサインイン画面でタイミングオラクルを解消したのと同じ問題です。リンクは確認済みのアドレスにのみ、かつ有効なアカウントに対してのみ送信されるため、一度も応答していないアドレスには何も送られません。見知らぬ相手が指定した宛先にインスタンスからメールを送らせるエンドポイントであるため、アドレスごとと送信元ごとの両方で制限し、429 を返します。送信手段が設定されていない場合は何もキューに入らず、応答は同じです。リセットはトランザクショナルであり通知カテゴリを無視します — そうでなければ最後のカテゴリをオフにすることが、恒久的に自分を締め出す手段になってしまいます。 |
+| POST | `/api/password-reset/confirm` | public | — | — | — | リセットリンクから新しいパスワードを設定します：{token, password}。公開でベアラトークンを伴いません。要求している本人は定義上サインインできないため、これは避けられません。トークンは一度だけ有効で、1時間で失効し、他の目的で発行されたものは拒否されます。すべてのセッションは失効し、サインインのスロットルは解除されます。`users.status` は意図的に変更しないため、停止されたアカウントは停止されたままです。セッションが返されるのはアカウントに第二要素がない場合のみです — TOTP が登録されている場合は `signed_in` が false となり、本人は認証コードでサインインします。この経路はそれを強制するチェックを通らないためです。どのような理由で失敗しても、返される拒否は一つです。 |
 | POST | `/api/login` | public | — | — | — | ユーザー名とパスワード（2FA 有効時は TOTP コードも）でサインインする。ベアラートークンを返す。試行はアドレス単位とアカウント単位で制限され、遅延は段階的に伸びる（429 と `Retry-After`）。すべての試行は `user.login` として監査に記録される。運用者が TMACH_LOGIN_LOCK_FAILURES を設定した場合はアカウントがロックされる（423、解除は運用者によるパスワードリセット）。 |
 | GET | `/api/sessions` | bearer | — | — | — | 呼び出し元自身のブラウザセッション一覧 — プレフィックス、作成時刻と最終使用時刻、有効期限、そしてこのリクエストが使っているセッションの印。トークンそのものは返さない。 |
 | POST | `/api/logout` | bearer | — | — | — | このリクエストが使っているセッションを終了する。これ以前はコンソールのサインアウトが何も呼んでいなかったため、ベアラーは期限まで有効なままだった。 |
@@ -87,7 +89,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | role | — | 組織レベルのクォータを設定；チームはその下に配置されます |
 | GET | `/api/orgs/:ref` | superadmin | `instance:manage` | role | — | 1つの会社、そのチームとクォータ。 |
 | PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | role | — | 会社の名前を変更する、プランを変更する（そのプランの上限を再適用します）、および／またはホスト名を設定する（{domain}、null でクリア）：そのホストで配信されるコンソールは、サインイン前から会社のブランディングをまといます（TEN-2d）。 |
-| POST | `/api/admin/users/:id/password` | bearer | `instance:manage` | role | — | サインインできなくなったユーザーのパスワードを設定する：{new_password}。そのユーザーのセッションは失効します。リセットリンクを送るメール送信手段がないため、サインインできない人にとって唯一の復帰手段です。 |
+| POST | `/api/admin/users/:id/password` | bearer | `instance:manage` | role | — | サインインできず、メールも受け取れないユーザーのパスワードを設定します：{new_password} — 確認済みのアドレスがない場合や、送信手段が設定されていないインスタンスの場合です。そのユーザーのセッションは失効します。メールが使える環境では POST /api/password-reset がセルフサービスの経路であり、運用者を必要としません。 |
 | POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | role | — | 既知の開発用パスワードで Acme と Globex を投入する — デモ用の固定データのみ。 |
 | GET | `/api/org` | org-admin | `org:read` | role | — | 呼び出し元の会社 |
 | GET | `/api/org/teams` | org-admin | `org:read` | role | — | 呼び出し元の会社のチーム。 |

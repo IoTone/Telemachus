@@ -567,5 +567,21 @@
   "ui.autotaghint": "Ask the model for tags for this note, in the note's own language. Existing tags are kept.",
   "ui.autotagging": "Tagging…",
   "ui.autotagged": "Added",
-  "ui.autotagnone": "The model proposed no usable tag"
+  "ui.autotagnone": "The model proposed no usable tag",
+  "ui.prforgot": "Forgotten your password?",
+  "ui.prhint": "Enter the address on your account. If it has one, a link to set a new password is sent there. Nothing is sent to an address that has not been confirmed.",
+  "ui.praddr": "Email address",
+  "ui.prsend": "Send a reset link",
+  "ui.prsending": "Sending\u2026",
+  "ui.prasked": "If that address has an account, a reset link is on its way.",
+  "ui.praddrneeded": "An address is needed.",
+  "ui.prnew": "Set a new password",
+  "ui.prnewhint": "This link works once. Every other session is signed out when you use it.",
+  "ui.prpass": "New password",
+  "ui.prpass2": "New password again",
+  "ui.prset": "Set the password",
+  "ui.prsetting": "Setting\u2026",
+  "ui.prpassneeded": "A new password is needed.",
+  "ui.prmismatch": "The two passwords do not match.",
+  "ui.prset2fa": "Your password is set. Sign in with your authenticator code."
 }

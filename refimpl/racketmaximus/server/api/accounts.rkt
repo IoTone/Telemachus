@@ -12,7 +12,9 @@
          ep-admin-status ep-login ep-password ep-2fa-reset ep-admin-2fa-reset
          ep-2fa-enable ep-2fa-codes-new ep-2fa-codes-get
          ;; issue #118: a person's own sessions
-         ep-sessions-list ep-logout ep-session-revoke ep-sessions-revoke-others)
+         ep-sessions-list ep-logout ep-session-revoke ep-sessions-revoke-others
+         ;; the self-service way back in, which needed a mail transport to exist
+         ep-password-reset-request ep-password-reset-confirm)
 
 (require db-kit/portable
          json
@@ -21,6 +23,7 @@
          "../../domain/authz/authz.rkt"
          (only-in "../../domain/authz/passwords.rkt" kdf-name)
          (only-in "../../domain/beta/antispam.rkt" make-limiter limiter-allow?)
+         "../../domain/accounts/reset.rkt"
          racket/string
          web-server/http
          (only-in "../../domain/authz/secretbox.rkt" secret-key-id secrets-enabled?)
@@ -318,6 +321,106 @@
           #:team-id (or team sql-null)
           #:result result
           #:meta (jsexpr->string (hash-set* extra 'username (format "~a" u) 'ip ip))))
+
+;; ---- "I cannot sign in" -----------------------------------------------------
+;;
+;; TWO LIMITERS, AND NEITHER IS THE LOGIN'S (RESET-12). They are separate because
+;; what they protect is different: this endpoint makes THIS INSTANCE SEND MAIL to
+;; an address a stranger typed, so it is an amplification primitive aimed at a
+;; third party's mailbox as well as a guessing surface. The login's allowance of
+;; 20 a minute is far too generous for that.
+;;
+;; THE PER-ADDRESS ONE IS WHAT STOPS SOMEBODY BEING MAILBOMBED by repeated
+;; requests for an address that is not theirs, and the per-source one bounds a
+;; run across many addresses. Both in memory, for the reason the login's own note
+;; gives: a restart clearing a throttle costs nothing and an attacker changes
+;; address anyway. Neither is a control, so neither needs a row.
+;;
+;; The numbers are deliberately small. A real person asks once, reads their mail,
+;; and asks again only if it did not arrive.
+(define reset-ip-limiter (make-limiter))
+(define reset-addr-limiter (make-limiter))
+(define RESET-IP-MAX 5)
+(define RESET-ADDR-MAX 3)
+(define RESET-WINDOW 900)
+
+;; ONE ANSWER, WHATEVER HAPPENED (RESET-8). `request-password-reset!` reports the
+;; truth — queued, no transport, or no such account — and this is where it is
+;; flattened, which is `mail-send-test!`'s split: the domain says what occurred so
+;; a test and the audit log can assert on it, and the route says the same thing
+;; either way so a stranger cannot ask whether an address has an account. #117
+;; closed a 168-millisecond timing oracle on that exact question one route along;
+;; answering it in words here would be worse, because it needs no measurement.
+;;
+;; THE THROTTLE IS THE ONE THING THAT ANSWERS DIFFERENTLY, and it has to: a 429
+;; tells the caller to wait rather than silently dropping a request a real person
+;; is waiting on. It says nothing about the address, because it is reached before
+;; the address is looked up at all.
+;;
+;; THE WORDING IS THE MITIGATION for what the flattening costs — a person who
+;; mistypes their address is told the same as one who did not, so the message is
+;; conditional ("if that address has an account") rather than a claim that
+;; something was sent.
+(define (ep-password-reset-request req)
+  (define body (read-json-body req))
+  (define address (hash-ref body 'address #f))
+  (define ip (client-ip-of req))
+  (define now (current-seconds))
+  (define (same-answer)
+    (json-response (hasheq 'ok #t
+                           'message "if that address has an account, a reset link is on its way")))
+  (cond
+    [(not address) (err "address required" 400)]
+    [(not (limiter-allow? reset-ip-limiter ip now #:max RESET-IP-MAX #:window RESET-WINDOW))
+     (err "too many reset requests from this address — wait a few minutes" 429)]
+    [(not (limiter-allow? reset-addr-limiter (string-downcase (format "~a" address)) now
+                          #:max RESET-ADDR-MAX #:window RESET-WINDOW))
+     ;; Deliberately the SAME refusal as the per-source one. Two distinguishable
+     ;; 429s would turn the throttle itself into the oracle the body refuses to
+     ;; be: "you are being limited on this ADDRESS" says the address is known.
+     (err "too many reset requests from this address — wait a few minutes" 429)]
+    [else
+     (define outcome (request-password-reset! db-conn (format "~a" address)))
+     ;; Recorded on the instance's own trail whatever happened, because "somebody
+     ;; asked and nothing was sent" is the case an operator is asked about — and
+     ;; it is the one place the outcome is kept, since the caller is not told.
+     ;; The ADDRESS is not in the meta: it is a string a stranger supplied, and
+     ;; the audit log is chained, exported and kept through an erasure.
+     (audit! db-conn #:action "user.password.reset.asked" #:actor-type "system"
+             #:actor-id "password-reset" #:result (format "~a" outcome)
+             #:meta (jsexpr->string (hasheq 'ip ip)))
+     (same-answer)]))
+
+;; Redeeming is public and carries no bearer, and it cannot be otherwise: the
+;; person asking is by definition one who cannot sign in. That is the whole
+;; difference from MAIL-19's verification, which IS authenticated because the
+;; caller there already holds a session.
+;;
+;; THE SESSION MAY BE WITHHELD, and the body says which. With a second factor
+;; enrolled no token is issued — TOTP is enforced in `authenticate` and this path
+;; does not go through it — so `signed_in` is false and the console sends the
+;; person to sign in, where the code is demanded.
+(define (ep-password-reset-confirm req)
+  (define body (read-json-body req))
+  (define tok (hash-ref body 'token #f))
+  (define pw (hash-ref body 'password #f))
+  (cond
+    [(not tok) (err "token required" 400)]
+    [(reset-password-problem (and (string? pw) pw)) => (lambda (p) (err p 400))]
+    [else
+     (define res (call-with-values
+                  (lambda () (reset-password! db-conn #:token (format "~a" tok) #:password pw))
+                  list))
+     (if (equal? res '(#f))
+         ;; ONE REFUSAL FOR EVERY WAY IT CAN FAIL — unknown, spent, expired,
+         ;; minted for another purpose, or an account suspended since it was
+         ;; asked for. Distinguishing them tells whoever holds a stale link
+         ;; something about the account it belongs to.
+         (err "this reset link is no longer valid — ask for a new one" 400)
+         (json-response (hasheq 'ok #t
+                                'token (or (caddr res) 'null)
+                                'signed_in (and (caddr res) #t)
+                                'sessions_revoked (cadr res))))]))
 
 (define (ep-login req)
   (define body (read-json-body req))
