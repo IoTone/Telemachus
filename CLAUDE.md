@@ -4838,8 +4838,15 @@ bash scripts/check-config-reference.sh      # now covers the book and the guide 
 - **The gate covers the book's chapter sources in both languages**, `TRANSLATING.md`
   and `docs/integrators-guide.md`. Controlled in all four: the refusal must NAME
   THE FILE, or a reader who cannot find the offending line disables the gate.
-- **What is left of #128 is a release decision** — when the `TELEMACHUS_*`
-  aliases are dropped — which has no deadline by ENVN‑1 and is #204.
+- **#204 ANSWERED THE ONE THING #128 LEFT OPEN: THE ALIASES ARE NEVER DROPPED.**
+  The dual read is **permanent** (decided 4 Nov 2026) — TMach is the marketing
+  name and the alias is a convenience, so dropping it would break every untouched
+  compose file, unit and reverse proxy to gain one fewer thing to explain. Which
+  is ENVN‑1's own argument, now settled rather than deferred. So: the boot
+  `NOTE:` stays information and does not become a deprecation warning, and the
+  compatibility section in `docs/ops/configuration.md` stays **gated to exist**
+  as a permanent guarantee rather than a holding position. The surfaces #128 left
+  alone are untouched and each its own decision if anybody ever wants it.
 
 ## The feed work queue, and a proposal that does not act (QUEUE‑1…9, #114 slices 5–6)
 
@@ -6762,11 +6769,12 @@ raco test test/saas-tests.rkt                             # the activation token
 
 ### What this pass did NOT reach
 
-`style-src 'unsafe-inline'` and the ~250 style attributes behind it; the
-`/derive` half of the worker surface; a systematic sweep of every refusal that
-names what it choked on (SEC‑1 was found by enumerating parameters, not
-refusals); and the threat model per surface that #186 asks for as the method
-rather than the finding.
+`style-src 'unsafe-inline'` and the style attributes behind it (SEC‑11 measured
+and declined it); the `/derive` half of the worker surface (SEC‑9 — it had a real
+defect); a systematic sweep of every refusal that names what it choked on (SEC‑1
+was found by enumerating parameters, not refusals — the second pass did that
+class); and the threat model per surface that #186 asks for as the method rather
+than the finding (the third pass is that).
 
 ## The security sweep, second pass: the refusals (SEC‑6…8, issue #186)
 
@@ -6865,6 +6873,82 @@ DATABASE_URL="postgres://…" raco test …                            # the sam
   per-surface threat model #186 asks for as the METHOD. Two passes have now each
   been one enumeration — parameters, then refusals — and that is what a threat
   model would have told us to do in a planned order.
+
+## The security sweep, third pass: the METHOD (SEC‑9…11, issue #186)
+
+`docs/design/threat-model.md` — ten surfaces, each with what is enforced, what is
+NOT, and when to re-read it — plus `test/threat-model-tests.rkt`, which fails
+when a surface grows. One defect fixed, one item re-priced and declined with
+numbers.
+
+```sh
+raco test test/threat-model-tests.rkt   # 4 cases, four controls, all biting
+raco test test/pull-tests.rkt           # 37 cases; SEC-9's two are controlled
+```
+
+- **THE ARGUMENT FOR A METHOD IS A MEASUREMENT, NOT A PREFERENCE.** The public
+  surface grew from **23 routes to 25** between the first pass and this one, and
+  **the two new ones are in the exact class the first pass flagged and left
+  open** — a public endpoint redeeming a mailed token with no throttle
+  (`POST /api/password-reset/confirm`, beside the recorded `POST /api/activate`).
+  Nothing re-ran the survey, because nothing said when to. Two passes had each
+  been one enumeration chosen from the previous one's leftovers.
+- 🔑 **SEC‑9 — `/derive` WARRANTED THE READ AND BOUNDED NOTHING ABOUT THE WRITE.**
+  PULL‑9 says "a worker token is not a key to the team's repository" and PULL‑13
+  says "the derivation IS the warrant for the write" — and the warrant was only
+  ever checked against the SOURCE, while `key` was whatever the worker said. So a
+  worker holding a claim on ANY job of a team could name the key of ANY document
+  that job's user may write and replace its current version. **Measured, not
+  supposed**: the control answers `ok: #t, key: documents/contract.md, version:
+  2, derived_from: <an unrelated levee scan>`, and the derivation row then says
+  the new version came from that scan, which "Processed by" renders. An existing
+  object at the key must now already derive from THIS source.
+  **AND THE SEVERITY IS BOUNDED, BY THE SAME CONTROL.** `repo-put!` has always
+  checked an overwrite against the PRIOR resource, so a document the job's user
+  may NOT write was never reachable — the second case comes back `forbidden:
+  files:write` with the check removed. No privilege escalation beyond the job's
+  user; what was broken is the module's own contract. An unreadable clash
+  collapses into the SAME refusal, so the key is not an existence oracle.
+  The wider bound (`key` must sit under the source's key, which every in-tree
+  deriver does) was **declined**: it would refuse a third-party worker's naming
+  scheme to prevent untidiness rather than harm.
+- **SEC‑10 — THE SURFACES THAT GROW BY ACCIDENT ARE PINNED WHOLE**, as LITERALS,
+  never re-derived from `ROUTES` — a test that rebuilt the list would agree with
+  any change whatsoever (`vocabulary-tests.rkt`'s rule). Both directions, naming
+  what was added or removed, plus a check that the DOCUMENT still carries a
+  section per pinned surface, or the lists are a pin with nothing behind them.
+- **SEC‑11 — `style-src 'unsafe-inline'`: MEASURED AND DECLINED, and the first
+  pass's own framing of it was wrong.** It listed "~250 style attributes"; there
+  are **392, of which exactly FIVE interpolate anything** — a rounded number, a
+  percentage, two CSS variable NAMES and the funnel's theme. CSP blocks the style
+  ATTRIBUTE wholesale while `element.style.setProperty` is not blocked at all, so
+  the work is moving 392 static attributes to classes.
+  **What re-prices it is that CSS injection needs HTML injection first**, so the
+  pass enumerated THAT: **1,499 interpolations across nineteen console files —
+  373 through `esc()`, 550 a known-safe shape, and of the 576 left, the ones
+  touching a server-supplied string are almost all inside `H(…)`**, which returns
+  an INDEX and keeps the value in a closure. #27's delegated-handler change
+  paying off exactly as its notes predicted. The three helpers that do put server
+  data in markup are `esc`, `iv` (`value="${esc(…)}"`) and `mdRender`, which
+  escapes FIRST (ED‑4). **No path to HTML injection was found**, so the CSP item
+  is defence in depth on top of a control that holds — and the thing to re-run is
+  the ENUMERATION, not the attribute count.
+- **A CONTROL THAT TESTS THE WRONG PROPERTY IS NOT A CONTROL THAT DID NOT BITE,
+  and the two look identical in a harness.** "The document is deleted outright"
+  reported no bite because the patch changed its TITLE rather than removing the
+  file; `file-exists?` bites immediately when the file really goes. Third
+  appearance of this shape, after a patch that did not apply at all and a `sed`
+  whose replacement contained `{}`.
+
+### What three passes have NOT reached, ranked
+
+The threat model's last section carries this, which is the difference between an
+issue with leftovers and a document with a next step: the
+`GET /api/i18n/catalog` cap (a decision about a public read the sign-in screen
+depends on — the owner's); `provider-detail`'s fourth asker in
+`domain/mcp/client.rkt` (one home across two subsystems, a refactor); and
+throttling the two token-redemption endpoints (defence in depth at 192 bits,
+cheap now the limiter exists).
 
 ## The measured performance sweep (PERF‑1…6, issue #185)
 

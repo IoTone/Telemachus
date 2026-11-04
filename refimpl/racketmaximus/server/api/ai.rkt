@@ -334,6 +334,16 @@
     [(no-key) (err "a key is required" 400)]
     [(no-bytes) (err "bytes_b64 is required" 400)]
     [(bad-bytes) (err "bytes_b64 is not valid base64" 400)]
+    ;; SEC-9: the derivation warrants the read AND bounds the write. A key that
+    ;; already holds a document which does not derive from this source is not a
+    ;; place a worker may write — otherwise a claim on any job of the team is a
+    ;; licence to replace any document that job's user can write. A NEW key is
+    ;; still free; this is only ever about an overwrite.
+    [(key-not-derived)
+     (err (string-append "that key already holds a document that does not derive from this "
+                         "source — a worker may write a new key, or a later version of its "
+                         "own output, and nothing else")
+          409)]
     [else (err "not found" 404)]))
 ;; issue #24: every write about a claimed job carries the attempt's claim_token,
 ;; which the claim response handed the worker. A worker that sends none is refused
