@@ -51,6 +51,10 @@
       "text": "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.",
       "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
     },
+    "doc.tool.note_autotag.id": {
+      "text": "The note id",
+      "hash": "fd02a584451d28a275838f32365a74f1b2293116"
+    },
     "ui.edzenhint": {
       "text": "full width, Esc to leave",
       "hash": "f2f31483e8f093458460cd7615139a612587a25f"
@@ -295,6 +299,10 @@
       "text": "Knowledge",
       "hash": "dec1fccaba73443d77f5cfc48dacf9d496399f53"
     },
+    "ui.autotagnone": {
+      "text": "The model proposed no usable tag",
+      "hash": "c99696af9c0d77e193a90bb9243e91f216ef7818"
+    },
     "doc.route.get.api.model-requests": {
       "text": "The team's model requests: executor, transport, model, backend host, whether it was off this box, what it declared about content logging, a keyed digest of the prompt, token count, whether it was a chat or an embedding call, the job it served and the outcome. Never the prompt text. A call served by a pull worker leaves two rows that join on job_id: the route that enqueued the job writes one from the waiting side, so its milliseconds span the queue wait, and the worker's completion writes the other from the job's own start with the tokens the worker reported. job_id is null on a push or stream call, and on a row written before the column existed. Filter with ?executor=, page with ?limit= and ?offset=.",
       "hash": "87a0b38add3fa7cbe69a6b24f3e7f6229474ccb8"
@@ -347,6 +355,14 @@
       "text": "Stop",
       "hash": "9e253470c876ee6d5c720eb777aeb82d4c26e28f"
     },
+    "ui.qvattempts": {
+      "text": "attempt {a}/{m}",
+      "hash": "2d2545448499701571d5eaf6a398d66f9520cbaf"
+    },
+    "ui.tagclear": {
+      "text": "Clear filter",
+      "hash": "b667d6f9f635decfb59140eb7361aedc90b3b761"
+    },
     "ui.addterm": {
       "text": "Add term",
       "hash": "0bbfc13172ab73449a9e940d2bfb5d1d50c75016"
@@ -362,10 +378,6 @@
     "doc.perm.tasks:read": {
       "text": "Read tasks.",
       "hash": "736bd92b8e286f7a17a50b38358b9c0151b86a51"
-    },
-    "ui.qvattempts": {
-      "text": "attempt {a}/{m}",
-      "hash": "2d2545448499701571d5eaf6a398d66f9520cbaf"
     },
     "ui.thsurface": {
       "text": "Panel",
@@ -811,6 +823,10 @@
       "text": "Claim `address` as the caller's notification address. It is NOT used until it has answered: this sends the one message this platform sends to an unconfirmed address, and the token is in that message and not in this reply — returning it would let anyone who can set an address confirm it without holding the mailbox. A working verified address is left in place until the new one is confirmed, so a typo does not silence somebody. `queued` is false when the instance has no transport, and the note says so rather than reporting success.",
       "hash": "514fbe359317e0f139146370aa7b737ff9d7e1da"
     },
+    "ui.autotag": {
+      "text": "Auto-tag",
+      "hash": "638fca57745c2779ad7b83dd16cdd5f89c33e561"
+    },
     "doc.tool.doc_set_type.verdict": {
       "text": "The review verdict this came from: approve, revise or reject",
       "hash": "ffcd03f3404f159249eca58c2563d1d32b789fb3"
@@ -818,6 +834,14 @@
     "ui.wkheldhint": {
       "text": "The platform is holding this job: it is admissible work waiting on a limit, not a failure, and it starts on its own when the limit clears.",
       "hash": "e005612afd8302da9676fc5a8c52dfafd076436c"
+    },
+    "ui.audit": {
+      "text": "Audit log",
+      "hash": "3cfc5f1cc987f398078bb799369d4c03588802d9"
+    },
+    "ui.tagshint": {
+      "text": "Comma separated. Tags are lower-cased and trimmed, so Invoice and invoice are one tag.",
+      "hash": "8c131f7947f39b7150f392a979d75da1682d25ed"
     },
     "ui.objects": {
       "text": "Documents",
@@ -834,10 +858,6 @@
     "ui.l10nnothing": {
       "text": "Nothing matches that filter.",
       "hash": "0f9b93bb965ce681887989cc7cea0ac7b93f4c22"
-    },
-    "ui.audit": {
-      "text": "Audit log",
-      "hash": "3cfc5f1cc987f398078bb799369d4c03588802d9"
     },
     "ui.welcome": {
       "text": "Welcome — finish setting up your account.",
@@ -1575,6 +1595,10 @@
       "text": "Remove the caller's address and withdraw any pending confirmation. Mail stops at once. There is deliberately no \"keep the address but stop the mail\" here — that is what the per-category preferences are for, and two ways to say one thing is how they come to disagree.",
       "hash": "df9bb1f1954979c74b6a89eb6098a904c5964a9b"
     },
+    "ui.tagsph": {
+      "text": "survey, levee 7",
+      "hash": "00367c4bc07f9b7e7b5329339baf5276d02665a1"
+    },
     "ui.edcount": {
       "text": "{words} words · {chars} chars · {lines} lines",
       "hash": "90eed01e3bac38eda8bbdd6f9485de162e3e2ebd"
@@ -2235,6 +2259,10 @@
       "text": "Which model is configured (or that the simulated fallback is in use).",
       "hash": "4b99317a92df10325e6b8654caa37d448f7fe8de"
     },
+    "ui.autotaghint": {
+      "text": "Ask the model for tags for this note, in the note's own language. Existing tags are kept.",
+      "hash": "e5fde190322b8f1f6df1fd21eeadc670592c9f67"
+    },
     "ui.featoffdone": {
       "text": "{f} is off for the whole instance",
       "hash": "ea19f68308a085e4219343c779ed436cad4b51dd"
@@ -2419,6 +2447,10 @@
       "text": "Configure the transport: `host`, `port`, `security` (`none`/`starttls`/`tls`), `from_address`, and optionally `username`, `password`, `from_name`, `base_url` and `active`. It is a WHOLE-DOCUMENT write, so send every field you mean to keep — a request carrying only `host`, `port` and `from_address` clears `from_name` and `base_url`, and losing `base_url` silently breaks the link in every notification afterwards. The ONE exception is the password: an absent one leaves the stored one alone, because it is the one field a caller cannot read back and therefore cannot round-trip. An explicit null clears it. `base_url` is this console's own external URL and is what makes a notification's link work — it cannot be guessed, because the Host header belongs to a caller and a notification is composed by a sweep with no request in sight. The security mode is STORED rather than inferred from the port: 587-with-implicit-TLS and 465-with-STARTTLS both exist, and guessing wrong fails as a hang.",
       "hash": "48cd9b352b4508ee89479c3d8290df592cc6b958"
     },
+    "ui.tags": {
+      "text": "Tags",
+      "hash": "848eed0fbd5429f556b2982dec3ea87136e33e44"
+    },
     "doc.plugin.translate-chat": {
       "text": "A demo workflow plugin: chat once, fan the reply out to Spanish/Dutch/Icelandic, then bring each back to the user's own language.",
       "hash": "91f7eb085397a93509322e65886d76dc1659b76f"
@@ -2522,6 +2554,10 @@
     "doc.route.get.api.org.retention": {
       "text": "The company's own retention rules (#86 r3). An org may SHORTEN what the instance allows for its own data and may never extend it.",
       "hash": "09db09e9244a119710bf5d37fa9712d3f411a02f"
+    },
+    "doc.route.post.api.notes.id.autotag": {
+      "text": "Ask the model for topic tags for one note, in the note's own language, and ADD them to it (#245). Existing tags are never removed. Answers `added` and, separately, `dropped` — a tag the model proposed that is not a usable tag. One model call, metered against the team.",
+      "hash": "4fdba15fb65ba6f6a0dc38b9e09889d32beee682"
     },
     "ui.palrecord": {
       "text": "{type}",
@@ -2735,6 +2771,10 @@
       "text": "local",
       "hash": "939bb46a04c3640c8c427e92b1b557e882e2d2a0"
     },
+    "ui.autotagged": {
+      "text": "Added",
+      "hash": "b68734c259106d131c65a8db8af829cf4fc02fda"
+    },
     "ui.wkheldpausedhint": {
       "text": "Queued jobs that a live worker matches, where every worker that matches has reported it is not taking work. There is nothing to start and nothing to buy: it clears when the host says it is ready again. A job no worker matches at all is counted under “no worker can run” instead.",
       "hash": "15fec0dc004d27fcab00c4e8b72d916a75f98e5e"
@@ -2891,6 +2931,14 @@
       "text": "Repository",
       "hash": "312386841084261c610413fa4de8b7505f469407"
     },
+    "ui.autotagging": {
+      "text": "Tagging…",
+      "hash": "284000b9b07813f298e071e10c47446321e3b6cd"
+    },
+    "doc.route.get.api.metrics": {
+      "text": "Operational metrics.",
+      "hash": "77665524466afabbf3910faa0fe57d7740e33b24"
+    },
     "ui.removeconfirm": {
       "text": "Remove {name} from the team? Their tokens for this team stop working.",
       "hash": "811218e0dce226f0cfbd039126a12a4dd180e8f9"
@@ -2898,10 +2946,6 @@
     "doc.tool.update_note.id": {
       "text": "The note id",
       "hash": "fd02a584451d28a275838f32365a74f1b2293116"
-    },
-    "doc.route.get.api.metrics": {
-      "text": "Operational metrics.",
-      "hash": "77665524466afabbf3910faa0fe57d7740e33b24"
     },
     "ui.revoke": {
       "text": "Revoke",
@@ -3074,6 +3118,14 @@
     "doc.route.get.api.x.inbox.items.id": {
       "text": "One item with its events, numbered in the order they happened: who acknowledged and when, the note they gave, every revision and wake.",
       "hash": "972f95ddadc5f7960c11841dbb7e7215cd0e8e64"
+    },
+    "ui.pass": {
+      "text": "Password",
+      "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
+    },
+    "doc.route.get.api.note-tags": {
+      "text": "Every tag in use in the team, with how many notes the caller can read carry it. The list is DERIVED from the tags on those notes (#245) — nothing stores which tags exist, so a tag cannot be empty and stops existing when its last note drops it. ?scope=org spans the company.",
+      "hash": "817ffb030f3e977d770be6c9ecc79cc98bbe599c"
     },
     "ui.qualify": {
       "text": "Qualify",
@@ -3251,10 +3303,6 @@
       "text": "Connected MCP servers.",
       "hash": "ee2175d19262c5c0d8e0ded042d864a035929822"
     },
-    "ui.pass": {
-      "text": "Password",
-      "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
-    },
     "ui.wkpaused": {
       "text": "paused",
       "hash": "11b1b5ec9167678979a0e6e703210380431292a8"
@@ -3418,6 +3466,10 @@
     "ui.mlnone": {
       "text": "no transport configured",
       "hash": "b1c8ae4383e498e3890d1c1749dc9433c4c6799d"
+    },
+    "doc.tool.note_autotag": {
+      "text": "Suggest topic tags for a note and add them to it, in the note's own language.",
+      "hash": "bce9a4bb396175ce259b463fd3577e47aca26a2f"
     },
     "doc.tool.create_note.visibility": {
       "text": "Who can see it; defaults to team",

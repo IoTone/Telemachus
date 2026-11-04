@@ -2728,6 +2728,79 @@ assert "paths: a traversal key is refused" \
      -H 'Content-Type: application/json' -d '{"title":"bad","key":"../escape.md","content":"x"}')" \
   'error'
 
+echo "== tags on a note (#245) =================================================="
+# LAST, deliberately: this block creates notes and a tag vocabulary in the
+# operator's own team, and `wf did real work` above asserts over `GET /api/notes`.
+# A fixture that changes global state breaks a distant block — the lesson the
+# second-team-owner fixture paid for, and #239's e2e block paid again.
+TAGN=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"Levee 7 survey","body":"due in March","tags":["Survey","  LEVEE 7 "]}')
+TAGID=$(printf '%s' "$TAGN" | grep -oP '"id":\s*"\K[^"]+')
+assert "tags ride on create"      "$TAGN" '"tags":["levee 7","survey"]'
+refute "…and are not echoed raw"  "$TAGN" 'LEVEE 7'
+
+# the derived list, with the count of notes the caller can read
+assert "the tag list is derived"  "$(curl -s $B/api/note-tags -H "Authorization: Bearer $OP")" '"tag":"levee 7"'
+assert "…with a count"            "$(curl -s $B/api/note-tags -H "Authorization: Bearer $OP")" '"notes":1'
+
+# ?tag= is repeatable and an AND
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"Budget review","tags":["budget"]}' >/dev/null
+assert "?tag= narrows"            "$(curl -s "$B/api/notes?tag=budget" -H "Authorization: Bearer $OP")" 'Budget review'
+refute "…excluding the others"    "$(curl -s "$B/api/notes?tag=budget" -H "Authorization: Bearer $OP")" 'Levee 7 survey'
+refute "two tags are an AND"      "$(curl -s "$B/api/notes?tag=budget&tag=survey" -H "Authorization: Bearer $OP")" '"title":'
+assert "an unknown tag is empty"  "$(curl -s "$B/api/notes?tag=nonesuch" -H "Authorization: Bearer $OP")" '"notes":[]'
+
+# [] CLEARS, a missing key leaves alone — or the last tag could never be removed
+assert "a missing key leaves tags" \
+  "$(curl -s -X PUT $B/api/notes/$TAGID -H "Authorization: Bearer $OP" -d '{"title":"Levee 7 survey v2"}')" \
+  '"tags":["levee 7","survey"]'
+assert "[] clears them" \
+  "$(curl -s -X PUT $B/api/notes/$TAGID -H "Authorization: Bearer $OP" -d '{"tags":[]}')" \
+  '"tags":[]'
+
+# a malformed tag is a 400 that NAMES the problem, never a silent drop
+assert "an empty tag is refused" \
+  "$(curl -s -X PUT $B/api/notes/$TAGID -H "Authorization: Bearer $OP" -d '{"tags":["ok",""]}')" \
+  'cannot be empty'
+assert "…and the previous set survives" \
+  "$(curl -s $B/api/notes/$TAGID -H "Authorization: Bearer $OP")" '"tags":[]'
+assert "too many tags is refused" \
+  "$(curl -s -X PUT $B/api/notes/$TAGID -H "Authorization: Bearer $OP" -d '{"tags":["a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u"]}')" \
+  'at most'
+
+# a tag on somebody's PRIVATE note is not a word a colleague learns (PATH-6)
+PRIV=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $BOB" \
+  -d '{"title":"bobs","visibility":"private","tags":["bobs-codename"]}')
+assert "bob tags his private note" "$PRIV" 'bobs-codename'
+assert "bob sees it in his list"   "$(curl -s $B/api/note-tags -H "Authorization: Bearer $BOB")" 'bobs-codename'
+refute "the operator's list does not carry it" \
+  "$(curl -s $B/api/note-tags -H "Authorization: Bearer $CAROL")" 'bobs-codename'
+
+# a tag dies with its note
+TMPN=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" -d '{"title":"doomed","tags":["ephemeral"]}')
+TMPID=$(printf '%s' "$TMPN" | grep -oP '"id":\s*"\K[^"]+')
+assert "the tag is there"   "$(curl -s $B/api/note-tags -H "Authorization: Bearer $OP")" 'ephemeral'
+curl -s -X DELETE $B/api/notes/$TMPID -H "Authorization: Bearer $OP" >/dev/null
+refute "…and gone with the note" "$(curl -s $B/api/note-tags -H "Authorization: Bearer $OP")" 'ephemeral'
+
+# autotag needs notes:write ON THAT NOTE, and it is asserted with a VIEWER — who
+# holds notes:read and not notes:write. A member holds both, so the same
+# assertion against $CAROL passes against a server that checks nothing at all.
+# HELP-7's lesson, which paid for exactly this with chat:use.
+assert "autotag refuses a viewer" \
+  "$(curl -s -X POST $B/api/notes/$TAGID/autotag -H "Authorization: Bearer $VERA" -d '{}')" \
+  'Forbidden: notes:write'
+# with no model configured it is a NAMED refusal rather than a silent no-op
+AT=$(curl -s -X POST $B/api/notes/$TAGID/autotag -H "Authorization: Bearer $OP" -d '{}')
+case "$AT" in
+  *'"added"'*) echo "  ok   autotag answered (a model is configured here)" ;;
+  *'no model configured'*) echo "  ok   autotag names the unset variable" ;;
+  *) echo "  FAIL autotag said something unexpected — got: $AT"; fail=1 ;;
+esac
+assert "an unknown note is 404" \
+  "$(curl -s -X POST $B/api/notes/no-such-note/autotag -H "Authorization: Bearer $OP" -d '{}')" 'not found'
+
 # ---- email delivery and notifications --------------------------------------------
 # THE BLOCK IS LAST, and this file's own notes are why: a fixture that changes
 # GLOBAL state breaks a distant block, and this one configures an INSTANCE-wide

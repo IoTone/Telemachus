@@ -5271,6 +5271,116 @@ And the request log's `REQUEST-OPERATIONS` is pinned as a whole list, so adding
 model request being a deliberate edit rather than a string that arrives and is
 never explained.
 
+## TAG — tags on a note (issue #245, built 2 Nov 2026)
+
+The ask is two sentences: *"we should be able to manually add tags. We should
+also be able to ask AI to auto-tag the notes based on the language of the
+notes."* It lands directly after #239 on purpose, because it is the SAME question
+about the other table — notes were the last ownable resource here with no
+structure at all, where a document has a key, versions, LAY‑4 attributes and a
+derived folder list.
+
+**TAG‑1 — A TAG IS A ROW BINDING A WORD TO A NOTE, AND THE TEAM'S TAG LIST IS
+DERIVED.** There is no table saying which tags exist. The list is
+`SELECT DISTINCT` over the tags in use, which is PATH‑1 decided again and the
+rule `available` locales already live by: a tag cannot be empty, and it stops
+existing when its last note drops it. The alternative — a `tags` table a team
+curates, with a tag that exists before anything carries it — buys renaming and
+a description, and cannot be un-invented. A prefix could later gain a row and so
+can this.
+
+**TAG‑2 — A JOIN TABLE, NOT A DELIMITED COLUMN.** The feed queue's `,racket,ops,`
+with a `LIKE` (QUEUE‑6) is the other precedent in this tree and it earned that
+shape by needing to order and compare on the row's own columns. The two
+operations #245 implies are "list this team's tags" and "filter notes by tag". A
+delimited column answers the first with a full scan plus a split in Racket, and
+the second with `LIKE '%,x,%'` — a LEADING wildcard, which **PERF‑5 measured as
+unable to use its index at all** (it is why a key search costs as much as a
+content search at 20,000 rows). `team_id` is denormalized onto the row so both
+are one indexed read, the move `audit_log.org_id` makes for the same reason.
+
+**TAG‑3 — THE TAG IS NORMALIZED, AND THE NORMALIZED FORM IS WHAT IS STORED.**
+LAY‑4's `field-key?` is the other vocabulary here and it is the wrong one:
+`^[a-z][a-z0-9_]{0,39}$` cannot express a Japanese tag, and this console ships
+`ja`. The right precedent is the knowledge graph's dedup rule — downcase,
+collapse whitespace — minus its company-suffix list, which is about organizations
+rather than words in general. It is stored normalized rather than folded at read
+time because a tag is a FILTER KEY and not prose: CLS‑15's lesson at a third
+asker, where "Invoice", "invoices" and a trailing space are each one keystroke
+from a label no filter will ever match. Case is the whole of what is lost, and no
+language this console ships carries meaning in a tag's case. A control character
+is REFUSED rather than stripped, because stripping silently stores a different
+tag from the one somebody asked for.
+
+**TAG‑4 — ONE WRITE PATH.** Create, update and the AI tool all go through
+`tags-clean` and `notes-set-tags!`. Two copies of a normalization rule is
+`executor-can-run?`'s drift in the one place where the drift IS the failure the
+normalization exists to prevent: two spellings of one tag. A tag that cannot be
+cleaned is refused BY NAME — a tag silently dropped is a filter that silently
+never matches, which is the hardest thing on this surface to diagnose.
+
+**TAG‑5 — `?tag=` IS REPEATABLE AND APPLIED AFTER THE PER-ROW `can?`.** LAY‑4's
+`?attr=` rule exactly: it reads through `query-params` (plural), because
+`query-param` answers with the FIRST value — right for a scalar and wrong for a
+filter meant to stack — and a filter may only narrow what the caller was already
+allowed to see, never widen it. Several tags are an AND.
+
+**TAG‑6 — THE DERIVED LIST IS DERIVED FROM THE NOTES THE CALLER CAN READ, and
+that is PATH‑6 at a second asker.** `repo-count` deliberately does not apply
+`can?` because a count is a count; a folder NAME is somebody's words. A tag is
+somebody's words too, so a tag living only on a colleague's private note must not
+appear in your list — one readable note settles a tag, exactly as one readable
+object settles a folder, and it costs nothing extra because the listing is
+already bounded by the team and already authorized per row. The count is
+therefore "notes you can see with this tag", which is the honest number for the
+thing a reader is about to click. The same rule governs what the MODEL is shown:
+a proposal must not be steered by a word that exists only on somebody's private
+note.
+
+**TAG‑7 — A PROPOSAL ADDS; IT NEVER REPLACES WHAT SOMEBODY TYPED.** The model is
+held to the same `tags-clean` a person is held to, and a tag it invents that
+cannot be cleaned is DROPPED and REPORTED rather than failing the call — the
+other four may be perfectly good, and a tag that vanishes silently is
+indistinguishable from a model that said nothing. The reply's schema requires an
+ARRAY and says nothing about its ITEMS, which a test established: with
+`items: {type: string}` one number makes the WHOLE reply invalid, so four good
+tags are thrown away for the fifth and the per-item check that exists to drop
+exactly that element becomes unreachable. The schema is OPEN (JUDGE‑6's call), so
+a model that helpfully adds `"reasoning"` does not lose its tags. The team's
+existing tags are put in the prompt because that is the one thing that stops an
+open vocabulary drifting into forty spellings of one idea.
+
+**TAG‑8 — THE WRITE PERMISSION IS CHECKED BEFORE THE MODEL IS CALLED, and the
+HTTP smoke is what found it.** The call sits between a read and a write, so the
+first version let a caller who may READ a note and not write it spend a model
+request and the team's budget, and then refused them — with a refusal about the
+model rather than about their permission. It is asserted with a VIEWER: a member
+holds both permissions, so the same assertion against one passes against a server
+that checks nothing at all, which is HELP‑7's lesson with `chat:use`.
+
+**TAG‑9 — SYNCHRONOUS, AND HELP‑23 IS THE REASONING.** One note is ONE model
+call, so the wire is not a job and seconds fit any request budget. What would
+force a job is a page of notes. "No model configured" is raised as
+`exn:fail:misconfigured`, which is right where it comes from — WF‑14 makes a
+fan-out fail on its first child for it rather than reporting it once per note —
+and wrong on a synchronous endpoint, where #123 answers anything that is not a
+user error as `{"error":"internal error"}`. An operator one variable away from a
+working feature must not be told that, so the endpoint translates it to a 400
+naming the variable, and nothing else does.
+
+**TAG‑10 — A TAG DIES WITH ITS NOTE.** Rows naming a note that no longer exists
+would keep a word in the team's derived list for ever, which is the one way that
+list could lie about what is there.
+
+**NOT BUILT, by #87's own slicing.** A BACKFILL over a team's notes is a
+`map` workflow and is its own slice, exactly as #87 made the classifier (CLS‑1)
+and the classification backfill (CLS‑24) two: CLS‑24's argument applies
+unchanged — a `batch: true` flag on the tool would be one call doing unbounded
+work, with no per-note retry, no cancel granularity, no quota admission between
+notes, and a result that is a list of N outcomes nothing can route on. Tags do
+not reach SEARCH yet either; `?tag=` is the filter, and a tag as a search
+dimension is a decision about `search-all`'s window rather than about tags.
+
 ## HELP‑15 — a chunk the embedder cannot place (issue #183, found by #189's calibration)
 
 `help-replace-doc!` refuses a vector with no direction, and that is right:

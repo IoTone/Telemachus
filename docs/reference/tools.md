@@ -28,6 +28,7 @@ Every tool a workflow step may use, from `define-tool` declarations and plugin r
 | `kg_list_unextracted` | — | `files:read` | built-in | List repository documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the index-knowledge workflow again to continue. |
 | `kg_query` | yes | `files:read` | built-in | What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too. |
 | `list_notes` | yes | `notes:read` | built-in | List the current user's notes (title and visibility). |
+| `note_autotag` | yes | `notes:write` | built-in | Suggest topic tags for a note and add them to it, in the note's own language. |
 | `repo_embed_chunks` | — | `files:write` | built-in | Chunk one repository document's extracted text and store an embedding per chunk, replacing any previous set for that version. |
 | `repo_extract_text` | — | `files:write` | built-in | Extract the text of one repository document into the search index. |
 | `repo_list_unembedded` | — | `files:read` | built-in | List repository documents whose extracted text has no chunk embeddings yet for the current version, or whose embeddings are from a different model. Returns object ids, capped at a batch; run the workflow again to continue. |
@@ -329,6 +330,16 @@ Permission: `notes:read` · source: built-in
 
 No parameters.
 
+
+## `note_autotag`
+
+Suggest topic tags for a note and add them to it, in the note's own language.
+
+Permission: `notes:write` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The note id |
 
 ## `repo_embed_chunks`
 

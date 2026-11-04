@@ -1204,6 +1204,58 @@
       "text": "ここに保存されています。ドキュメントのパスは変わりません — バージョン、共有、リンクはすべてこのパスを指しています。",
       "hash": "f6da9bd3a226b2ef7f0fea304ab72152c9202d16"
     },
+    "ui.tags": {
+      "text": "タグ",
+      "hash": "848eed0fbd5429f556b2982dec3ea87136e33e44"
+    },
+    "ui.tagsph": {
+      "text": "調査, 堤防7",
+      "hash": "00367c4bc07f9b7e7b5329339baf5276d02665a1"
+    },
+    "ui.tagshint": {
+      "text": "カンマ区切り。タグは小文字化され前後の空白が取り除かれるため、Invoice と invoice は同じタグになります。",
+      "hash": "8c131f7947f39b7150f392a979d75da1682d25ed"
+    },
+    "ui.tagclear": {
+      "text": "フィルタを解除",
+      "hash": "b667d6f9f635decfb59140eb7361aedc90b3b761"
+    },
+    "ui.autotag": {
+      "text": "自動タグ付け",
+      "hash": "638fca57745c2779ad7b83dd16cdd5f89c33e561"
+    },
+    "ui.autotaghint": {
+      "text": "このノートのタグをモデルに提案させます。ノートと同じ言語で付けられ、既存のタグはそのまま残ります。",
+      "hash": "e5fde190322b8f1f6df1fd21eeadc670592c9f67"
+    },
+    "ui.autotagging": {
+      "text": "タグ付け中…",
+      "hash": "284000b9b07813f298e071e10c47446321e3b6cd"
+    },
+    "ui.autotagged": {
+      "text": "追加しました",
+      "hash": "b68734c259106d131c65a8db8af829cf4fc02fda"
+    },
+    "ui.autotagnone": {
+      "text": "使用できるタグは提案されませんでした",
+      "hash": "c99696af9c0d77e193a90bb9243e91f216ef7818"
+    },
+    "doc.route.get.api.note-tags": {
+      "text": "チームで使用されているすべてのタグと、呼び出し元が読めるノートのうちそのタグを持つ件数。この一覧はそれらのノートのタグから導出されます (#245) — どのタグが存在するかは保存しないため、タグが空になることはなく、最後のノートから外れた時点で存在しなくなります。?scope=org は会社全体を対象にします。",
+      "hash": "817ffb030f3e977d770be6c9ecc79cc98bbe599c"
+    },
+    "doc.route.post.api.notes.id.autotag": {
+      "text": "1 つのノートについてモデルにトピックタグを求め、ノート自身の言語でそれを追加します (#245)。既存のタグが削除されることはありません。`added` と、それとは別に `dropped` — モデルが提案したが使用できないタグ — を返します。モデル呼び出しは 1 回で、チームに対して計測されます。",
+      "hash": "4fdba15fb65ba6f6a0dc38b9e09889d32beee682"
+    },
+    "doc.tool.note_autotag": {
+      "text": "ノートにトピックタグを提案し、ノート自身の言語で追加します。",
+      "hash": "bce9a4bb396175ce259b463fd3577e47aca26a2f"
+    },
+    "doc.tool.note_autotag.id": {
+      "text": "ノート ID",
+      "hash": "fd02a584451d28a275838f32365a74f1b2293116"
+    },
     "ui.norepoobjects": {
       "text": "まだドキュメントがありません。形式は自由です — pdf、svg、png、docx、xml、md。",
       "hash": "6c1514aa0c3412fd0da417d7da4fd4fb43d11682"

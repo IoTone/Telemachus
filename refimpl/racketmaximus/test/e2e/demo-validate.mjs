@@ -196,6 +196,61 @@ try {
   ok('note appears in the list',
     await until(page, () => document.body.innerText.includes('Validator note')));
 
+  // ── 3b. tags on a note (#245) ───────────────────────────────────────────────
+  // The UI wiring, not the rules: the rules are in note-tags-tests.rkt and the
+  // HTTP shape is in server-smoke. What only a browser can say is that the field
+  // is read, the chips are drawn, and the filter strip actually narrows the list.
+  step('notes: tags');
+  await goTab(page, 'notes', '#ntags');
+  await page.fill('#nt', 'Levee 7 survey');
+  await page.fill('#nb', 'due in March');
+  // typed with mixed case and loose spacing, which the SERVER normalizes — the
+  // console deliberately does not, or there would be two vocabularies
+  await page.fill('#ntags', 'Survey,   LEVEE 7 ');
+  await page.evaluate(() => window.doCreateNote());
+  ok('the note arrives with normalized tags',
+    await until(page, () => document.body.innerText.includes('Levee 7 survey')));
+  ok('…and its tags are drawn as chips',
+    await page.evaluate(() => {
+      const n = [...document.querySelectorAll('.note')]
+        .find(d => d.innerText.includes('Levee 7 survey'));
+      return !!n && n.innerText.includes('levee 7') && n.innerText.includes('survey');
+    }));
+  ok('…lower-cased and collapsed by the server, not by the console',
+    await page.evaluate(() => !document.body.innerText.includes('LEVEE 7')));
+
+  // a second note so the filter has something to exclude
+  await page.fill('#nt', 'Budget review');
+  await page.fill('#nb', 'q3');
+  await page.fill('#ntags', 'budget');
+  await page.evaluate(() => window.doCreateNote());
+  ok('the second note is listed too',
+    await until(page, () => document.body.innerText.includes('Budget review')));
+
+  // the strip is the SERVER's derived list; clicking a chip narrows the page
+  ok('the derived tag strip is drawn',
+    await page.evaluate(() => document.body.innerText.includes('Clear filter')
+                              || !!document.querySelector('.card button.btn.sm')));
+  await page.evaluate(() => window.noteTagToggle('budget'));
+  ok('a tag chip narrows the list',
+    await until(page, () => document.body.innerText.includes('Budget review')
+                         && !document.body.innerText.includes('Levee 7 survey')));
+  ok('…and S.noteTags carries it',
+    await page.evaluate(() => (S.noteTags || []).join(',') === 'budget'));
+  // two chips are an AND, which is what a repeated ?tag= means server-side
+  await page.evaluate(() => window.noteTagToggle('survey'));
+  ok('two tags are an AND, so nothing matches both',
+    await until(page, () => !document.body.innerText.includes('Budget review')
+                         && !document.body.innerText.includes('Levee 7 survey')));
+  await page.evaluate(() => window.noteTagClear());
+  ok('clearing the filter brings both back',
+    await until(page, () => document.body.innerText.includes('Budget review')
+                         && document.body.innerText.includes('Levee 7 survey')));
+  // RESET, or the two tabs stand in a filter and every later assertion that
+  // looks for a note is filtered out — #239's e2e block paid for exactly this
+  ok('the filter is reset for the blocks below',
+    await page.evaluate(() => (S.noteTags || []).length === 0));
+
   // ── 3c. the editor, and the Markdown preview as a sanitiser (issue #180) ────
   // A SOURCE assertion cannot establish that mdRender escapes; this runs the
   // real function on the real page. Every case here is an input somebody would

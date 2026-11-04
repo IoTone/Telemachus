@@ -1268,3 +1268,70 @@
                 (format "t('~a') is asked for" k))
     (check-true (and (regexp-match? (regexp (string-append "\"ui\\." k "\"")) en) #t)
                 (format "ui.~a is in static/ui-strings.json" k))))
+
+;; ---- tags on a note (#245) --------------------------------------------------------
+(test-case "the tag filter is the SERVER's derived list, not the notes on the page"
+  ;; #239's folder strip, for #239's reason: the page is already narrowed by the
+  ;; filter, so a strip built from it loses every tag the filter excludes — and a
+  ;; filter you cannot widen again is worse than no filter.
+  (define src (console-code "03-tabs.js"))
+  (check-true (and (regexp-match? #rx"/api/note-tags" src) #t) "it asks the derived route")
+  (check-true (and (regexp-match? #px"function tagFilterStrip\\(tags\\)" src) #t))
+  ;; the chips come from the argument, never from `notes`
+  (check-false (and (regexp-match? #px"tagFilterStrip\\(notes" src) #t))
+  ;; and the two independent reads share a round — the sign-in slice measured a
+  ;; sequential await as 300ms a call
+  (check-true (and (regexp-match? #px"Promise\\.all\\(\\[" src) #t)))
+
+(test-case "the tags field is typed and split in the console, and normalized by the server"
+  (define src (console-code "03-tabs.js"))
+  (check-true (and (regexp-match? #px"function readTags\\(\\)" src) #t))
+  (check-true (and (regexp-match? #rx"split\\(','\\)" src) #t) "comma separated")
+  ;; the console must NOT decide what a tag may be, or there are two vocabularies
+  ;; and the one a person sees is the wrong one
+  (check-false (and (regexp-match? #rx"toLowerCase" src) #t)
+               "lower-casing is the server's rule, in one place")
+  ;; both forms send them, and both read the same id
+  (check-equal? (length (regexp-match* #px"tags:readTags\\(\\)" src)) 2
+                "the create form and the edit form")
+  (check-true (and (regexp-match? #rx"id=\"ntags\"" src) #t)))
+
+(test-case "auto-tag is ONE send, with a visible pending state"
+  ;; #174's shape: the flag IS the guard and the pending state, nothing awaits
+  ;; between the check and the set, and it is cleared in a `finally` or one
+  ;; network error leaves the button dead for the rest of the session. A model
+  ;; call against the team's budget is exactly what a double click must not fire.
+  (define src (console-code "03-tabs.js"))
+  ;; the region is taken by POSITION rather than by a multiline pattern: `\n` in
+  ;; a Racket string literal reaches `pregexp` as backslash-then-n, which is
+  ;; illegal at READ time, and `.` does not cross a newline without (?s:) — two
+  ;; traps this tree has paid for. A substring needs neither.
+  (define at (caar (regexp-match-positions #px"async function doAutoTag" src)))
+  (define fn (substring src at (min (string-length src) (+ at 1200))))
+  (check-true (and (regexp-match? #px"if\\(S\\.autoTagging\\) return;" fn) #t) "the guard")
+  (check-true (and (regexp-match? #px"S\\.autoTagging = id;" fn) #t) "…is also the pending state")
+  (check-true (and (regexp-match? #rx"finally" fn) #t) "cleared whatever happens")
+  ;; no await between the check and the set, or two activations in one tick both pass
+  (check-true (and (regexp-match? #px"if\\(S\\.autoTagging\\) return;\\s*S\\.autoTagging = id;" fn) #t)
+              "nothing awaits between the check and the set")
+  ;; and the pending state is actually RENDERED, or the flag is only a guard
+  (check-true (and (regexp-match? #px"S\\.autoTagging===n\\.id" src) #t))
+  (check-true (and (regexp-match? #rx"autotagging" src) #t)))
+
+(test-case "every tag string the notes tab shows is in the catalogs, both ways"
+  ;; the lesson `doSearch` paid for: one direction cannot catch a literal typed
+  ;; in place, because replacing t('tags') with 'Tags' removes the key from the
+  ;; scan and the case passes.
+  (define src (file->string (build-path console-dir "03-tabs.js")))
+  (define keys
+    (remove-duplicates
+     (map cadr (regexp-match* #px"\\bt\\('(tags[a-z]*|tagclear|autotag[a-z]*)'\\)" src #:match-select values))))
+  (check-true (>= (length keys) 9) "all nine of them come from the catalog")
+  (define en (file->string (build-path console-dir "../ui-strings.json")))
+  (for ([k (in-list keys)])
+    (check-true (and (regexp-match? (regexp (string-append "\"ui\\." (regexp-quote k) "\"")) en) #t)
+                (format "ui.~a is missing from static/ui-strings.json" k)))
+  (define shipped
+    (map cadr (regexp-match* #px"\"ui[.](tags[a-z]*|tagclear|autotag[a-z]*)\"" en #:match-select values)))
+  (check-equal? (remove* keys shipped) '()
+                "a ui.tag*/ui.autotag* string nothing asks for means a label was typed in place"))

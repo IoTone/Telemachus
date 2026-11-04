@@ -7955,6 +7955,85 @@ bash test/e2e/validate.sh                                            # §5c — 
 - `file-name-from-path` is `racket/path`, not `racket/base` — `directory-list`
   already answers relative paths, so it was not needed at all.
 
+## Tags on a note (TAG‑1…10, issue #245)
+
+Built 2 Nov 2026. Migration `0068-note-tags`; the tag rules and the one write
+path in `domain/notes/notes.rkt`; `domain/notes/note-tools.rkt` for the model
+half; `?tag=` on `GET /api/notes`, `GET /api/note-tags`, and
+`POST /api/notes/:id/autotag`. **No new permission** — tags are part of a note,
+so `notes:read`/`notes:write` already govern them. Decisions TAG‑1…10 in
+`docs/design/decisions.md`.
+
+```sh
+raco test test/note-tags-tests.rkt                              # 20 cases
+DATABASE_URL="postgres://…" raco test test/note-tags-tests.rkt  # the whole file, both dialects
+bash test/server-smoke.sh                                       # the "#245" block, 21 assertions
+bash test/e2e/validate.sh                                       # §3b — the tag UI in a browser
+```
+
+- **IT IS #239's QUESTION ABOUT THE OTHER TABLE, so it is answered the same way**
+  (TAG‑1): a tag is a ROW binding a word to a note, and the team's tag list is
+  DERIVED (`SELECT DISTINCT`) rather than stored. A tag cannot be empty and stops
+  existing when its last note drops it. A curated `tags` table buys renaming and
+  a description and cannot be un-invented; a prefix could later gain a row and so
+  can this.
+- **A JOIN TABLE, AND PERF‑5 IS WHY** (TAG‑2). The feed queue's `,racket,ops,`
+  with a `LIKE` (QUEUE‑6) is the other precedent and it earned that shape by
+  needing to order on its own columns. Here the operations are "list this team's
+  tags" and "filter by tag", and the delimited column answers the second with
+  `LIKE '%,x,%'` — a LEADING wildcard, which PERF‑5 MEASURED as unable to use its
+  index at all.
+- **NOT LAY‑4's `field-key?`** (TAG‑3): `^[a-z][a-z0-9_]{0,39}$` cannot express a
+  Japanese tag and this console ships `ja`. The rule is the knowledge graph's
+  dedup — downcase, collapse whitespace — minus its company-suffix list. Stored
+  normalized, because a tag is a FILTER KEY and not prose (CLS‑15 at a third
+  asker). A control character is REFUSED, never stripped: stripping stores a
+  different tag from the one somebody asked for.
+- **`?tag=` READS THROUGH `query-params`, PLURAL** (TAG‑5) — `query-param`
+  answers the FIRST value, which is right for a scalar and wrong for a filter
+  meant to stack. LAY‑4's `?attr=` paid for that distinction already. Applied
+  AFTER the per-row `can?`, so a filter can only narrow.
+- **THE DERIVED LIST APPLIES `can?` WHERE `repo-count` DELIBERATELY DOES NOT**
+  (TAG‑6, PATH‑6 at a second asker): a count is a count, but a tag is somebody's
+  words, so a tag living only on a colleague's private note must not appear in
+  your list. One readable note settles a tag. The same rule governs what the
+  MODEL is shown.
+- **THE WRITE PERMISSION IS CHECKED BEFORE THE MODEL IS CALLED, and the HTTP
+  smoke found it** (TAG‑8). The call sits between a read and a write, so the
+  first version let a viewer spend a model request and the team's budget and then
+  refused them — with a message about the model rather than about their
+  permission. **Asserted with a VIEWER**: a member holds both permissions, so the
+  same assertion against one passes against a server that checks nothing, which
+  is HELP‑7's lesson with `chat:use`.
+- **A PROPOSAL ADDS AND IS HELD TO THE SAME RULES A PERSON'S TAGS ARE** (TAG‑7).
+  **The reply's schema requires an ARRAY and says nothing about its ITEMS, and a
+  test established that**: with `items: {type: string}` one number makes the whole
+  reply invalid, four good tags are thrown away for the fifth, and the per-item
+  check that exists to drop exactly that element is unreachable dead code. The
+  schema is OPEN (JUDGE‑6), so a model that adds `"reasoning"` keeps its tags.
+- **`exn:fail:misconfigured` IS A 500 UNDER #123, SO THE ENDPOINT TRANSLATES IT.**
+  "No model configured" is raised that way for WF‑14's reason — a fan-out must
+  fail on its FIRST child rather than report it once per note — and on a
+  synchronous endpoint #123 answers `{"error":"internal error"}`. An operator one
+  variable away from a working feature must not be told that. Translated in
+  `ep-notes-autotag` and nowhere else.
+- **`note-autotag!` ANSWERS THREE VALUES ALWAYS**, `(values #f '() '())` for a
+  note that is not there. A bare `#f` for the miss and three values otherwise is
+  a result arity mismatch at every destructuring call site — the trap this file
+  records five times, and the HTTP smoke caught it as a 500 on all three autotag
+  assertions.
+- **THE DOCS CLI NEEDED THE TOOL MODULE BY HAND**, the `repo_retrieve` trap
+  again: `note_autotag` is registered by `note-tools.rkt`, which the SERVER
+  instantiates through `server/api/content.rkt` and no plugin owns, so without a
+  line in `cli/telemachus-docs.rkt` it is live on every instance and absent from
+  `tools.md` with the drift gate green.
+- **A `pregexp` in a console test takes a REAL newline, not `\n`**, and `.` does
+  not cross one without `(?s:)`. A region taken by POSITION (`regexp-match-positions`
+  plus `substring`) needs neither — third appearance of that escape trap.
+- **Not built, by #87's own slicing**: a BACKFILL over a team's notes is a `map`
+  workflow and its own slice, exactly as CLS‑1 and CLS‑24 were two. Tags do not
+  reach `search-all` either.
+
 ## A workflow tool is not a conversational tool (`#:agent?`, reported from outside)
 
 The agent is offered the tools the team has ENABLED that fit the window, and for

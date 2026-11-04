@@ -127,10 +127,21 @@ function artifactCard(a){
       ${a.summary?`<div class="muted" style="font-size:12px">${esc(a.summary)}</div>`:''}</div>
     <div style="flex:none">${open}</div></div>`;
 }
+// #245: the tag list and the notes go out TOGETHER. They are independent reads
+// and the sign-in slice measured a sequential await as 300ms a call, so the two
+// that do not depend on each other share a round.
 async function notesView(){
-  const r=await api('/api/notes'); const notes=r.ok?r.json.notes:[];
-  const mem=await api('/api/members'); const members=mem.ok?mem.json.members:[];
+  const q = (S.noteTags||[]).map(x=>'tag='+encodeURIComponent(x)).join('&');
+  const [r, tg, mem] = await Promise.all([
+    api('/api/notes'+(q?'?'+q:'')),
+    api('/api/note-tags'),
+    api('/api/members')
+  ]);
+  const notes=r.ok?r.json.notes:[];
+  const allTags=tg.ok?tg.json.tags:[];
+  const members=mem.ok?mem.json.members:[];
   const opts=members.map(m=>`<option value="${m.user_id}">${esc(m.username)}</option>`).join('');
+  const filter = tagFilterStrip(allTags);
   // #180: there was no way to EDIT a note. `PUT /api/notes/:id` has existed
   // since the routes were written and the console called it nowhere — #113's
   // shape on this side of the wire. An editor for a field you can only fill in
@@ -146,11 +157,15 @@ async function notesView(){
   const list=notes.map(n=>`<div class="note">
       <h4>${esc(n.title)||'(untitled)'} <span class="badge">${esc(n.visibility)}</span> ${n.owner_user_id===S.me.user_id?'<span class="badge ok">mine</span>':''}</h4>
       <div class="md">${mdRender(n.body)}</div>
+      ${noteTagChips(n)}
       <div class="row" style="margin-top:8px">
         <div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteShow((n.id)))}">${t('view')}</button></div>
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility)))}">${t('edit')}</button></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags)))}">${t('edit')}</button></div>
+        <div><button class="btn sm ghost"${S.autoTagging===n.id?' disabled':''}
+          data-h-click="${H((el,ev)=>doAutoTag((n.id)))}"
+          title="${esc(t('autotaghint'))}">${S.autoTagging===n.id?esc(t('autotagging')):t('autotag')}</button></div>
         <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${t('del')}</button></div>
       </div></div>`).join('') || `<p class="muted">—</p>`;
   const card = viewing
@@ -159,6 +174,8 @@ async function notesView(){
     ? `<div class="card"><h3>${t('editnote')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
       <label>${t('title')}</label><input id="nt" value="${esc(editing.title||'')}">
       <label>${t('body')}</label>${editorHTML('note', {id:'nb'})}
+      <label>${t('tags')}</label><input id="ntags" value="${esc((editing.tags||[]).join(', '))}" placeholder="${esc(t('tagsph'))}">
+      <div class="muted" style="font-size:12px;margin:-6px 0 8px">${esc(t('tagshint'))}</div>
       <label>${t('visibility')}</label><select id="nv">${
         ['team','private','shared'].map(x=>`<option${x===editing.visibility?' selected':''}>${x}</option>`).join('')}</select>
       <button class="btn" data-h-click="${H((el,ev)=>doSaveNote())}">${t('save')}</button>
@@ -167,10 +184,49 @@ async function notesView(){
     : `<div class="card"><h3>${t('newnote')}</h3>
       <label>${t('title')}</label><input id="nt" value="Secret plan">
       <label>${t('body')}</label>${editorHTML('note', {id:'nb', value:'only for me'})}
+      <label>${t('tags')}</label><input id="ntags" value="" placeholder="${esc(t('tagsph'))}">
+      <div class="muted" style="font-size:12px;margin:-6px 0 8px">${esc(t('tagshint'))}</div>
       <label>${t('visibility')}</label><select id="nv"><option>team</option><option>private</option><option>shared</option></select>
       <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${t('create')}</button>
       ${noteTools('note','nt')}</div>`;
-  return `<h2>${t('notes')}</h2>${card}${list}`;
+  return `<h2>${t('notes')}</h2>${card}${filter}${list}`;
+}
+
+// The tag list the server DERIVED, as a filter. Each chip toggles; several chips
+// are an AND, which is what the server does with a repeated `?tag=`. It is drawn
+// from `GET /api/note-tags` and never from the notes on the page, for the reason
+// #239's folder strip is: the page is already narrowed by the filter, so a strip
+// built from it would lose every tag the current filter excludes — and a filter
+// you cannot widen again is worse than no filter.
+function tagFilterStrip(tags){
+  const on = S.noteTags||[];
+  if(!tags.length && !on.length) return '';
+  const chip = x => `<button class="btn sm ${on.indexOf(x.tag)>=0?'':'ghost'}"
+      data-h-click="${H(()=>noteTagToggle(x.tag))}">${esc(x.tag)} <span class="muted">${x.notes}</span></button>`;
+  const clear = on.length
+    ? `<button class="btn sm ghost" data-h-click="${H(()=>noteTagClear())}">${t('tagclear')}</button>` : '';
+  return `<div class="card" style="padding:10px 14px"><div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+    <span class="muted" style="font-size:12px;margin-right:4px">${esc(t('tags'))}</span>
+    ${tags.map(chip).join('')}${clear}</div></div>`;
+}
+function noteTagChips(n){
+  const ts = n.tags||[];
+  if(!ts.length) return '';
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${
+    ts.map(x=>`<span class="badge">${esc(x)}</span>`).join('')}</div>`;
+}
+function noteTagToggle(tag){
+  const on = (S.noteTags||[]).slice();
+  const i = on.indexOf(tag);
+  if(i>=0) on.splice(i,1); else on.push(tag);
+  S.noteTags = on; renderTab();
+}
+function noteTagClear(){ S.noteTags=[]; renderTab(); }
+// A tags field is typed, so it is split on commas HERE and normalized by the
+// server — the console never decides what a tag may be, or there would be two
+// vocabularies and the one a person sees would be the wrong one.
+function readTags(){
+  return val('ntags').split(',').map(x=>x.trim()).filter(x=>x.length);
 }
 // Export and "save to the repository" are the issue's fourth ask and they are
 // the same two buttons on both surfaces, so they are composed once here rather
@@ -209,16 +265,37 @@ function noteViewCard(n){
 }
 function noteShow(id){ S.noteShow=id; S.noteEdit=null; edReset('note','', 'nb'); renderTab(); }
 function noteViewClose(){ S.noteShow=null; renderTab(); }
-function noteEdit(id, body, title, vis){ S.noteEdit=id; S.noteShow=null; edReset('note', body, 'nb'); renderTab(); }
+function noteEdit(id, body, title, vis, tags){ S.noteEdit=id; S.noteShow=null; edReset('note', body, 'nb'); renderTab(); }
 function noteEditCancel(){ S.noteEdit=null; edReset('note', '', 'nb'); renderTab(); }
 async function doSaveNote(){
   const r=await api('/api/notes/'+S.noteEdit,{method:'PUT',
-    body:{title:val('nt'), body:edRead('note'), visibility:val('nv')}});
+    body:{title:val('nt'), body:edRead('note'), visibility:val('nv'), tags:readTags()}});
   if(r.ok){ S.noteEdit=null; edReset('note','', 'nb'); toast(t('saved'),true); renderTab(); }
   else toast((r.json&&r.json.error)||'error');
 }
-async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',body:{title:val('nt'),body:edRead('note'),visibility:val('nv')}});
+async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',body:{title:val('nt'),body:edRead('note'),visibility:val('nv'),tags:readTags()}});
   if(r.ok){ edReset('note','', 'nb'); toast('created',true); renderTab(); } else toast(r.json.error||'error'); }
+// ONE send, #174's shape: the flag IS the guard and the pending state, there is
+// no `await` between the check and the set, and it is cleared in a `finally` or
+// one network error leaves the button dead for the rest of the session. A model
+// call against the team's budget is exactly what must not be fired twice by a
+// double click.
+async function doAutoTag(id){
+  if(S.autoTagging) return;
+  S.autoTagging = id;
+  renderTab();
+  try {
+    const r = await api('/api/notes/'+id+'/autotag', {method:'POST', body:{}});
+    if(!r.ok){ toast((r.json&&r.json.error)||'error'); return; }
+    const added = r.json.added||[], dropped = r.json.dropped||[];
+    // "it proposed nothing" and "it proposed things I could not use" are
+    // different answers and the toast says which
+    if(added.length) toast(t('autotagged')+' '+added.join(', '), true);
+    else if(dropped.length) toast(t('autotagnone')+' ('+dropped.length+')');
+    else toast(t('autotagnone'));
+    renderTab();
+  } finally { S.autoTagging = null; }
+}
 async function doShare(id){ const uid=document.getElementById('sh_'+id).value;
   const r=await api('/api/notes/'+id+'/share',{method:'POST',body:{user_id:uid,permission:'notes:read'}});
   toast(r.ok?'shared':(r.json.error||'error'), r.ok); }

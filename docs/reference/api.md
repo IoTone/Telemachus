@@ -120,7 +120,9 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/documents/:id` | bearer | `files:read` | resource | — | One text document with its body. |
 | PUT | `/api/documents/:id` | bearer | `files:write` | resource | — | Update a text document's title, body or visibility (a new version). |
 | DELETE | `/api/documents/:id` | bearer | `files:delete` | resource | — | Delete a text document. |
+| GET | `/api/note-tags` | bearer | `notes:read` | role | — | Every tag in use in the team, with how many notes the caller can read carry it. The list is DERIVED from the tags on those notes (#245) — nothing stores which tags exist, so a tag cannot be empty and stops existing when its last note drops it. ?scope=org spans the company. |
 | POST | `/api/notes/:id/share` | bearer | `notes:manage` | resource | — | Share a note with a user (owner, or notes:manage). The permission granted must be a notes:* one. |
+| POST | `/api/notes/:id/autotag` | bearer | `notes:write` | resource | — | Ask the model for topic tags for one note, in the note's own language, and ADD them to it (#245). Existing tags are never removed. Answers `added` and, separately, `dropped` — a tag the model proposed that is not a usable tag. One model call, metered against the team. |
 | GET | `/api/notes/:id` | bearer | `notes:read` | resource | — | One note. |
 | PUT | `/api/notes/:id` | bearer | `notes:write` | resource | — | Update a note. |
 | DELETE | `/api/notes/:id` | bearer | `notes:delete` | resource | — | Delete a note. |

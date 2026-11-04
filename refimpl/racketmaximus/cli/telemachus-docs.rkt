@@ -50,6 +50,13 @@
          ;; relying on a plugin being loaded, and the CLI skips symlinked plugins
          ;; deliberately.
          (only-in "../domain/repo/voice-tools.rkt")
+         ;; #245's one, same trap again: `note_autotag` is registered by
+         ;; `note-tools.rkt`, which the SERVER instantiates through
+         ;; server/api/content.rkt and no plugin owns at all — so without this
+         ;; line the tool is live on every instance and absent from tools.md,
+         ;; with the drift gate agreeing because the committed page was rendered
+         ;; in that state.
+         (only-in "../domain/notes/note-tools.rkt")
          "../domain/flow/run.rkt"
          "../domain/flow/spec.rkt"
          "../domain/authz/permissions.rkt"
