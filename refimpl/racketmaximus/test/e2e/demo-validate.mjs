@@ -1468,6 +1468,56 @@ try {
   // put it back so nothing later in this run is racing a 12-minute window
   await apiCall(page, '/api/session-policy', { method: 'PUT', body: spBefore });
 
+  // ── admin + usage: email delivery and notifications (MAIL) ─────────────────
+  // `console-tests.rkt` proves the cards are wired, that a blank password box
+  // sends no field and that the confirmation token is stripped. Only a browser
+  // can say the cards RENDER under `script-src 'self'` — and the gate fails on
+  // any console error, which is how every other CSP claim in this console was
+  // established rather than argued.
+  step('admin: email delivery');
+  ok('the email transport card renders in Admin', await goTab(page, 'admin', '#mlcard'));
+  ok('…with the notification categories beside it', !!(await page.$('#mlncard')));
+  // ABSENCE MEANS OFF at the instance layer, which is the whole of MAIL-14 — so
+  // a fresh instance draws every category UNCHECKED. A card that arrived with
+  // them ticked would be one upgrade away from mailing everybody.
+  const mlBoxes = await page.locator('#mlncard input[type=checkbox][data-cat]').count();
+  ok('every category has a switch', mlBoxes === 4, String(mlBoxes));
+  const mlOn = await page.locator('#mlncard input[type=checkbox][data-cat]:checked').count();
+  ok('…and none is on until an operator names it', mlOn === 0, String(mlOn));
+  // The password box is EMPTY even when one is stored, and its placeholder says
+  // the stored one is kept: the field cannot show a credential, and a blank box
+  // that silently cleared it is the failure doMailSave's own guard prevents.
+  eq('the password box never shows a stored credential', await page.inputValue('#mlw'), '');
+
+  step('usage: a person\'s own notifications');
+  ok('the notification card renders on Usage', await goTab(page, 'usage', '#mlminecard'));
+  ok('…with an address field', !!(await page.$('#mlad')));
+  // A PERSON MAY NOT TURN ON WHAT THE INSTANCE HAS NOT ENABLED, so where the
+  // only outcome would be a refusal there is no button at all (FEAT-8's locked
+  // row). Nothing is enabled at the instance here, so every row is in that state.
+  const mlEnableBtns = await page.locator('#mlminecard tbody button').count();
+  ok('no button is offered where the only outcome is a refusal', mlEnableBtns === 0,
+     String(mlEnableBtns));
+
+  // A CONFIRMATION TOKEN IS TAKEN OUT OF THE ADDRESS BAR, and only a browser can
+  // say so: `/activate` already strips its own, for the reason a URL is pasted
+  // into chat, logged by proxies and kept in history. The token below is
+  // nonsense on purpose — what is asserted is that it does not SURVIVE in the
+  // URL, not that it verifies.
+  step('usage: a confirmation token does not stay in the URL');
+  await page.evaluate(() => {
+    history.replaceState(null, '', location.pathname + '?verify_email=tk_notarealtoken#/usage');
+  });
+  await page.evaluate(() => window.claimVerifyToken());
+  const urlAfter = await page.evaluate(() => location.href);
+  ok('the token is gone from the address bar', !urlAfter.includes('tk_notarealtoken'), urlAfter);
+  ok('…and the destination is kept', urlAfter.includes('#/usage'), urlAfter);
+  ok('…and it was stashed for the request', await page.evaluate(() => S.verifyEmail) === 'tk_notarealtoken');
+  // Put it back, so nothing later in this run is holding a token that will be
+  // spent on the next render pass — a fixture that changes global state restores
+  // it, which this gate has paid for once already.
+  await page.evaluate(() => { S.verifyEmail = null; });
+
   step('localize: the Localization Manager');
   await page.evaluate(() => window.go('localize'));
   await page.waitForTimeout(900);

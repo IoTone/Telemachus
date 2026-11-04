@@ -16,6 +16,9 @@
 ;; anchored at this FILE, never at `current-directory`, which is `test/`
 ;; when raco runs from there — the "anchor at definition, never at use" rule
 (define-runtime-path scheduler-rkt "../domain/sched/scheduler.rkt")
+;; the notification composer, whose console links this file gates against the
+;; router that has to parse them
+(define-runtime-path describe-rkt "../domain/events/describe.rkt")
 
 ;; A TEXT SCAN OVER THE CONSOLE READS ITS OWN COMMENTS, and that has now cost
 ;; four separate assertions in these notes. A check for a code construct must
@@ -260,9 +263,86 @@
   ;; "no results" in English. A new one must not go in beside them.
   (check-true (string-contains? save "t(allow?'featallowdone':'featoffdone')")
               "the toast comes from the catalogs, not a literal")
-  ;; and the read is not a fourth sequential round trip on the slowest tab
-  (check-true (string-contains? (or (fn-body "adminView") "") "api('/api/instance-features')]")
+  ;; and the read is not a fourth sequential round trip on the slowest tab.
+  ;;
+  ;; MATCHED INSIDE THE `Promise.all` ARGUMENT LIST rather than against
+  ;; `…features')]`, which is what this said first: the closing bracket pinned
+  ;; the read to being the LAST element, which is incidental to the property the
+  ;; message names, and the next slice to join that round (email) failed this
+  ;; case while doing exactly what it asks for.
+  (check-true (regexp-match? #px"(?s:Promise\\.all\\(\\[[^]]*/api/instance-features[^]]*\\]\\))"
+                             (or (fn-body "adminView") ""))
               "the read joins the Promise.all it does not depend on"))
+
+;; ---- email delivery and notifications --------------------------------------------
+(test-case "the console's notification links are routes the router really parses"
+  ;; `domain/events/describe.rkt` composes a notification's link from a grammar
+  ;; that lives HERE, in JavaScript (#230) — so a rename in the router would
+  ;; silently break every link in every message already sent, with nothing
+  ;; failing. #110 r6's `src`-tags rule applied to a link, and in BOTH
+  ;; directions: every path core emits must be one `applyRoute` can parse.
+  (define router (console-code "19-route.js"))
+  (define describe (file->string describe-rkt))
+  ;; the tab segments core links to
+  (for ([tab (in-list '("repository" "jobs" "reviews"))])
+    (check-true (string-contains? describe (string-append "#/" tab))
+                (format "describe.rkt no longer links to ~a" tab)))
+  ;; and the two deep links, whose shape the router decides
+  (check-true (string-contains? describe "#/workflows/runs/~a"))
+  (check-true (string-contains? router "seg[1] === 'runs'")
+              "the router still parses #/workflows/runs/<id>")
+  (check-true (string-contains? describe "#/repository/~a"))
+  (check-true (string-contains? router "tab === 'repository' && seg[1]")
+              "the router still parses #/repository/<id>"))
+
+(test-case "a confirmation token is taken out of the address bar"
+  ;; `/activate` already strips its own, for the reason a URL is pasted into
+  ;; chat, logged by proxies and kept in browser history. A confirmation token is
+  ;; the same kind of thing and the same rule applies.
+  (define body (or (fn-body "claimVerifyToken") ""))
+  (check-true (string-contains? body "verify_email"))
+  (check-true (string-contains? body "searchParams.delete")
+              "the token is removed from the URL, not merely read")
+  (check-true (string-contains? body "replaceState")
+              "and the bar is rewritten without adding a history entry")
+  ;; SPENT ONCE, whatever happens: a token that failed is not worth retrying on
+  ;; every render pass, and a bad token and an expired one are one answer anyway.
+  (define spend (or (fn-body "spendVerifyToken") ""))
+  ;; Written as two positions rather than one regexp: the pattern needs a literal
+  ;; `(` and a `(?s:` group at once, and getting that balance wrong is a
+  ;; `read-syntax` error at the top of the file rather than a failing case — which
+  ;; is what the first version of this was.
+  (define clear-at (let ([m (regexp-match-positions #px"S\\.verifyEmail = null" spend)])
+                     (and m (caar m))))
+  (define send-at (let ([m (regexp-match-positions #px"/api/email-address/verify" spend)])
+                    (and m (caar m))))
+  (check-true (and clear-at send-at (< clear-at send-at))
+              "the token is cleared BEFORE the request, so a failure is not retried"))
+
+(test-case "an absent password sends no field, so an edit cannot clear the credential"
+  ;; The failure this prevents is silent: saving a changed port would wipe the
+  ;; stored credential and the operator would find out from a dead letter.
+  (define body (or (fn-body "doMailSave") ""))
+  (check-true (regexp-match? #px"if\\(pw\\) body\\.password = pw" body)
+              "a blank box sends NO password field rather than an empty string"))
+
+(test-case "the instance category card sends the WHOLE document"
+  ;; FEAT-7's recorded trap: there is no per-category route at this tier, so a
+  ;; request carrying only the switch that moved would wipe the others silently
+  ;; and nothing would fail.
+  (define body (or (fn-body "doMailNotifySave") ""))
+  (check-true (string-contains? body "querySelectorAll")
+              "every checkbox is read, not just the one that changed")
+  (check-true (string-contains? body "'/api/email-notify'")))
+
+(test-case "the transport test reads the BODY, not the status code"
+  ;; `POST /api/email-transport/test` answers 200 even when the relay refused —
+  ;; the test ran, and whether the relay answered is in the body. A toast that
+  ;; said "sent" because the request succeeded is the exact confusion that
+  ;; endpoint's own shape exists to avoid.
+  (define body (or (fn-body "doMailTest") ""))
+  (check-true (string-contains? body "r.json.ok")
+              "the verdict is the body's `ok`, not `r.ok`"))
 
 (test-case "a team is not offered a switch a layer above has locked"
   ;; FEAT-1 is tighten-only: a team cannot turn on what the instance or its

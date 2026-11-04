@@ -52,7 +52,17 @@
         ;; schedule payload gives: a sealed column `rewrap` does not walk is
         ;; silently unrotatable, and an unopenable map is a redacted document that
         ;; can never be rehydrated again.
-        (list "repo_redactions"   "token_map"   "id" "repo_redactions.token_map")))
+        (list "repo_redactions"   "token_map"   "id" "repo_redactions.token_map")
+        ;; The instance's SMTP password. A replayable credential, so it is here
+        ;; rather than in CONTENT-SECRETS and `rewrap` rotates it unconditionally —
+        ;; and it is listed IN THE SAME COMMIT AS ITS `CREATE TABLE`, which is
+        ;; VEC-19's rule with a specific cost: a sealed column `rewrap` does not
+        ;; walk is silently unrotatable, so forgetting this line means every
+        ;; notification on the instance stops at the first key rotation while the
+        ;; transport still reports itself configured, and the message an operator
+        ;; would see is a relay's "authentication failed". Nullable — a relay that
+        ;; wants no credential has none — and `rows-of` filters NULLs out.
+        (list "email_transport"   "password"    "id" "email_transport.password")))
 
 ;; Document-derived CONTENT (issue #83), which is a different kind of thing and
 ;; is therefore conditional. The three above are replayable credentials: if a key

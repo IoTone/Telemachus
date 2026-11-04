@@ -2046,6 +2046,143 @@ bash test/server-smoke.sh                     # the "matrix:" block, 23 assertio
   baseline before believing anything. Third appearance of stale `.zo` in these
   notes, and the first where a harness caused it.
 
+## Email delivery and notifications (MAIL‑1…24)
+
+`domain/mail/{transport,mail,addresses}.rkt` + `domain/events/describe.rkt`;
+migration `0069-email`; `server/api/mail.rkt`; cards on Admin and Usage. Design:
+`docs/design/email-notifications.md`.
+
+```sh
+raco test test/mail-tests.rkt                              # 28 cases, 14 controls
+DATABASE_URL="postgres://…" raco test test/mail-tests.rkt  # the whole file, both dialects
+bash test/server-smoke.sh                                  # the "== email:" blocks, 48 assertions
+MOCK_SMTP_PORT=8928 MOCK_SMTP_OUT=/tmp/mail.txt racket test/mock-smtp.rkt
+```
+
+- **`users.email` HAD EXISTED SINCE MIGRATION 0001 AND NOTHING IN THE TREE HAD
+  EVER WRITTEN TO IT.** `create-user!` does not take an address,
+  `POST /api/profile` took `locale` and `timezone`, `POST /api/members` takes a
+  username, and `provision!` uses the address as the USERNAME. #113's shape, and
+  it is why the first slice was not the transport: a notifier keyed on that
+  column would have sent nothing to nobody for ever, and the only symptom would
+  have been silence. **It holds a VERIFIED address and nothing else now**
+  (PULL‑11e: a field a reader learns to distrust is worse than no field); a
+  pending one lives in `email_verifications` until it answers.
+- **`net/smtp` IS IN BASE RACKET** — `#:auth-user`, `#:auth-passwd`,
+  `#:port-no`, `#:tcp-connect` for implicit TLS, `#:tls-encode` for STARTTLS — so
+  the transport is **no new dependency and no change to the Nix closure**. Read
+  `net/smtp.rkt` before touching the mock: the client expects 220 → EHLO (a
+  multi-line 250 whose FIRST line it drops as flavour text, so an advertisement
+  placed first is invisible) → optional STARTTLS → optional AUTH PLAIN (235) →
+  MAIL FROM → RCPT TO → DATA (354) → a lone "." → 250 → QUIT (221).
+- **THE CREDENTIAL IS A SEALED CORE COLUMN AND IS IN `CREDENTIAL-SECRETS`.**
+  Matrix put its token in the environment (MTX‑3) because a plugin cannot own a
+  sealed column (FEED‑5); this is core and the requirement is that an ADMIN
+  configures it, so it is a row — no restart, no shell on the box. `#:credential`
+  rather than the content gate, which is ENC‑23's live defect. **Forgetting the
+  `CREDENTIAL-SECRETS` line means every notification stops for ever at the first
+  key rotation while the transport still reports itself configured.**
+- **A TEAM CONFIGURES NOTHING ABOUT THE TRANSPORT**, and there is no `team_id`
+  column to tempt anybody: a team-chosen SMTP host is an SSRF primitive and
+  `from_address` is the instance's own identity. **#142's egress gate is NOT on
+  this path and that is not an omission** — `smtp-send-message` opens its own
+  socket, and FEED‑4's rule is that the policy attaches to who CHOSE the address,
+  which here is the operator (the same trust as `TMACH_MODEL_URL`).
+- **THE INSTANCE LAYER IS AN OPT‑IN AND ABSENCE MEANS OFF**, which is the one
+  real divergence from `features.rkt`. There absence means ENABLED, because a
+  feature switch governs whether an endpoint ANSWERS; this governs whether the
+  instance SENDS MAIL TO PEOPLE and the behaviour that already existed is sending
+  none. `object.created` fires on every upload, so a features.rkt-shaped default
+  would mail every member once per document the first time anybody verified an
+  address — on an UPGRADE, to an operator who had configured nothing. A PERSON
+  may always turn a category off, including one every layer above allows, and
+  that choice survives the layer above being switched back on.
+- **A CATEGORY IS NOT AN EVENT NAME.** Four categories over seven events, closed
+  in both directions and asserted: `run.completed` and `run.failed` are one want,
+  so a surface built on event names would be seven checkboxes of which two matter
+  and would grow one every time the platform learned to emit something.
+- **IDS, A STATUS, THE WORKFLOW SLUG AND A LINK — NEVER CONTENT**, and the
+  SUBJECT goes through the same composer as the body so it cannot leak what the
+  body refuses. MTX‑8 binds harder here: an inbox leaves the instance altogether,
+  rests on a third party's server, is indexed by them and is forwarded onwards.
+- **THE LINK IS A CONSOLE PATH, AND IT IS A RULE DERIVED FROM JAVASCRIPT.** The
+  `url` in an `emit!` payload is an API path — right for a webhook receiver
+  (#85 r2: the receiver fetches the rest under its own credentials) and useless
+  to a person, who gets JSON. So `describe.rkt` composes `#/workflows/runs/<id>`
+  from #230's hash grammar, and **`test/console-tests.rkt` gates it in both
+  directions**: a rename in `19-route.js` would otherwise silently break every
+  link in every message already sent.
+- **CONFIRMING AN ADDRESS IS AUTHENTICATED** (MAIL‑19). The obvious shape is an
+  unauthenticated GET on a link and it is wrong twice: this platform has kept a
+  no-cookie JSON API precisely so no GET mutates anything (#27), and a token in a
+  URL is logged by proxies and kept in history — which is why `/activate` already
+  strips its own. The link opens the console with `?verify_email=`, the console
+  strips it from the address bar at once and POSTs it with the caller's bearer.
+  The token is in the SEARCH string and the destination in the fragment, because
+  the console cannot strip what is in the fragment without fighting #230's router.
+- **A 5xx IS A DEAD LETTER ON THE FIRST ATTEMPT; A 4xx RETRIES.** RFC 5321's own
+  split, read off the reply code, and it is the whole of the retry policy. The
+  relay's reply is KEPT (the most useful thing an operator has for a transport
+  that will not answer) and BOUNDED at 400 characters saying it was cut, because
+  many relays echo the message back inside a reply (FEED‑6, SEC‑8).
+- **TWO SETS OF DELIVERY ROUTES, NOT ONE WITH A `?scope=`, AND THE DISPATCHER IS
+  WHY.** #110 r2 has it pre-check the permission a role-scoped route DECLARES, so
+  one route declaring `webhooks:manage` is refused for a token scoped to
+  `instance:read` BEFORE the handler can read a query parameter — making the
+  operator's view unreachable for exactly the monitoring credential #124 split
+  that permission out for. **A human operator would never have noticed**, since
+  `can?` lets an operator past every team-tier permission, so the smoke asserts
+  it with a SCOPED token (HELP‑7's lesson, third place). **FLEET‑2a had already
+  decided this exact question in the decision table** — "its own route vs
+  `?scope=instance` on `GET /api/jobs`" — and this slice built the shape it
+  refuses and rediscovered why from the dispatcher. A decision table is only
+  consulted when somebody thinks to look.
+- **THE SWEEP IS FIVE SECONDS WHERE THE WEBHOOK SWEEP IS ONE.** A webhook's first
+  retry is a minute away so a slower sweep would make its backoff a lie; an email
+  is read minutes later, so a tick a second would spend connections on latency
+  nobody can perceive. Five bounds the delay on a confirmation message, which is
+  the one somebody is waiting for.
+
+**Five traps this slice paid again, all of them already in this file:**
+
+- **`ok`/`bad` DID NOT EXIST IN `server-smoke.sh`** — the FOURTH time after
+  `refute` and `differ`. Five assertions would have run as unknown commands,
+  printed to stderr, set nothing and left the suite reporting PASS with them
+  silently absent. **Grep for a helper's definition before using it.**
+- **A TEXT SCAN READ ITS OWN COMMENT, twice in one session.** A `python` assert
+  checking that no composed catalog key remained tripped on the comment three
+  lines above it explaining why composed keys are bad; and an assert for
+  `#:port 0` tripped on the prose describing it. Strip comment lines, or assert
+  over code.
+- **`(void (address-claim! …))` IS AN ARITY ERROR, NOT A DISCARD** — the seventh
+  appearance of that shape. `define-values`.
+- **A TEST HELPER DEFINED BELOW ITS FIRST USE** is "cannot reference an
+  identifier before its definition" at module instantiation. Third appearance.
+- **A CONTROL THAT DID NOT BITE FOUND A REAL DEFECT, AND FIVE DID NOT BITE.**
+  The per-recipient `can?` was calling `can?` with `#:resource-type`/
+  `#:resource-id`, keywords it does not take — so EVERY document notification was
+  refused for EVERYBODY and the fail-closed handler reported it as "nobody may
+  read this". RED‑17's logger box again: the swallow that protects the request
+  also hides a programming error, so it says so on stderr now. The other four
+  were a dead-code bound (`printable` truncated at 200, so a 400-character limit
+  was unreachable — #110 r1's redundant guard), a fixture too short to reach the
+  bound it was testing, a filter that was belt-and-braces exactly as its own
+  migration said, and a guard whose sibling asks the same question first.
+
+**Not built, deliberately**: bounce handling (it wants an inbound path and a
+suppression list, and one nothing populates is worse than none), an HTML body, a
+digest, a vendor HTTP API (SES/Postmark — a plugin's, and the notification API is
+what makes that possible), an unsubscribe link (it would need a GET that mutates
+a preference), a per-team preference, and **a quota dimension** — which is the
+one thing a plugin-facing `mail-notify!` should gain next, so a plugin in a loop
+meets a limit rather than the instance's mail reputation meeting it.
+
+**STATED RATHER THAN IMPLIED**: the STARTTLS and implicit-TLS branches are not
+exercised by any test. Both are the same `smtp-send-message` call with a
+different connector argument, and driving either end to end needs a certificate
+the mock would have to be given; `mock-smtp.rkt` has the hook
+(`mock-tls-encode`) and nothing calls it. The LibreOffice branch's rule.
+
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 
 Built 22 Oct 2026 — the configuration half of the external-feed work, on top of

@@ -3,6 +3,10 @@
     "locale": "en"
   },
   "messages": {
+    "ui.mlnotifyhint": {
+      "text": "Which categories this instance sends. A category nobody has named is OFF — this decides whether the instance mails people at all, so it is named rather than assumed. A person may turn one off for themselves; nobody below this may turn one on.",
+      "hash": "906ea6ec92723a88ad451c8a25536b61fea8389b"
+    },
     "doc.route.get.api.beta.challenge": {
       "text": "A proof-of-work challenge the funnel solves before signing up.",
       "hash": "0532400b4f879f7ff40b6c8e0cc827e3c16ed708"
@@ -30,6 +34,14 @@
     "ui.jobago": {
       "text": "{age} ago",
       "hash": "1ebef83b6f3881bed47f04d4eabef9ee2108c73d"
+    },
+    "doc.route.get.api.admin.email-deliveries": {
+      "text": "Every email delivery on the instance, newest first, including the two transactional messages — a confirmation and a transport test — which belong to no team. `?status=dead` is the dead-letter list an operator watches. `instance:read` rather than `:manage`, so a monitoring credential can see that mail is failing without being able to rewrite the relay's password.",
+      "hash": "63d99c2efddfbe3ad2701cf78784907188139f1a"
+    },
+    "ui.mltransport": {
+      "text": "Email delivery",
+      "hash": "3776c7a872f8ffc28af593480694373ad89025c0"
     },
     "doc.route.get.api.repo-obj.id.form-fields": {
       "text": "The AcroForm fields a PDF carries — name, kind, current value and, for a choice field, its options — which is what a caller needs before sending `doc_fill_form` any values (#88 req 2). A document that is not a form answers an empty list, because whether it is one is the question being asked; a box without pdfcpu answers 501, since the question is fine and this instance cannot answer it. `can_flatten` says whether `flatten: true` will work here, flattening being a second binary.",
@@ -227,6 +239,10 @@
       "text": "the translation failed.",
       "hash": "4961cdf5d2a505275ce6e0f2a88745122cd09099"
     },
+    "ui.mlby": {
+      "text": "turned off by",
+      "hash": "48b5d93ee535f4b63f592900724bb8ea2914c3f9"
+    },
     "doc.tool.doc_text.object": {
       "text": "The repository object id",
       "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
@@ -262,6 +278,10 @@
     "doc.route.post.api.jobs": {
       "text": "Enqueue a scheduler job of a registered kind.",
       "hash": "fff845878822c59c97eb52e16eb48498503ff750"
+    },
+    "ui.mlok": {
+      "text": "delivered",
+      "hash": "f818910a3e181b24a8117b365fcae3816b725add"
     },
     "doc.route.put.api.org.branding": {
       "text": "Set the company's title, tagline, logo and theme: what the console wears on the company's hostname and for its signed-in users. Theme tokens are validated and contrast-gated exactly as the instance's are.",
@@ -367,6 +387,14 @@
       "text": "Copied",
       "hash": "8e3df45a49dba2b26f8ea64a22410bde72f9c8ac"
     },
+    "ui.wkresumedok": {
+      "text": "Back in rotation",
+      "hash": "0654fd8c4e356e508ed93b2250c5b0d9714ec6a7"
+    },
+    "doc.route.get.api.email-transport": {
+      "text": "The instance's email transport, the closed list of security modes, and the notification categories. The PASSWORD is never in a read — `has_password` says whether one is stored. `null` means no transport is configured, which is what makes email off by default: nothing is queued and nothing is sent.",
+      "hash": "956a83fdf5fc8d3642677d1ab1de6a8c8ecfacea"
+    },
     "doc.workflow.classify-backfill": {
       "text": "Backfill document types over a prefix: find the documents that have no type yet and classify each one, up to 25 per run. Safe to re-run — a document that already has a type is skipped — so a large backlog is drained by running it until it finds nothing. Pass backends [\"rules\"] to backfill without spending model budget.",
       "hash": "45ac9b42c4865ef03fd28fb45c61cf33e915ff4f"
@@ -374,10 +402,6 @@
     "ui.qvempty": {
       "text": "Nothing is queued.",
       "hash": "adaf025873f9d915e8f3feb9345801b9246e7829"
-    },
-    "ui.wkresumedok": {
-      "text": "Back in rotation",
-      "hash": "0654fd8c4e356e508ed93b2250c5b0d9714ec6a7"
     },
     "doc.tool.repo_extract_text.id": {
       "text": "The repository object id",
@@ -459,6 +483,14 @@
       "text": "Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default.",
       "hash": "79dc79b5e8a6eff3f6ad5dab481a4264815387e4"
     },
+    "ui.refresh": {
+      "text": "Refresh",
+      "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
+    },
+    "ui.mlbasehint": {
+      "text": "This console's own external address. A notification links back to it, and it cannot be guessed — a message is composed by a sweep with no request in sight.",
+      "hash": "d83e1a4bad53f0512be8bc9ea5d0bf93c3e4b825"
+    },
     "doc.tool.doc_extract_fields": {
       "text": "Extract structured fields from a document's text against a JSON schema. The model's reply is validated and REFUSED if it does not conform — a missing required field, a wrong type, an invented key. With `object`, the fields are also written beside the source as <key>.extracted.json.",
       "hash": "84a1d20ebeaf0b0cf22ee9351924534b9f6079f8"
@@ -470,10 +502,6 @@
     "ui.version": {
       "text": "Version",
       "hash": "2da600bf9404843107a9531694f654e5662959e0"
-    },
-    "ui.refresh": {
-      "text": "Refresh",
-      "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
     },
     "doc.route.get.api.org.executor-policy": {
       "text": "The company's own executor policy, the instance's, the EFFECTIVE one and `sources` naming which tiers mentioned each label. Where both tiers name a label the permitted executors are the INTERSECTION and both flags are ANDed, so a company narrows what the instance allows and can never widen it; a label only one tier names is that tier's to decide.",
@@ -566,6 +594,10 @@
     "doc.tool.kg_query.type": {
       "text": "Restrict a name lookup to one entity type, e.g. organization",
       "hash": "bf3b06e97454031c475151174af5ebabf873a414"
+    },
+    "doc.route.get.api.email-notify": {
+      "text": "Which notification categories this instance sends, the closed category list, the events each one covers, and what they resolve to for the caller. ABSENCE MEANS OFF at this layer, unlike a feature switch: a notification governs whether the instance sends mail to people, and the behaviour that already existed is sending none — so an operator names the categories their instance sends.",
+      "hash": "445fa835aa9c2be83ddd9dbfe74f4a24fec5260b"
     },
     "doc.route.get.api.x.feeds.queue": {
       "text": "The team's feed work queue, ordered by priority then soonest due date. ?status= open|claimed|done|dropped|all (default: the actionable two), ?feed= a feed slug, ?skill= one skill, ?limit=/?offset=. Every row is re-authorized on the document it points at, so the count is what the caller may read rather than what is there.",
@@ -666,6 +698,10 @@
     "doc.perm.memory:read": {
       "text": "Read the agent's memory.",
       "hash": "321c16ac921e7da92b7b6d8bba60a88f2202c710"
+    },
+    "doc.route.get.api.email-deliveries.id": {
+      "text": "One delivery WITH the message exactly as it would go out — the \"show me what you sent\" case. Another team's id is a 404, not a 403.",
+      "hash": "83c0c358a521d9e1a00de6a897d993ee2e86190b"
     },
     "doc.route.get.api.share-targets": {
       "text": "Who a document can be shared with: the team's people and the org's teams.",
@@ -771,6 +807,10 @@
       "text": "Report the team's current AI usage against its quota.",
       "hash": "e068247f15386c62657ebb749bd6fdd35c0d758a"
     },
+    "ui.mlsec": {
+      "text": "Security",
+      "hash": "f25ce1b8a399bd8621a57427a20039b4b13935db"
+    },
     "ui.trigger_types": {
       "text": "Content types (blank = any)",
       "hash": "c233fa078f402f539dcc118a797d48b63f1bb591"
@@ -778,6 +818,10 @@
     "doc.route.delete.api.admin.users.id.2fa": {
       "text": "Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment.",
       "hash": "7c21af626d3ee4c2e83c97ec1a19ea5610206384"
+    },
+    "doc.route.put.api.email-address": {
+      "text": "Claim `address` as the caller's notification address. It is NOT used until it has answered: this sends the one message this platform sends to an unconfirmed address, and the token is in that message and not in this reply — returning it would let anyone who can set an address confirm it without holding the mailbox. A working verified address is left in place until the new one is confirmed, so a typo does not silence somebody. `queued` is false when the instance has no transport, and the note says so rather than reporting success.",
+      "hash": "514fbe359317e0f139146370aa7b737ff9d7e1da"
     },
     "ui.autotag": {
       "text": "Auto-tag",
@@ -827,6 +871,10 @@
       "text": "too many requests — please slow down",
       "hash": "d69c5963e99cd43d1c8630ec937be72619db817d"
     },
+    "ui.mlactive": {
+      "text": "Sending enabled",
+      "hash": "6ec59694cfb1d8f71f7a7202719cf36e4d2a4a41"
+    },
     "ui.idlestay": {
       "text": "Stay signed in",
       "hash": "e5f5f70f7283fadfeab321814dc11434ed17d688"
@@ -834,6 +882,10 @@
     "ui.trigger_derived": {
       "text": "also on derived documents",
       "hash": "95f4b5d99f5b830c28053256d1ad913fdac25d7c"
+    },
+    "doc.route.put.api.email-prefs": {
+      "text": "Turn one category on or off for the caller: `category` and `enabled`. A person may always turn one OFF, including one every layer above them allows, and that choice survives the layer above being switched back on — an opt-out is a standing instruction. Nobody below the instance may turn one on. \"On\" removes the row rather than storing a positive, because absence already means \"I have not objected\".",
+      "hash": "dafd53646715d9c486c0ca047c287a923ac21c9b"
     },
     "doc.tool.doc_set_type": {
       "text": "Record the document type a PERSON decided, after a review. The label is held to the same label set the classification offered, so a type no trigger could match is refused rather than stored. An EMPTY label withdraws the type — the honest record of a rejection, since there is no doc_type of \"unknown\". Writes doc_type / doc_type_confidence / doc_type_source with source \"review\" and confidence 1.00, and versions <key>.classification.json beside the document so the backend's original guess stays in its history.",
@@ -858,6 +910,10 @@
     "doc.route.post.api.translate.catalog": {
       "text": "Translate a whole locale catalog, placeholders preserved.",
       "hash": "7080352270302db86101fdcff7b1226d37276738"
+    },
+    "ui.mladdr": {
+      "text": "Notification address",
+      "hash": "3c6e1087416edef03919e34859cfe610f5c568f9"
     },
     "ui.healthhint": {
       "text": "what an operator needs when told “it’s slow”",
@@ -922,6 +978,10 @@
     "ui.qvexpired": {
       "text": "expired",
       "hash": "45a6f9adb1df3a78aafc71391c7d3bfa7680229b"
+    },
+    "ui.mlfromname": {
+      "text": "From name",
+      "hash": "1e77633a8cea91776699e1af692228b813f0b237"
     },
     "doc.perm.jobs:execute": {
       "text": "Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run.",
@@ -998,6 +1058,10 @@
     "doc.route.delete.api.annotations.id": {
       "text": "Remove an annotation. Your own needs nothing beyond having written it; somebody else's needs `files:manage` on the document, which is stewardship of what is attached to it (DSH-2's rule) — and is deliberately a weaker power than editing, which nobody but the author has.",
       "hash": "75036776a1d027c18edfd79712b118bcb4fd5307"
+    },
+    "ui.mlcategory": {
+      "text": "Category",
+      "hash": "a3c686e711e4720f99b4562bb3dbaae7ab658cf2"
     },
     "ui.simulatedwhy": {
       "text": "TELEMACHUS_MODEL_URL is unset, so this reply is a deterministic echo of your prompt rather than a model's answer.",
@@ -1239,13 +1303,21 @@
       "text": "sealed",
       "hash": "5d2b90a4c4a5c2194f672a4120ffff9f77e35d30"
     },
-    "doc.perm.files:delete": {
-      "text": "Delete repository documents.",
-      "hash": "22c27699a83b97492e326f893ae9aa65ae8e532c"
+    "ui.mlmine": {
+      "text": "My notifications",
+      "hash": "0dc06c2c8a708139c2818ea85d5912d36a5aa7ce"
     },
     "ui.qvfinished": {
       "text": "finished",
       "hash": "f957097d7a22775f6bea41b46cae4d14274dac9f"
+    },
+    "ui.mlfrom": {
+      "text": "From address",
+      "hash": "19683459156b3c6a2dae1c9fe6be0f1500c64a7d"
+    },
+    "doc.perm.files:delete": {
+      "text": "Delete repository documents.",
+      "hash": "22c27699a83b97492e326f893ae9aa65ae8e532c"
     },
     "ui.palhclose": {
       "text": "Esc or ? to close",
@@ -1475,6 +1547,14 @@
       "text": "when",
       "hash": "30603fa9e0f620c305cd627ab0ff138a960c48bd"
     },
+    "doc.route.get.api.admin.anchor.export": {
+      "text": "Anchor receipts as JSONL, oldest first, for retention OUTSIDE this instance's trust domain. `?since_seq=` asks for only what a retainer does not yet hold, so the file appends. Verify a retained copy offline with `racket cli/telemachus-anchor.rkt verify <file> --public-key <hex>` — which needs neither this server nor its database, because an anchor is worth something precisely when the instance is the suspect.",
+      "hash": "79290dffd7c07c40d69bdb0eae588710bf99ace2"
+    },
+    "doc.route.post.api.email-address.verify": {
+      "text": "Confirm an address with the `token` from its message. AUTHENTICATED, deliberately: the obvious shape is an unauthenticated GET on a link, and this platform has kept a no-cookie JSON API precisely so no GET mutates anything — so the link opens the console and the console posts the token with the caller's bearer. Holding the token is therefore not enough; it has to be the account that asked. A bad token and an expired one are one answer, because whether a token was ever real is not a question to answer to somebody holding a guess.",
+      "hash": "94dfa0acd47f134fed74b38dc9085d84b199d030"
+    },
     "doc.workflow.classify-eval.name": {
       "text": "Evaluate the classifier",
       "hash": "5c63fbf3c117397cfad5dd12e14921ddd3a14c1b"
@@ -1506,6 +1586,14 @@
     "doc.tool.inbox_raise.key": {
       "text": "The producer's id for the fact, stable across re-raises",
       "hash": "e745c98e38d13180112846b4be5c11eb337fd877"
+    },
+    "doc.route.put.api.l10n.messages.id": {
+      "text": "Submit a translation for one message.",
+      "hash": "62e7cea67142cba640a3f07fd52ff2e3981406c5"
+    },
+    "doc.route.delete.api.email-address": {
+      "text": "Remove the caller's address and withdraw any pending confirmation. Mail stops at once. There is deliberately no \"keep the address but stop the mail\" here — that is what the per-category preferences are for, and two ways to say one thing is how they come to disagree.",
+      "hash": "df9bb1f1954979c74b6a89eb6098a904c5964a9b"
     },
     "ui.tagsph": {
       "text": "survey, levee 7",
@@ -1651,17 +1739,9 @@
       "text": "Hand a job back WITHOUT spending an attempt (issue #61): {claim_token, reason?} — busy, unsupported or shutdown; anything else is recorded as `other` rather than refused, since the worker has already said it cannot run the job. It goes straight back to the queue and any other worker may take it at once, while the releasing executor is not offered it again for 30 seconds — the bound on a release loop, which the untouched attempt counter cannot provide. Past 10 releases the job fails instead, naming the hosts that let it go: work no worker will run needs a person.",
       "hash": "98c4b195379deac9e9579d8106256baf1f1d4caa"
     },
-    "doc.route.get.api.admin.anchor.export": {
-      "text": "Anchor receipts as JSONL, oldest first, for retention OUTSIDE this instance's trust domain. `?since_seq=` asks for only what a retainer does not yet hold, so the file appends. Verify a retained copy offline with `racket cli/telemachus-anchor.rkt verify <file> --public-key <hex>` — which needs neither this server nor its database, because an anchor is worth something precisely when the instance is the suspect.",
-      "hash": "79290dffd7c07c40d69bdb0eae588710bf99ace2"
-    },
     "doc.tool.feed_queue_put": {
       "text": "Put a pulled feed item on the team's work queue, or update it: priority (0-100), an optional due date in epoch seconds, a status and a list of skills. The queue is an INDEX over the documents, so this records what triage decided rather than deciding it.",
       "hash": "0abd789dfe99b920ce6be17c1f4d75b2badd749a"
-    },
-    "doc.route.put.api.l10n.messages.id": {
-      "text": "Submit a translation for one message.",
-      "hash": "62e7cea67142cba640a3f07fd52ff2e3981406c5"
     },
     "doc.tool.feed_queue_status": {
       "text": "Move a queued item to another status: open, claimed, done or dropped.",
@@ -1807,9 +1887,17 @@
       "text": "Source language code, or auto",
       "hash": "6b0f09c4c69815cd09d87c29be1307f3166f6c2f"
     },
+    "ui.mlbase": {
+      "text": "Console URL",
+      "hash": "7a87219618c60ead9a56f3e131156c4243714b65"
+    },
     "doc.route.patch.api.members.id": {
       "text": "Change a member's team role: {role}. The last owner cannot be demoted — a team with no owner cannot grant anyone the permission to fix it.",
       "hash": "d907194c615b7a60f020c98a5eba4bfb9eec603c"
+    },
+    "ui.mlpasskeep": {
+      "text": "leave blank to keep the stored one",
+      "hash": "92ccaa633f110fa42b383ec2a73611be074b8f07"
     },
     "doc.perm.workflows:write": {
       "text": "Publish workflows and manage triggers.",
@@ -1907,6 +1995,10 @@
       "text": "The console (or the beta funnel when TMACH_HOME=beta). The HTML title is rewritten from instance branding.",
       "hash": "02e8b32f35af9fafca11af11f096a74b5847347d"
     },
+    "doc.route.get.api.email-deliveries": {
+      "text": "The team's email deliveries, newest first: recipient, category, event, status (`pending`/`sent`/`dead`), attempts, the relay's last reply and when the next attempt is due. `?status=dead` is the dead-letter list. The BODY is not in a listing: a dead-letter list answers \"what is failing and why\", and a page of message bodies is not that. The two transactional messages — a confirmation and a transport test — belong to no team and are invisible here by construction; `GET /api/admin/email-deliveries` is the operator's view.",
+      "hash": "15030654c43b734e4af94f879ce60222e9c216a2"
+    },
     "ui.nofires": {
       "text": "This trigger has not fired yet.",
       "hash": "e37475efef33ca816a4fa05d4ee8d82d1fc7e346"
@@ -1914,6 +2006,10 @@
     "ui.l10ndraft": {
       "text": "AI draft",
       "hash": "7f61d5cd716c33f7b3b618779bd0190eb02d187c"
+    },
+    "ui.mltest": {
+      "text": "Send a test",
+      "hash": "55bc381e9443b34f03355f58fdea0fb6ca6fbdd1"
     },
     "ui.qvnopath": {
       "text": "First attempt — nothing has let it go.",
@@ -2039,6 +2135,30 @@
       "text": "Created",
       "hash": "accf40c89baa4fa88e6a7ff11e1f805beecafd3f"
     },
+    "doc.route.post.api.workers.claim": {
+      "text": "A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease and a claim_token, which every later write about it must carry back.",
+      "hash": "5aa8b491c64d543c3c4b253ae91cc850a8b12a77"
+    },
+    "ui.mluser": {
+      "text": "Username",
+      "hash": "84c29015de33e5d22422382a372caba5c58f8c01"
+    },
+    "ui.disable": {
+      "text": "Disable",
+      "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
+    },
+    "doc.route.put.api.email-notify": {
+      "text": "Set the categories this instance sends, as a whole document (`{\"workflows\": true}`). There is no per-category route at this tier, so send every category you mean to keep: a request carrying only the switch that moved would wipe the others, silently. An unknown category is refused rather than stored.",
+      "hash": "0e85631cb8fa89759c252710d871a4ee7c7cea47"
+    },
+    "doc.route.delete.api.email-transport": {
+      "text": "Remove the transport entirely, which is the only way back to the state the instance shipped in — `active: false` is still a configured transport.",
+      "hash": "fa48562ef5a05e0cca2c04d6cb3ae7194838123c"
+    },
+    "ui.mlawaiting": {
+      "text": "awaiting confirmation",
+      "hash": "4c7c3532ae67ce3343eddb56b5bbafa8f416d00c"
+    },
     "ui.wkconfigured": {
       "text": "configured",
       "hash": "3be9f957f29f905f10f7b652cab1c95ba8a2c205"
@@ -2091,13 +2211,13 @@
       "text": "Only documents whose key starts with this (default: every document in the team)",
       "hash": "d6113e6bde134e7d4d62d2f7e4818576583878bb"
     },
-    "doc.route.post.api.workers.claim": {
-      "text": "A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease and a claim_token, which every later write about it must carry back.",
-      "hash": "5aa8b491c64d543c3c4b253ae91cc850a8b12a77"
+    "ui.mlpass": {
+      "text": "Password",
+      "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
     },
-    "ui.disable": {
-      "text": "Disable",
-      "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
+    "ui.mlhost": {
+      "text": "SMTP host",
+      "hash": "2d4a434baeeacaeeeb7e0ad914adfe6f76fb4fb6"
     },
     "ui.confirmpw": {
       "text": "Confirm password",
@@ -2267,6 +2387,10 @@
       "text": "Status",
       "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
     },
+    "ui.mltransporthint": {
+      "text": "The relay this instance sends notifications through. Nothing is sent until it is configured, and a team configures nothing here — the From address is this instance's own identity.",
+      "hash": "eadbab424b04b3eb686d22b3d592bf0f148db6f1"
+    },
     "ui.qvqueued": {
       "text": "Queued, working through",
       "hash": "d8306cebe70dceeb9a8bc55245a28320f25e9a9c"
@@ -2319,6 +2443,10 @@
       "text": "handed back: {why}",
       "hash": "a5786ca335f4c28a1daefca6138aea4aa15629db"
     },
+    "doc.route.put.api.email-transport": {
+      "text": "Configure the transport: `host`, `port`, `security` (`none`/`starttls`/`tls`), `from_address`, and optionally `username`, `password`, `from_name`, `base_url` and `active`. It is a WHOLE-DOCUMENT write, so send every field you mean to keep — a request carrying only `host`, `port` and `from_address` clears `from_name` and `base_url`, and losing `base_url` silently breaks the link in every notification afterwards. The ONE exception is the password: an absent one leaves the stored one alone, because it is the one field a caller cannot read back and therefore cannot round-trip. An explicit null clears it. `base_url` is this console's own external URL and is what makes a notification's link work — it cannot be guessed, because the Host header belongs to a caller and a notification is composed by a sweep with no request in sight. The security mode is STORED rather than inferred from the port: 587-with-implicit-TLS and 465-with-STARTTLS both exist, and guessing wrong fails as a hang.",
+      "hash": "48cd9b352b4508ee89479c3d8290df592cc6b958"
+    },
     "ui.tags": {
       "text": "Tags",
       "hash": "848eed0fbd5429f556b2982dec3ea87136e33e44"
@@ -2326,6 +2454,10 @@
     "doc.plugin.translate-chat": {
       "text": "A demo workflow plugin: chat once, fan the reply out to Spanish/Dutch/Icelandic, then bring each back to the user's own language.",
       "hash": "91f7eb085397a93509322e65886d76dc1659b76f"
+    },
+    "ui.mlremove": {
+      "text": "Remove the transport",
+      "hash": "20e932af5e945ace615151bbd5501f06bb93f562"
     },
     "doc.route.get.api.documents": {
       "text": "List text documents — every non-derived `text/markdown` object in the team, narrowed to one project by `?prefix=`. `folders` carries the paths directly under that prefix, derived from the keys that exist and filtered to what the caller may read.",
@@ -2447,13 +2579,21 @@
       "text": "Create and edit tasks.",
       "hash": "ab21675a1a37070f6b06dc92b5bb5598ff1b384a"
     },
-    "doc.route.get.beta.bundle.plugin.path": {
-      "text": "A file from a Tier-B onboarding plugin's PUBLIC landing bundle (plugins/<id>/landing/) — the funnel a prospect sees before signing in.",
-      "hash": "5c5f4ce04999606ea4e9e25bfcf3cb71020ea3fd"
+    "doc.route.get.api.email-prefs": {
+      "text": "The caller's OWN notification address and per-category choices — their own rows, so no permission. Each category carries `disabled_by` when it is off, naming the layer that decided it (`instance`, `org` or `user`), because \"why am I not getting these\" with three documents to diff by hand is a poor answer.",
+      "hash": "caaefe87170fd545558c18ec15c2ce6982756adc"
     },
     "doc.perm.*:read": {
       "text": "Read every team-visible resource; no AI spend, no mutation.",
       "hash": "b4b905e1f8563427da3e415c721f45d732072ab5"
+    },
+    "doc.route.get.beta.bundle.plugin.path": {
+      "text": "A file from a Tier-B onboarding plugin's PUBLIC landing bundle (plugins/<id>/landing/) — the funnel a prospect sees before signing in.",
+      "hash": "5c5f4ce04999606ea4e9e25bfcf3cb71020ea3fd"
+    },
+    "ui.mlevents": {
+      "text": "Events",
+      "hash": "c5497bca58468ae64aed6c0fd921109217988db3"
     },
     "doc.tool.doc_render.engine": {
       "text": "Which PDF engine, when format is \"pdf\": \"latex\" (the default — pandoc and tectonic, good for text-heavy documents), \"weasyprint\", which renders the HTML template's own CSS including @page margins, running headers and footers, and \"Page X of Y\", or \"libreoffice\", which converts a filled DOCX template. The HTML engine needs an HTML template and can inline a repository document as an image with `src=\"repo:<object id>\"`; the LibreOffice engine needs a DOCX template, is off unless soffice is on the server's PATH, and refuses a template that declares an external reference.",
@@ -2747,6 +2887,10 @@
       "text": "how long a stop waits before handing running work back to the queue",
       "hash": "8a79c4e6708a3ea8984c70528f66577a89c739c6"
     },
+    "doc.route.post.api.email-transport.test": {
+      "text": "Send one message to `to`, NOW, synchronously, and answer with what happened. A transport nobody can test is a transport nobody trusts, and an operator who has just typed a password needs to know before anybody's notification depends on it. It answers 200 even when the relay refused: the test ran, and whether the relay answered is in the body — a 502 would be this instance claiming somebody else's failure as its own. The outcome is recorded on the transport and as a settled delivery, so a failed test is a dead letter with the relay's own words on it rather than a toast that scrolled away.",
+      "hash": "249b5cccb28e2b6c917e5d66226cb447f7ae1999"
+    },
     "ui.addtrigger": {
       "text": "Add trigger",
       "hash": "4e63e68a14f8b8b8d29520653541fe93013835cd"
@@ -2835,6 +2979,10 @@
       "text": "The team glossary.",
       "hash": "7986293803bb2029e37ce2d2f2e2c213446c48c7"
     },
+    "doc.route.get.api.admin.email-deliveries.id": {
+      "text": "One delivery on the instance, WITH the message exactly as it would go out. The transactional messages are reachable only here, because they have no team.",
+      "hash": "a4ebe627b542ff52d32952e90e846a0a1a39c212"
+    },
     "ui.quotaresets": {
       "text": "Resumes {when}.",
       "hash": "826fcc2fc0cc24a889c559c58c4e78c2d2a4e137"
@@ -2890,6 +3038,10 @@
     "ui.qvnoleases": {
       "text": "No worker is holding a job.",
       "hash": "85b9c8be18342f96b3342e3ea65abeb10f551394"
+    },
+    "doc.route.put.api.org.email-notify": {
+      "text": "Turn a category off for this company (`{\"documents\": false}`). Only `false` means anything: absence is \"this layer does not object\".",
+      "hash": "bb6bd218355e5e8b42be80edf983f06e3713fe48"
     },
     "doc.route.post.api.workers.token": {
       "text": "Trade the token this worker is holding for the next one (issue #60): {token, expires_at, overlap_seconds}. The warrant is the credential it already holds, as for PULL-9's read and PULL-13's write. The old token keeps working for the overlap, so a worker must PERSIST the new one before using it — one that cannot persist it must not rotate, or it will stop when the overlap ends. Rotating twice inside five minutes is a 429 with Retry-After.",
@@ -3035,6 +3187,10 @@
       "text": "The documentation has not been ingested in this language, so the answer comes from another.",
       "hash": "34042f5ed012b18221267ec1cac6f089430ff68a"
     },
+    "ui.mlremoveask": {
+      "text": "Remove the transport? Nothing will be sent until it is configured again.",
+      "hash": "4d5743ff1013a99ac3de6afa98a2a7a3afdb1c6e"
+    },
     "doc.route.get.api.schedules.id": {
       "text": "One job schedule. Another team's id is a 404, not a 403.",
       "hash": "0c0f2a4f2bf00e5141aecc747353e5481cad3b0c"
@@ -3111,6 +3267,10 @@
       "text": "Localize",
       "hash": "856ae94430567b78d47f89dd136d96687ff5caee"
     },
+    "ui.mltestto": {
+      "text": "Test message to",
+      "hash": "c9ac758da0d79fbb5684680840c88629f137ee9c"
+    },
     "doc.route.post.api.x.inbox.items.id.snooze": {
       "text": "Hide an item until a time: {until: epoch seconds, at most 90 days ahead, note?}. When the time passes it is open again.",
       "hash": "0a6d9d3b62759637933847209ecec84c2a169353"
@@ -3183,6 +3343,10 @@
       "text": "Delete a subscription and its delivery history. The audit entries survive.",
       "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
     },
+    "ui.mlport": {
+      "text": "Port",
+      "hash": "fe035157cda20b361ce30613e29b5d6f1a46b5fc"
+    },
     "ui.qvinproc": {
       "text": "in process",
       "hash": "99fc8f91a50120270b90e2468c6536e073b4bea9"
@@ -3230,6 +3394,10 @@
     "doc.tool.create_note": {
       "text": "Create a note for the current user's team.",
       "hash": "b647e9b2764c0eb907c2306751d03cbc7e8fee48"
+    },
+    "ui.mltested": {
+      "text": "Last test",
+      "hash": "0574834056c9a2320bef1d182f0b1b5441df7987"
     },
     "ui.instfeatures": {
       "text": "Instance features",
@@ -3279,6 +3447,10 @@
       "text": "waiting on a paused host",
       "hash": "6677eaa3dfbe705e6403a7b3831e5e1f1218dd70"
     },
+    "ui.mlconfirmed": {
+      "text": "confirmed",
+      "hash": "d35ce8acb0d0ca09297349a4e2d4240c2819c523"
+    },
     "ui.sendhint": {
       "text": "Enter to send · Shift+Enter for a new line",
       "hash": "21df6acdc3d4596a6cc5bc5beca989cd54d22bc4"
@@ -3290,6 +3462,10 @@
     "doc.route.get.api.admin.anchor": {
       "text": "Anchor status (#66): whether receipt emission is configured, the public key receipts are signed with, the instance's series id, how many receipts exist and the latest sequence and hash. It reports what was EMITTED and deliberately never says anything was RETAINED — the retained copy is the anchor, and the platform cannot verify that somebody else kept it.",
       "hash": "8c750227cdf6c09ce987e52d3579b692bca37515"
+    },
+    "ui.mlnone": {
+      "text": "no transport configured",
+      "hash": "b1c8ae4383e498e3890d1c1749dc9433c4c6799d"
     },
     "doc.tool.note_autotag": {
       "text": "Suggest topic tags for a note and add them to it, in the note's own language.",
@@ -3338,6 +3514,10 @@
     "doc.route.get.api.workflows.schema": {
       "text": "The workflow spec format: version, step kinds, binding references, predicates.",
       "hash": "5b7f95b61ad9613c47931f31046e2e5c7152fb46"
+    },
+    "ui.mltestok": {
+      "text": "The test message was accepted by the relay.",
+      "hash": "3afe647a3ea198189f34ffb19101cc605cf240c2"
     },
     "doc.route.patch.api.orgs.ref": {
       "text": "Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d).",
@@ -3447,6 +3627,10 @@
       "text": "Put one pulled item on the work queue with a priority, a due date and skills. The queue is an index: this records what triage decided.",
       "hash": "c2cfa5a2a1a3bd69124a30633ecf8e152dd5a0b1"
     },
+    "ui.mlnotify": {
+      "text": "Email notifications",
+      "hash": "b7b0bc36ba6162537ebe6c69ff67183d083f9b81"
+    },
     "doc.route.delete.api.sessions.id": {
       "text": "End one of the caller's own sessions. A session that is not theirs and one that does not exist are the same 404.",
       "hash": "694bd265ddd63c495318b345499b233155933122"
@@ -3527,6 +3711,14 @@
       "text": "The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them.",
       "hash": "80282f87d17426ec9fcc94a64519d2691104a001"
     },
+    "ui.setpw": {
+      "text": "Set your password",
+      "hash": "4f9f9c131024bbda7e9be202a9e7c43f4d05fbe4"
+    },
+    "doc.route.get.api.org.email-notify": {
+      "text": "Which categories this company has turned off for its own people, plus the instance's document read-only. An org may TIGHTEN and may never loosen — a company admin cannot turn on what the instance has not enabled, so there is nothing to offer them there.",
+      "hash": "0981897a77a6dbfc233f6c9db0167d1c8c8f6c2e"
+    },
     "doc.route.get.api.usage": {
       "text": "The team's quota dimensions with used, limit, remaining and the window's reset time, plus `held` naming the limit that is currently holding the team's queued jobs (null when none is).",
       "hash": "b5c7dd8312bd5396d1cd31a129b79b6deb5a3def"
@@ -3535,21 +3727,21 @@
       "text": "The loaded plugins with their tools and workflows.",
       "hash": "167fb82427d578125bb3840706a7f14dc9cdc5dd"
     },
+    "ui.wkerrhint": {
+      "text": "Jobs this host reported as failed in the window. The job itself was at fault, or the model refused it — a host that cannot run work releases it instead.",
+      "hash": "cfdbef058d05adb2200693df3e67b3ab5c0d7782"
+    },
+    "doc.route.post.api.email-deliveries.id.redeliver": {
+      "text": "Send a dead letter again. The attempt count is RESET — an operator redelivering has made a decision, and one attempt out of ten already spent would make the lever useless. The delivery id does not change, so the Message-ID is the same and a relay that already accepted it recognises it.",
+      "hash": "ca98beab446bcdb0a55cc35232f64a0c31147baf"
+    },
     "doc.perm.org:manage": {
       "text": "Administer the company: teams and members. Manages, does not read, team data (TEN-2a).",
       "hash": "d7516686c8225ea117fb689ec5055fa55f122dea"
     },
-    "ui.setpw": {
-      "text": "Set your password",
-      "hash": "4f9f9c131024bbda7e9be202a9e7c43f4d05fbe4"
-    },
     "doc.tool.doc_set_type.label": {
       "text": "The type that was decided, spelled exactly as in the label set; empty to withdraw the type",
       "hash": "c05644c4235b6cc6e353c480e57173c6629ed9e1"
-    },
-    "ui.wkerrhint": {
-      "text": "Jobs this host reported as failed in the window. The job itself was at fault, or the model refused it — a host that cannot run work releases it instead.",
-      "hash": "cfdbef058d05adb2200693df3e67b3ab5c0d7782"
     },
     "doc.route.get.beta-sdk.js": {
       "text": "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).",
@@ -3566,6 +3758,10 @@
     "ui.qvexpiredat": {
       "text": "lease expired",
       "hash": "7a41da89efdfe838a33aa4c3a632c95bf1400e44"
+    },
+    "ui.mlnoaddr": {
+      "text": "No address — this account receives no email.",
+      "hash": "6a6b70e42d3acfd46e1888d65909da0ffbccc900"
     },
     "ui.people": {
       "text": "People",
@@ -3606,6 +3802,14 @@
     "ui.l10ntarget": {
       "text": "Translating into",
       "hash": "dae38f11269fd17ad122a3ec4e99cc99ca9fbc74"
+    },
+    "doc.route.post.api.admin.email-deliveries.id.redeliver": {
+      "text": "Send any dead letter again, including one that belongs to no team. `instance:manage`, not `:read` — this one WRITES, which is the whole of #124's split.",
+      "hash": "5a61d855d6c6b6f1ca5bb0c907a991c29c89f52a"
+    },
+    "ui.helpsources": {
+      "text": "Sources",
+      "hash": "2eb56be3c2d93cdab0c52e677e3167dfddb30ac5"
     },
     "ui.model": {
       "text": "Model",
@@ -3738,10 +3942,6 @@
     "ui.newdoc": {
       "text": "New document",
       "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
-    },
-    "ui.helpsources": {
-      "text": "Sources",
-      "hash": "2eb56be3c2d93cdab0c52e677e3167dfddb30ac5"
     },
     "doc.tool.translate_text": {
       "text": "Translate text into a target language.",
@@ -4015,6 +4215,10 @@
       "text": "A workflow that extracts text from repository documents into the search index: find what is unindexed, fan out, extract. Re-run it any time; it only touches what changed.",
       "hash": "d08d63795f44a20053f6f918b103c58a95685c87"
     },
+    "ui.mlminehint": {
+      "text": "Where this account is notified, and what about. An address is not used until it has been confirmed.",
+      "hash": "c55e71b4b3a18c30800a95485e6d440100e80fde"
+    },
     "doc.route.patch.api.repo-obj.id.attributes": {
       "text": "Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it.",
       "hash": "05eab7375ee33b4ca582a2241d3c87e147b4d0c1"
@@ -4098,6 +4302,10 @@
     "ui.wkmodelunconfirmed": {
       "text": "Typed in when this worker was created and confirmed by nothing — it has not claimed yet, so it has declared nothing. This value governs no matching.",
       "hash": "4616091308ba95a423c76f00735240609d5f8f7d"
+    },
+    "ui.mlconfirmedtoast": {
+      "text": "Your notification address is confirmed.",
+      "hash": "b975a04cb53fca0f9cfe094255d078aa4ed865f5"
     },
     "ui.hdrainnow": {
       "text": "immediate",
