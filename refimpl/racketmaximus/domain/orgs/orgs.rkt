@@ -336,8 +336,15 @@
 ;; reputation with the relays, which is one resource however many teams are
 ;; spending it — so a company cap on outgoing notifications is the one that
 ;; actually matters, and an operator who sets it must be able to read it back.
+;; `tenant-quota-record!/team` meters at BOTH tiers and `tenant-quota-check/team`
+;; lets the ORG decision refuse first, so every dimension anything meters is
+;; already ENFORCEABLE here — which is why this list is about REPORTING, and why
+;; a dimension missing from it is the defect `storage.bytes` had for a year and
+;; MAIL-25i named: a limit an operator can set, that bites, and that they can
+;; then see nowhere. `feed.fetches` and `research.fetches` are here for that
+;; reason (#191) — both were metered at the org tier and reported at neither.
 (define ORG-DIMENSIONS '("ai.requests" "ai.tokens.total" "ai.concurrency" "storage.bytes"
-                         "mail.notifications"))
+                         "mail.notifications" "feed.fetches" "research.fetches"))
 
 (define (org-quota conn org-id)
   (for/list ([dim (in-list ORG-DIMENSIONS)])
@@ -350,7 +357,7 @@
 ;; from the stored limit, so nothing special is needed here.
 (define (org-usage conn org-id)
   (for/list ([dim (in-list '("ai.requests" "ai.tokens.total" "storage.bytes"
-                             "mail.notifications"))])
+                             "mail.notifications" "feed.fetches" "research.fetches"))])
     (hash-set (quota-check conn "org" org-id dim 0) 'dimension dim)))
 
 ;; Admission requires BOTH to pass: a team under its own limit but inside a

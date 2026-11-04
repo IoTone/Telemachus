@@ -92,7 +92,18 @@
         ;; here that means every vector becomes undecodable on the first key
         ;; rotation while the text they were made from is rotated fine, so
         ;; retrieval would return nothing and nothing would say why.
-        (list "repo_chunks" "vector" "id" "repo_chunks.vector" 'bytes)))
+        (list "repo_chunks" "vector" "id" "repo_chunks.vector" 'bytes)
+        ;; #191: why a bookmark's last fetch failed. Somebody else's server's
+        ;; words about a URL a member chose, which is the class #83 r4 sealed
+        ;; four `error` columns over. Listed here rather than left out for the
+        ;; reason the schedule payload gives — LIFETIME: a job row settles in
+        ;; minutes and #59 purges it, while a bookmark is configuration that
+        ;; outlives key rotations, so a sealed column `rewrap` does not walk
+        ;; would become unreadable on the first rotation. It is `#:forgiving`
+        ;; (ENC-21), so the cost of that would be a diagnostic nobody can read
+        ;; rather than a row nobody can open — which is exactly why it is easy
+        ;; to forget and worth the line.
+        (list "research_sources" "last_error" "id" "research_sources.last_error")))
 
 (define (SECRETS)
   (append CREDENTIAL-SECRETS

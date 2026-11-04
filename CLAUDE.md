@@ -2398,6 +2398,158 @@ per-CATEGORY budget, which would be five numbers where the thing protected is
 one; and a rate limit as distinct from a windowed budget, which `window:
 "minute"` already is.
 
+## A bookmarked URL, archived (RG‑15…23, issue #191 slice 1)
+
+Migration `0071-research-sources`; `domain/research/research.rkt`;
+`server/api/research.rkt`; five routes behind **`research:use`**, which until
+this slice was granted to three roles and read by nothing. **No new permission,
+no new environment variable, no console code.** Design:
+`docs/design/research-graph-rag.md` (RG‑1…14, and slice 3 still waits on RG‑14,
+which is the owner's).
+
+```sh
+raco test test/research-tests.rkt                              # 18 cases, nine controls, all biting
+DATABASE_URL="postgres://…" raco test test/research-tests.rkt  # the whole file, both dialects
+bash test/server-smoke.sh                                      # the "research:" block, 19 assertions
+RESEARCH_TEST_URL=https://example.com/ bash test/server-smoke.sh   # …plus the five that need a public page
+```
+
+- **MOST OF IT WAS ALREADY BUILT, AND THAT IS THE FINDING.** #191's motive is
+  that "that old CERN philosophy about the permanence of links is being eroded",
+  and the answer needs **no new mechanism at all**: blobs are keyed by SHA‑256
+  and an object is a sequence of versions, so **a re-fetch is a NEW VERSION OF
+  THE SAME KEY** — the old bytes stay addressable and "what did this page say
+  when I bookmarked it" is a version read. Identical bytes dedup to the same
+  blob, so watching a stable page costs one row and no storage. An RSCH block
+  from 13 Oct had called the SSRF-safe fetcher "the whole cost of the research
+  surface"; it was built seventeen days later for #142 and #114.
+- **`research:use` HAD TEETH NOWHERE AND THE GATE WAS POINTED AT IT.** Granted to
+  member, admin and owner, described as "Use the research surfaces", read by
+  nothing, and sitting in `test/route-perm-gate-tests.rkt`'s
+  `UNREACHABLE-BY-DESIGN` reasoned *"no research surface is built"*. That list
+  fails in BOTH directions, so **the entry is deleted in the same commit that
+  enforces the permission** — #113's shape, closed by the gate #113 produced. The
+  description changed too, which costs `strings.json`, `en.json`, `ja.json` and
+  both rendered reference trees.
+- **THE EGRESS POLICY IS `'untrusted` AND THERE IS NO WAY TO ASK FOR ANYTHING
+  ELSE, NOT EVEN AS AN OPERATOR** (RG‑3). FEED‑4's rule is that the policy
+  attaches to WHO CHOSE THE URL: a feed URL is operator-authored behind
+  `feeds:manage`, the same trust as `TMACH_MODEL_URL`, which is why #114 could
+  ask for feeds inside the network. **A bookmark is MEMBER-authored**, so this is
+  the first URL an ordinary member makes this server fetch, and being
+  authenticated does not make `http://169.254.169.254/latest/meta-data/` safe to
+  request. An internal page that should be archived is a FEED, which already has
+  the right permission and the right argument; a flag here would put an SSRF
+  switch behind a permission a plain member holds.
+- **WHICH MEANS THE STORE PATH CANNOT BE DRIVEN OVER A SOCKET, AND THAT IS THE
+  POLICY WORKING** (RG‑19). `'untrusted` refuses every address a suite can listen
+  on — loopback, private, link-local — and `TMACH_EGRESS_ALLOW` belongs to
+  `'trusted`, which this surface never asks for. So `research-fetch!` takes a
+  `#:fetch` seam that **defaults to the real fetcher**, and the egress cases pass
+  NO seam, which is what establishes that the default really is the real one.
+  `RESEARCH_TEST_URL` drives the whole thing end to end against a public page
+  (`S3_TEST_ENDPOINT`'s shape) and **the skip is LOUD**, because a silent one is
+  how a path goes unexercised for a year. Verified by hand against
+  `https://example.com/`: a real page archives, a re-fetch is a new version of
+  the same key, one document and two versions.
+- **THE KEY IS STORED, NOT RECOMPUTED** (RG‑15). `research/<host>/<slug>-<id8>`
+  plus an extension taken from the content type the FIRST fetch was served, kept
+  on the row and reused for ever. Recomputing changes the key the day a page
+  starts answering as a PDF, and a changed key is a second object — the "N
+  documents nobody can diff and N search hits for one page" failure RG‑2 exists
+  to prevent. The cost is stated at the definition: that page becomes a new
+  version with its own `content_type` under a key still ending `.html`.
+- **THE CANONICAL URL IS THE IDENTITY AND THE CANONICALIZATION IS NARROW ON
+  PURPOSE** (RG‑1): lower-case the scheme and host, drop a default port, drop the
+  fragment, and nothing else. **Every tempting addition merges two pages that
+  differ on some real site, and the failure is silent in the worst direction** —
+  the second page's bytes land as a VERSION of the first, so the version chain
+  then says a page changed when what changed was which page was fetched. The
+  test therefore asserts what it does NOT do (a trailing slash, query order, a
+  tracking parameter) as well as what it does, because a test that pinned only
+  the three normalizations would pass against every one of those.
+- **A CREATE FETCHES, UNLESS `fetch: false`** (RG‑16) — the one place this
+  surface deliberately differs in shape from the feed plane, which configures
+  then probes. A bookmark exists because somebody is reading a page NOW. **A
+  FAILED FETCH STILL LEAVES THE ROW**, with the reason on it: a site that is down
+  today is the ordinary case this feature is for.
+- **`research.fetches` IS CHARGED PER REQUEST, BEFORE THE REQUEST, AND IN THE
+  DOMAIN** (RG‑17). FEED‑9's rule — the dimension protects somebody ELSE's site
+  as much as this instance, and metering only successes would make a bookmark
+  pointed at a refusing host free to retry for ever. In `research-fetch!` rather
+  than at the two endpoints, so there is one place to forget rather than two; the
+  endpoint renders the 429 and its `resets_at`, because the domain has no HTTP in
+  it, which is also what lets a test assert the refusal with no server. In
+  `QUOTA-HOLD-DIMS`, no default limit.
+- **AND IT FOUND THAT `feed.fetches` WAS ENFORCED AT THE COMPANY TIER AND
+  REPORTED AT NEITHER** (RG‑18). `tenant-quota-record!/team` meters at both tiers
+  and `tenant-quota-check/team` lets the org decision refuse first, so every
+  metered dimension is already enforceable there — which made `feed.fetches` a
+  limit an operator could set, that bit, and that they could see nowhere. The
+  defect `storage.bytes` had for a year (MAIL‑25i). Both are in `ORG-DIMENSIONS`
+  and `org-usage` now.
+- **`last_error` IS SEALED AND `#:forgiving`**, under the CONTENT switch, and it
+  is in `CONTENT-SECRETS` rather than left out for the reason the schedule
+  payload gives — **LIFETIME**: a job row settles in minutes and #59 purges it,
+  while a bookmark is configuration that outlives key rotations, and a sealed
+  column `rewrap` does not walk is silently unrotatable. It stores somebody
+  else's server's words about a URL a member chose, which is the class #83 r4
+  sealed four `error` columns over; `safe-url` has already dropped the query on
+  the way into the exception.
+- **`safe-key-part` MOVED TO `domain/repo/keyparts.rkt`** (RG‑21), because a
+  bookmark's host and its path slug are FEED‑16's rule's second asker. The module
+  has no dependencies on purpose: `domain/feeds/adapters.rkt` promises in its own
+  header that an adapter never fetches and never writes, so it must be able to
+  ask without requiring the repository. One name, not an alias beside it.
+- **`archived` AND `object_id` ARE JOINED, NOT READ OFF THE STORED COLUMN**
+  (RG‑23). The archive is an ordinary document, so #86's retention sweep and an
+  ordinary delete can both take it away, and a row still carrying a non-NULL
+  `object_id` would report `archived: true` with nothing behind it —
+  PULL‑11e's withdrawn field in its most literal form. **`deleted_at IS NULL` is
+  not optional and the test is what said so**: a repository delete is a SOFT
+  delete, so a join on the id alone goes on matching. `object_key` is NOT
+  withdrawn, because it is what makes the re-fetch land where it always was.
+- **Forgetting a bookmark is not retracting the page** (RG‑22). `DELETE` removes
+  the ROW; the archive is an ordinary repository object, so the cascade, the blob
+  release and the storage refund all live where the document does — exactly as
+  deleting a feed is not a retraction of its items.
+- **What this does NOT archive, stated rather than implied** (RG‑2): the bytes
+  the FETCHER received, not the page a browser renders, so a single-page
+  application archives as its loader shell. A headless browser has been declined
+  three times — HPDF‑1 on the merits, OFFICE‑1 and `container.md` on the ~1 GB —
+  so the honest answer there is a reader-mode copy the person uploads, which the
+  repository already takes.
+
+**Three traps paid again, and two of them by a control that did NOT bite:**
+
+- **A `..` PATH SEGMENT IS A SYMBOL, NOT A STRING.** Racket's URL parser answers
+  `'up` for `..` and `'same` for `.`, so `(string=? (path/param-path seg) "")` is
+  a contract violation rather than a wrong answer — the trap recorded from the
+  day the public bundle route answered 500 instead of its intended 404. Format
+  first, then compare.
+- **TWO CONTROLS THAT DID NOT BITE FOUND THE SAME RULE HALF-TESTED, TWICE.**
+  Patching `safe-key-part` out of the HOST changed nothing (the hostile-path case
+  exercises the PATH), and patching it out of the SLUG changed nothing either,
+  because `../../etc/passwd` is harmless once the segments are joined with
+  dashes — the raw slug is already `up-up-etc-passwd`. What `valid-key?` refuses
+  besides a `..` segment is a **BACKSLASH and a control character**, and both
+  arrive percent-encoded in a well-formed URL (`/a%5Cb%0Ac`); and a HOST of `..`
+  passes "non-empty host, http(s) scheme", so `http://../x` is bookmarkable and
+  would have reached `repo-put!` as `research/../x-…` and surfaced as a 500 on a
+  URL somebody typed. Both are cases now.
+- **BACKTICKS INSIDE A DOUBLE-QUOTED BASH STRING ARE COMMAND SUBSTITUTION**, and
+  `bash -n` passes. An assertion label reading ``"research: `fetch: false`
+  records…"`` ran `fetch:` as a command. Third appearance.
+- **`(require "/abs/path.rkt")` is a bad module path** — a throwaway probe needs
+  `(require (file "/abs/path.rkt"))`. Second appearance.
+
+**Not built, deliberately**: slice 2's distillation workflow (`doc_text` →
+`doc_classify` → `kg_extract` over the stale set, which needs only
+`research_list_stale`), RG‑12's scheduled re-fetch and its per-host courtesy
+delay (off unless configured, and the `etag`/`last_modified` columns are already
+stored for it), a console screen, and everything below RG‑14 — which is a product
+question, not a technical one, and nothing should start on a guess.
+
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 
 Built 22 Oct 2026 — the configuration half of the external-feed work, on top of

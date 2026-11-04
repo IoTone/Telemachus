@@ -444,9 +444,9 @@
   (check-equal? (link-rel (list (cons "link" "<https://h/p9>; rel=last")) "next") #f)
   (check-equal? (link-rel '() "next") #f)
   ;; a repository name is somebody else's string, and it becomes part of a KEY
-  (check-equal? (safe-id-part "IoTone/Telemachus") "iotone-telemachus")
-  (check-equal? (safe-id-part "../../etc") "etc")
-  (check-equal? (safe-id-part "") "x"))
+  (check-equal? (safe-key-part "IoTone/Telemachus") "iotone-telemachus")
+  (check-equal? (safe-key-part "../../etc") "etc")
+  (check-equal? (safe-key-part "") "x"))
 
 (test-case "ISO-8601 in, epoch out, and back"
   (check-equal? (iso8601->epoch "1970-01-01T00:00:00Z") 0)

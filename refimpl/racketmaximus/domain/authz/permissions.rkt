@@ -186,7 +186,7 @@
    "audit:read"     "Read the audit trail."
    "chat:use"       "Talk to the model: chat, the agent, translation, AI tools. Metered."
    "tools:invoke"   "Call tools from the agent or a workflow step; each tool then checks its own permission."
-   "research:use"   "Use the research surfaces."
+   "research:use"   "Bookmark a URL and keep an archived copy of the page behind it. Also required, with chat:use, to ask a question of what has been collected — this one is about the surface, that one about the model spend, so a team may have the archive without the answers."
    "documents:read"   "Read text documents."
    "documents:write"  "Create and edit text documents."
    "documents:delete" "Delete text documents."

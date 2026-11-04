@@ -371,11 +371,19 @@ owner's. Nothing below slice 2 should be started on a guess.
 
 ## The build plan
 
-1. **The bookmark** — migration `research_sources`, `research_fetch`, three
-   routes behind `research:use`, and the `UNREACHABLE-BY-DESIGN` entry deleted.
-   Verifiable without a model: the archive, the re-fetch as a new version, the
-   dedup, the `'untrusted` refusal of private address space. The egress refusals
-   are the cases to write first.
+1. ~~**The bookmark**~~ — **BUILT, 4 Nov 2026.** Migration
+   `0071-research-sources`, `domain/research/research.rkt`,
+   `server/api/research.rkt`, FIVE routes behind `research:use` (the plan said
+   three; a row nobody can delete is a defect), and the
+   `UNREACHABLE-BY-DESIGN` entry deleted. Verified without a model, as the plan
+   said it could be: the archive, the re-fetch as a new version of the same key,
+   the dedup, and the `'untrusted` refusal of private address space — the egress
+   refusals written first, and they are what turned up the one thing the plan did
+   not anticipate. **`'untrusted` refuses every address a test can listen on**,
+   and the allowlist belongs to `'trusted`, so the store path is reached through
+   a `#:fetch` seam that defaults to the real fetcher while the egress cases pass
+   no seam at all. RG‑15…22 in `decisions.md` record what that and six other
+   questions were decided as.
 2. **The distillation** — a `distil-bookmarks` workflow over tools that already
    exist. No new tool but `research_list_stale`. The graph fills by itself.
 3. *(the fork — RG‑14)* **either** the neighbourhood drawing and a bookmarks
@@ -387,6 +395,12 @@ owner's. Nothing below slice 2 should be started on a guess.
    described mechanism and not a demonstrated improvement, and the documentation
    should say exactly that. CHUNK‑10 is the precedent: the hypothesis was sound
    and the measurement disconfirmed it.
+
+**Slice 1 is merged, so what #191 asked for first is answered**: a bookmarked URL
+is fetched, archived under its own repository key, re-fetchable into new versions
+of that same key, and picked up with no further work by keyword search,
+`?semantic=1`, `repo_retrieve`, the knowledge graph and the document pipeline.
+Slice 2 is the distillation and needs no decision from slice 3 either.
 
 Slices 1 and 2 are independently useful and need no decision from slice 3: an
 archived, searchable, extracted set of bookmarked pages with per-version

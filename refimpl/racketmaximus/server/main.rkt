@@ -153,6 +153,7 @@
          "api/webhooks.rkt"
          "api/mail.rkt"
          "api/feeds.rkt"
+         "api/research.rkt"
          "api/annotations.rkt"
          "api/localization.rkt"
          "api/orgs.rkt"
@@ -346,6 +347,13 @@
    'feeds-list ep-feeds-list 'feeds-create ep-feeds-create 'feed-get ep-feed-get
    'feed-patch ep-feed-patch 'feed-delete ep-feed-delete 'feed-probe ep-feed-probe
    'feed-poll ep-feed-poll
+   ;; #191 slice 1: the research archive. A bookmarked URL, fetched `'untrusted`
+   ;; (RG-3 — the first URL an ordinary MEMBER makes this server fetch) and
+   ;; stored as a new version of one repository key, which is the whole of the
+   ;; permanence answer RG-2 found already built.
+   'research-list ep-research-list 'research-create ep-research-create
+   'research-get ep-research-get 'research-delete ep-research-delete
+   'research-fetch ep-research-fetch
    ;; #65: a region a person marked. LAY-5's spans are where a machine says it
    ;; read something; these are what somebody said about a place.
    'repo-form-fields ep-repo-form-fields

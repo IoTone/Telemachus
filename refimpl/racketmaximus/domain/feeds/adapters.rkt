@@ -23,11 +23,13 @@
 (require json racket/string racket/list racket/date net/url
          (only-in "../sched/scheduler.rkt" current-plugin plugin-kind-prefix))
 
+(require (only-in "../repo/keyparts.rkt" safe-key-part))
+
 (provide (struct-out feed-adapter) (struct-out feed-item)
          register-feed-adapter! unregister-feed-adapter!
          feed-adapter-for feed-adapter-kinds registered-feed-adapters feed-adapters-of-plugin
          canonical-json iso8601->epoch epoch->iso8601
-         FEED-ITEM-FIELDS safe-id-part link-rel query-set)
+         FEED-ITEM-FIELDS safe-key-part link-rel query-set)
 
 ;; `prepare` : (feed-row cursor-or-#f) -> (values url extra-headers)
 ;;   the FIRST request of a poll. The cursor is this instance's own string (see
@@ -153,16 +155,12 @@
 ;; from (a repository name, a project slug) are somebody else's strings. So they
 ;; are reduced to the key vocabulary rather than trusted — blobs.rkt's rule for a
 ;; digest, and the reason `..` is the whole point.
-(define (safe-id-part s)
-  (define t (string-downcase (format "~a" s)))
-  (define cleaned (regexp-replace* #px"[^a-z0-9._-]+" t "-"))
-  ;; Dots are kept INSIDE (a source's `v1.2` is a legitimate id) and trimmed at
-  ;; the EDGES, because `valid-key?` refuses a segment that is exactly `.` or
-  ;; `..` and a leading dot is how that happens — `../../etc` arriving as a
-  ;; repository name is the case this is written for.
-  (define collapsed (regexp-replace* #px"-{2,}" cleaned "-"))
-  (define trimmed (regexp-replace* #px"^[-.]+|[-.]+$" collapsed ""))
-  (if (string=? trimmed "") "x" (substring trimmed 0 (min 64 (string-length trimmed)))))
+;;
+;; THE RULE ITSELF MOVED when #191's research archive became its second asker:
+;; `safe-key-part` in `domain/repo/keyparts.rkt` is the one home, re-exported
+;; here so an adapter still has it to hand. ONE NAME, not two — these are not
+;; `nz`/`nz/false`/`nz/string`, which earned three names by being three
+;; functions; this is one function with two callers.
 
 ;; REPLACE a query parameter rather than appending one. The operator's URL may
 ;; carry `?state=all&labels=bug`, which must survive — while a `since` they typed

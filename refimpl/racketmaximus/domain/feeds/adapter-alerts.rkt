@@ -108,7 +108,7 @@
      ;; firing instant, so an alert without it is still stored once.
      (define updated (let ([v (hash-ref a 'updatedAt #f)]) (and (string? v) v)))
      (feed-item
-      (format "~a-~a" (safe-id-part fp) start-epoch)
+      (format "~a-~a" (safe-key-part fp) start-epoch)
       (let ([summary (annotation a 'summary)])
         (cond
           [(not (string=? summary "")) (format "~a: ~a" (if (string=? name "") "alert" name) summary)]

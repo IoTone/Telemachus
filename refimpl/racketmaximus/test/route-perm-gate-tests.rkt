@@ -285,7 +285,6 @@
    "inbox:write"     "enforced by plugins/inbox routes, which the core ROUTES walk does not see (pinned in test/inbox-tests.rkt)"
    "memory:read"     "no memory subsystem is built"
    "memory:write"    "no memory subsystem is built"
-   "research:use"    "no research surface is built; chat:use gates the model paths"
    "models:serve"    "no inbound model-serving surface is built; executors are configured, not served"
    ;; The company plane uses its OWN tier (`org:read` / `org:manage`) rather than
    ;; the team-tier permission a company admin also happens to hold — see the

@@ -132,7 +132,7 @@
      (define name (status-name st))
      (define monitor (format "~a" mon))
      (feed-item
-      (format "~a-~a" (safe-id-part monitor) epoch)
+      (format "~a-~a" (safe-key-part monitor) epoch)
       (format "monitor ~a ~a at ~a" monitor (if (string=? name "") "changed" name) (epoch->iso8601 epoch))
       ;; The monitor id rides INSIDE the payload as well as in the id, because
       ;; the response keys the list by it and the item alone does not say which

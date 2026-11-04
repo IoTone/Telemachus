@@ -46,7 +46,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `org:read-data` | org | 会社内のすべてのチームにわたり、チームに公開されたノート・文書・検索結果を読む（TEN-2h）。非公開のものは対象外；書き込み不可；AI 利用不可。org_reader ロールが保持します。 |
 | `quota:manage` | team | クォータを設定する。 |
 | `quota:read` | team | クォータを見る。 |
-| `research:use` | team | リサーチ機能を使う。 |
+| `research:use` | team | URL をブックマークし、そのページの保存コピーを残す。収集したものに質問するには chat:use と併せて必要となる。こちらは機能そのもの、あちらはモデル利用量についての権限なので、回答機能なしでアーカイブだけを使うこともできる。 |
 | `reviews:decide` | team | レビュー待ちの項目を、理由を添えて承認・差し戻し・却下する。 |
 | `reviews:read` | team | チームのレビューキューと、記録済みの判断を見る。 |
 | `roles:manage` | team | チーム定義の役割のための予約。v1 には含まれません — 組み込みの4つの役割が語彙です。付与されますが、まだ参照されていません。 |

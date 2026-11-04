@@ -196,7 +196,7 @@
       ;; construction, stable across revisions, and it is what a person types
       ;; into a search box — unlike GitHub's issue number, there is nothing to
       ;; compose it with and nothing it can collide against.
-      (safe-id-part id)
+      (safe-key-part id)
       (if (string=? desc "")
           id
           (format "~a ~a" id (first-sentence desc)))
