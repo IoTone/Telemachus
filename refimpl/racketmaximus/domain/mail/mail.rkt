@@ -72,7 +72,8 @@
          mail-enqueue! mail-notify! mail-deliver-due! mail-deliver-one!
          mail-deliveries mail-delivery-get mail-redeliver!
          ;; the three transactional messages
-         mail-enqueue-verification! mail-enqueue-password-reset! mail-send-test!
+         mail-enqueue-verification! mail-enqueue-password-reset!
+         mail-enqueue-invitation! mail-send-test!
          ;; composition, exported FOR the tests: what a message SAYS is the half
          ;; worth asserting without a mail server, and it is where the
          ;; never-content rule either holds or does not
@@ -116,7 +117,7 @@
 ;; way to lock yourself out, permanently, from a screen that does not warn you.
 ;; So the categories are not consulted, and the console says so where somebody
 ;; turns the last one off.
-(define TRANSACTIONAL-CATEGORIES '("verify" "test" "reset"))
+(define TRANSACTIONAL-CATEGORIES '("verify" "test" "reset" "invite"))
 
 (define (category? c) (and (member c MAIL-CATEGORIES) #t))
 
@@ -513,6 +514,48 @@
      "\n"))
   (mail-enqueue! conn #:recipient address #:category "reset"
                  #:subject "Reset your TMach password"
+                 #:body body #:user user))
+
+;; AN INVITATION (INVITE-1…6).
+;;
+;; IT NAMES THE TEAM AND THE PERSON WHO SENT IT, which is the ONE place this
+;; subsystem's "ids, a status and a link — never content" rule is relaxed, and
+;; the relaxation is the point rather than an exception squeezed through. MTX-8
+;; exists because a notification goes to somebody who may hold no `can?` on its
+;; subject; an invitation goes to somebody being ASKED TO JOIN, and a message
+;; that will not say by whom or to what is one a careful person is right to
+;; discard as phishing. So the team's display name and the inviter's are in it,
+;; and nothing else is: no document, no run, no other member's name.
+;;
+;; THE LINK IS `/activate?token=`, WHICH ALREADY EXISTED and already strips its
+;; own token from the address bar. It is not the `?reset_token=` shape because
+;; that one lands on the sign-in screen and this one lands on a screen that asks
+;; for a password and a confirmation — a different question, with a route of its
+;; own since hosted onboarding.
+(define (mail-enqueue-invitation! conn #:user user #:address address #:token token
+                                  #:team-name team-name #:inviter inviter
+                                  #:ttl-hours [ttl-hours 72])
+  (define base (transport-base-url conn))
+  (define link (and base (format "~a/activate?token=~a"
+                                 (string-trim base "/" #:left? #f) token)))
+  (define days (max 1 (quotient ttl-hours 24)))
+  (define body
+    (string-join
+     (append
+      (list (format "~a has invited you to join ~a on TMach." inviter team-name)
+            "" "Follow this link to choose a password and sign in."
+            (format "It works once, and stops working in ~a."
+                    (if (= days 1) "a day" (format "~a days" days)))
+            "")
+      (if link
+          (list link "")
+          (list "Use this code on the sign-in screen:" token ""))
+      (list "If you were not expecting this, ignore this message. No account is"
+            "created for you until you follow the link."
+            "" "— TMach"))
+     "\n"))
+  (mail-enqueue! conn #:recipient address #:category "invite"
+                 #:subject (format "~a invited you to join ~a on TMach" inviter team-name)
                  #:body body #:user user))
 
 ;; THE TRANSPORT TEST IS SYNCHRONOUS AND STORES ONLY THE OUTCOME — #85's ping,

@@ -3077,6 +3077,80 @@ refute "email: a team's view has no confirmation message" "$TEAMV" '"category":"
 assert "email: the operator's view does"                 "$MD" '"category":"verify"'
 assert "email: …and the transport test"                  "$MD" '"category":"test"'
 
+echo "== email: onboarding by address (an invitation) =="
+# The username form is UNCHANGED and is what every other block in this file
+# uses; an `email` is what asks for an invitation instead.
+: > "$MS_OUT"
+INV=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' -d '{"email":"nils@example.test","role":"member"}')
+assert "invite: the account is created"         "$INV" '"invited":true'
+assert "invite: …as invited, so it cannot sign in yet" "$INV" '"status":"invited"'
+assert "invite: …and a message is queued"       "$INV" '"queued":true'
+assert "invite: the username defaults to the address" "$INV" '"username":"nils@example.test"'
+# INVITE-1: NO TOKEN COMES BACK. The username form hands the CALLER a `*:*`
+# session for somebody else's account; an invitation must not, because the
+# invitee proves the mailbox and chooses their own password.
+refute "invite: the reply carries no session token"    "$INV" '"token":"tk_'
+assert "invite: …and no activation token either"       "$INV" '"activation_token":null'
+NILS_ID=$(printf '%s' "$INV" | grep -oP '"user_id":\s*"\K[^"]+')
+
+if mail_wait "To: nils@example.test"; then ok "invite: the invitation really arrived"
+else bad "invite: no invitation arrived"; fi
+IBODY=$(mail_body "nils@example.test")
+# The ONE place this subsystem relaxes "ids, never content": an invitation that
+# will not say who sent it or what it is for is one a careful person is right to
+# discard as phishing.
+assert "invite: it names the inviter"  "$IBODY" 'alice'
+assert "invite: …and the team"         "$IBODY" 'Default'
+assert "invite: …and says it is safe to ignore" "$IBODY" 'No account is'
+
+# The account cannot sign in before it is accepted: `authenticate` admits
+# `status = 'active'` alone.
+refute "invite: an unaccepted invitation cannot sign in" \
+  "$(curl -s -X POST $B/api/login -H 'Content-Type: application/json' \
+     -d '{"username":"nils@example.test","password":"anything-at-all"}')" '"token"'
+
+ITOK=$(printf '%s' "$IBODY" | grep -oP 'activate\?token=\K[^#[:space:]]+' | head -1)
+if [ -n "$ITOK" ]; then ok "invite: the message carries an activation token"
+else bad "invite: no activation token in the message"; fi
+ACC=$(curl -s -X POST $B/api/activate -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$ITOK\",\"password\":\"nils-password-1\"}")
+assert "invite: accepting it signs the invitee in" "$ACC" '"token"'
+NILS=$(printf '%s' "$ACC" | grep -oP '"token":\s*"\K[^"]+')
+assert "invite: …and the account is active now" \
+  "$(curl -s -X POST $B/api/login -H 'Content-Type: application/json' \
+     -d '{"username":"nils@example.test","password":"nils-password-1"}')" '"token"'
+# INVITE-4: receiving the link WAS the proof, so the address is verified and
+# nothing is left pending — one message did both jobs.
+NPREF=$(curl -s $B/api/email-prefs -H "Authorization: Bearer $NILS")
+assert "invite: the address is verified by the redemption" "$NPREF" '"address":"nils@example.test"'
+refute "invite: …with nothing left pending"                "$NPREF" '"pending":"nils@example.test"'
+
+# A duplicate is a 409 and never a 500 carrying the INSERT (#123).
+assert "invite: inviting the same address again is a 409" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/members -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"email":"nils@example.test","role":"member"}')" '409'
+assert "invite: a malformed address is refused" \
+  "$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"email":"not-an-address","role":"member"}')" 'error'
+
+# INVITE-6: sending it again, and the refusal once it has been accepted.
+: > "$MS_OUT"
+INV2=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' -d '{"email":"olga@example.test","role":"viewer"}')
+OLGA_ID=$(printf '%s' "$INV2" | grep -oP '"user_id":\s*"\K[^"]+')
+RS=$(curl -s -X POST $B/api/members/$OLGA_ID/invite -H "Authorization: Bearer $OP")
+assert "invite: it can be sent again"      "$RS" '"queued":true'
+refute "invite: …and still hands back no token" "$RS" '"activation_token":"tk_'
+# On an ACTIVE account this would mint a link that sets a password, which is a
+# password reset — and that has its own route, throttle and horizon.
+assert "invite: resending to an accepted member is refused" \
+  "$(curl -s -X POST $B/api/members/$NILS_ID/invite -H "Authorization: Bearer $OP")" \
+  'already accepted'
+assert "invite: resending needs members:manage" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/members/$OLGA_ID/invite \
+     -H "Authorization: Bearer $VERA")" '403'
+
 echo "== email: a password reset, end to end =="
 # A USER OF THIS BLOCK'S OWN, and that is not tidiness: a reset REVOKES EVERY
 # SESSION, so running it on alice would invalidate `$OP` and break the two

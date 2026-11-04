@@ -264,6 +264,7 @@
    'bootstrap ep-bootstrap 'provision ep-provision 'activate ep-activate
    'password-reset-request ep-password-reset-request
    'password-reset-confirm ep-password-reset-confirm
+   'member-resend-invite ep-member-resend-invite
    'tenant-suspend (lambda (req) (ep-tenant req suspend!))
    'tenant-resume (lambda (req) (ep-tenant req resume!))
    'instance-quota ep-instance-quota

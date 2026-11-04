@@ -15,6 +15,7 @@
          "../db/id.rkt"
          "../authz/authz.rkt"       ; create-user!/create-team!/add-member!/seed-builtin-roles!/set-password!/issue-token!/first-team-for/audit!
          "../authz/mailed-tokens.rkt" ; mint-mailed-token!/claim-mailed-token! — the ONE rule for a token we mail
+         (only-in "../mail/addresses.rkt" address-verify-by-redemption!)
          "../quota/quota.rkt")      ; set-limit!
 
 (provide provision! activate! suspend! resume! team-suspended?
@@ -96,6 +97,13 @@
      (set-password! conn uid pw)
      (query-exec conn "UPDATE users SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?" uid)
      (query-exec conn "UPDATE provisioning SET status = 'activated', updated_at = CURRENT_TIMESTAMP WHERE owner_user_id = ?" uid)
+     ;; RECEIVING THE LINK PROVED THE MAILBOX (INVITE-4), so a pending address is
+     ;; promoted here and the invitation needs no second confirmation message.
+     ;; THIS IS THE ONE CALLER, and it is the condition that function states: a
+     ;; token minted for this user has just been spent, one line above. A person
+     ;; with nothing pending is left alone, which is every activation on an
+     ;; instance with no mail.
+     (address-verify-by-redemption! conn uid)
      (define tid (first-team-for conn uid))
      (define tok
        (and (not (has-second-factor? conn uid))

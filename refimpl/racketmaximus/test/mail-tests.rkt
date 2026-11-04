@@ -32,6 +32,10 @@
          "../domain/mail/mail.rkt"
          (only-in "../domain/repo/blobs.rkt" current-blob-root)
          (only-in racket/file make-directory*)
+         (only-in racket/system system*/exit-code)
+         (only-in racket/port open-output-nowhere)
+         (only-in racket/file make-temporary-file)
+         openssl
          "mock-smtp.rkt")
 
 ;; EVERY HELPER IS DEFINED BEFORE ITS FIRST USE, and that is not style: a helper
@@ -606,3 +610,97 @@
   (check-equal? (length (mail-deliveries c #:team tid)) 1)
   (check-equal? (length (mail-deliveries c)) 2 "the operator's view has both")
   (close-db! c))
+
+;; ---- the TLS branches, which NOTHING exercised (MAIL-9) ---------------------
+;;
+;; `mail-tests.rkt` has said so since the slice landed: both are the same
+;; `smtp-send-message` call with a different connector argument, and driving
+;; either end to end needs a certificate the mock has to be given —
+;; `mock-tls-encode` was the hook and nothing called it. Most real deployments
+;; use STARTTLS on 587, so it was the one branch that mattered most and was
+;; covered least. The LibreOffice branch's rule, closed.
+;;
+;; WHAT THESE CASES ESTABLISH, stated precisely, because the measurement is more
+;; interesting than the coverage: the handshake really happens and the session
+;; survives it in BOTH modes, AND **the client does not verify the relay's
+;; certificate**. That second half is not an assumption — a self-signed
+;; certificate the mock mints for itself is ACCEPTED, which is only possible
+;; with verification off, and `net/smtp` is where it comes from: it calls the
+;; encoder with `#:mode 'connect #:encrypt 'tls #:close-original? #t` and NO
+;; `#:context`, so the default client context answers and that one does not
+;; verify. The consequence is the honest one — TLS here defends against a
+;; passive listener on the path and NOT against an active machine-in-the-middle
+;; that can present any certificate. Making it verify is a behaviour decision
+;; (it would refuse the self-signed internal relay these deployments often run),
+;; so it is named rather than slipped in.
+
+(define PORT-STARTTLS 8950)
+(define PORT-TLS 8951)
+
+;; openssl is in the devShell. A box without it SKIPS AND SAYS WHICH BRANCH went
+;; unexercised, because a silent skip is how a path goes untested for a year —
+;; the S3 smoke's own lesson, which this file is not going to repeat.
+(define (self-signed!)
+  (define ssl (find-executable-path "openssl"))
+  (cond
+    [(not ssl) #f]
+    [else
+     (define d (build-path (find-system-path 'temp-dir)
+                           (format "tmach-mailtls-~a" (current-inexact-milliseconds))))
+     (make-directory* d)
+     (define key (build-path d "k.pem"))
+     (define crt (build-path d "c.pem"))
+     (define code
+       (parameterize ([current-output-port (open-output-nowhere)]
+                      [current-error-port (open-output-nowhere)])
+         (system*/exit-code ssl "req" "-x509" "-newkey" "rsa:2048" "-nodes"
+                            "-keyout" (path->string key) "-out" (path->string crt)
+                            "-days" "1" "-subj" "/CN=127.0.0.1")))
+     (and (zero? code) (file-exists? crt) (file-exists? key) (cons crt key))]))
+
+;; The server half of the handshake, for both modes. `ports->ssl-ports` in
+;; 'accept mode with a context carrying the certificate — which is exactly what
+;; the mock's STARTTLS arm has always handed off to.
+(define (accept-encoder crt key)
+  (lambda (in out)
+    (define ctx (ssl-make-server-context))
+    (ssl-load-certificate-chain! ctx crt)
+    (ssl-load-private-key! ctx key)
+    (ports->ssl-ports in out #:mode 'accept #:context ctx #:close-original? #t)))
+
+(define (tls-case label port security starttls? tls?)
+  (define pair (self-signed!))
+  (cond
+    [(not pair)
+     (printf "mail-tests: SKIPPED ~a — no openssl on PATH, so that branch went unexercised\n" label)]
+    [else
+     (define c (fresh))
+     (mock-clear!)
+     (parameterize ([mock-tls-encode (accept-encoder (car pair) (cdr pair))])
+       (start-mock-smtp! #:port port #:starttls? starttls? #:tls? tls?)
+       (configure! c #:port port #:security security)
+       (define-values (ok? err) (mail-send-test! c "tls@example.test"))
+       (stop-mock-smtp!)
+       ;; THE HANDSHAKE COMPLETED AND THE SESSION SURVIVED IT, which is the whole
+       ;; claim: a WHOLE message is in the mock's record, so MAIL FROM, RCPT TO,
+       ;; DATA, the body and the dot were all read through the encrypted ports —
+       ;; and in the implicit case the 220 itself was.
+       (check-true ok? (format "~a: ~a" label err))
+       (check-false err)
+       (define m (mock-last-message))
+       (check-true (mock-msg? m) (format "~a: a message was recorded" label))
+       (check-equal? (mock-msg-to m) (list "tls@example.test"))
+       (check-true (regexp-match? #px"Subject:" (mock-msg-data m))
+                   (format "~a: the headers survived the wrap" label)))
+     (close-db! c)]))
+
+(test-case "MAIL-9: STARTTLS really negotiates, and the session survives it"
+  ;; `net/smtp` REQUIRES the server to advertise STARTTLS in its EHLO reply and
+  ;; re-sends EHLO afterwards (RFC 3207 4.2), so this also exercises the mock's
+  ;; second greeting — and the advertisement must not be the FIRST line, which
+  ;; the client drops as flavour text.
+  (tls-case "starttls" PORT-STARTTLS "starttls" #t #f))
+
+(test-case "MAIL-9: implicit TLS really connects, with the wrap before the 220"
+  (tls-case "implicit tls" PORT-TLS "tls" #f #t))
+

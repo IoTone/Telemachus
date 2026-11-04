@@ -2183,6 +2183,111 @@ different connector argument, and driving either end to end needs a certificate
 the mock would have to be given; `mock-smtp.rkt` has the hook
 (`mock-tls-encode`) and nothing calls it. The LibreOffice branch's rule.
 
+## The transactional mail a service needs: a reset, and an invitation (RESET, INVITE)
+
+`domain/authz/mailed-tokens.rkt` (the token rules), `domain/accounts/reset.rkt`,
+`domain/accounts/invite.rkt`; migration `0070-token-purpose`; four routes.
+Decisions RESET‑1…12 and INVITE‑1…8.
+
+```sh
+raco test test/password-reset-tests.rkt test/invite-tests.rkt   # 33 cases, 13 controls
+bash test/server-smoke.sh                                        # the invite + reset blocks, 43 assertions
+```
+
+- **MOST OF IT ALREADY EXISTED AND WAS STUBBED OUT BECAUSE THERE WAS NO
+  TRANSPORT**, which is the finding rather than the work.
+  `POST /api/admin/users/:id/password`'s own route doc said *"there is no mail
+  transport to send a reset link"*; `users.status` has carried `'invited'` since
+  0006; `activation_tokens` has stored a peppered-HMAC token with an expiry and a
+  single-use marker since the same migration; and **`POST /api/activate` has been
+  a public, no-bearer "set this password" endpoint** since hosted onboarding. So
+  a reset is a composition — which is why reading what it would compose WITH came
+  first.
+- **TWO GATING DEFECTS IN `activate!`, FOUND BY READING IT RATHER THAN FROM A
+  FAILING TEST.** It bypasses `authenticate`, which is where TOTP is enforced, so
+  a mailed link redeemed through it mints a `*:*` session **with no second
+  factor** — a complete 2FA bypass for anybody who can read the mailbox. And its
+  `UPDATE users SET status = 'active'` is unconditional, with a
+  `provisioning … 'activated'` beside it, so on an account somebody SUSPENDED a
+  redemption is a **privilege restoration reachable from the mailbox**. Three
+  smaller ones: it revokes no session (#54's rule, and the case a reset exists
+  for is an account somebody else holds a session on), clears no login lock
+  (#116's way back from a lock is an operator, which is what this exists to stop
+  needing), and audits as `"activate"`, making a reset and an onboarding one
+  event in a chained, exported log.
+- **`purpose` IS NOT COSMETIC** (migration 0070). `mint-mailed-token!` retires a
+  user's prior unused token — right per purpose, wrong across them: asking for a
+  reset would silently retire a pending invitation, and accepting an invitation
+  would retire a reset link the same person had just asked for. And the two
+  redemptions are different WRITES, so a token must name which it authorizes.
+- **ONE ANSWER WHATEVER HAPPENED.** The domain reports `queued` / `no-transport`
+  / `unknown` and the endpoint flattens all three — `mail-send-test!`'s split, so
+  a test and the audit log can assert on the outcome and a stranger cannot ask
+  whether an address has an account. #117 closed a 168-ms TIMING oracle on that
+  question one route along; answering it in words would be worse, because it
+  needs no measurement. **The order inside the domain is load-bearing**: unknown
+  is decided BEFORE the transport is consulted, or removing the transport would
+  make the two distinguishable. What it costs is stated — a mistyped address is
+  answered identically, so the wording is conditional rather than a claim.
+- **TWO LIMITERS AND NEITHER IS THE LOGIN'S.** This endpoint makes the instance
+  SEND MAIL to an address a stranger typed, so it is an amplification primitive
+  aimed at a third party's mailbox as well as a guessing surface; 20 a minute is
+  far too generous. **The two 429s are deliberately identical**, or the throttle
+  becomes the oracle the body refuses to be.
+- **A RESET IS TRANSACTIONAL, AND HERE THAT IS A SECURITY PROPERTY.** The
+  preference layers let a person stop this instance mailing them, and a person
+  who turned every category off must still recover their account — otherwise a
+  preference screen is a way to lock yourself out permanently, from a screen
+  that does not warn you.
+- **AN INVITATION ANSWERS WITH NO TOKEN; the `username` form still does.**
+  `POST /api/members` mints a `*:*` session for the new account and hands it to
+  the CALLER — fine for a script, and not onboarding. An `email` in the body asks
+  for an invitation instead; the existing form is untouched because every
+  fixture, smoke block and demo here uses it. **With no transport the link comes
+  back once** so it can be handed over (`provision!`'s precedent): an invitation
+  nobody can act on is worse than one delivered by hand.
+- **REDEEMING THE INVITATION VERIFIES THE ADDRESS**, so no second confirmation is
+  sent — receiving the link is the same proof a verification token carries. The
+  pending address waits in `email_verifications` and is NEVER written to
+  `users.email` before it answers (MAIL‑5/PULL‑11e). `address-verify-by-redemption!`
+  **takes no token**, which is what makes it dangerous to export carelessly: the
+  caller asserts the proof already happened, so it has exactly one caller,
+  immediately after a token minted for that user has been spent.
+- **AN INVITATION NAMES THE INVITER AND THE TEAM; A RESET NAMES NOTHING.** The
+  one place this subsystem relaxes MTX‑8, and the relaxation is the point: a
+  message that will not say who sent it or what it is for is one a careful person
+  is right to discard as phishing. A reset goes to an address typed into a PUBLIC
+  endpoint, so it says only that somebody asked — which tells the holder all they
+  need and an attacker nothing they did not supply.
+- **STATED RATHER THAN IMPLIED: a reset is useless until somebody has a VERIFIED
+  address, and on an existing instance nobody has one** — `users.email` was NULL
+  on every row until the MAIL slice. The invitation is what fills it at scale;
+  existing members add one from the Usage tab. That is the honest reading of why
+  both halves had to land together.
+
+**Four traps paid again, all already in this file:**
+
+- **BACKTICKS INSIDE A DOUBLE-QUOTED BASH STRING ARE COMMAND SUBSTITUTION.** An
+  assertion label reading ``"invite: …as `invited`, so…"`` ran `invited` as a
+  command and printed with a hole in it. Recorded here for an `echo` heading
+  (`@fleet`); this was a label.
+- **`assert` IS A CASE-SENSITIVE `grep -F`.** A needle of `no account is` cannot
+  match `No account is` at the start of a sentence.
+- **A SMOKE ASSERTION CAN PASS AGAINST A STEP THAT FAILED.** "The address is
+  confirmed" grepped `/api/email-prefs` for the address — which that endpoint
+  reports as `pending` too, so it matched while the verification had not
+  happened. Assert `verified_epoch`, or refute the pending form beside it.
+- **THE TRANSPORT SENDS `Content-Transfer-Encoding: base64`**, so a grep over a
+  captured message finds neither the link nor a word of the prose. That read as
+  "no reset message arrived" while the message sat in the file, and two body
+  assertions beside it PASSED VACUOUSLY. `mail_body` in `server-smoke.sh` decodes
+  and the existing verification extractor is its second asker, not a second copy.
+- **DO NOT EDIT THE TREE WHILE A SUITE IS RUNNING.** A Postgres leg running in
+  the background read `addresses.rkt` mid-edit and failed with
+  `jsexpr->string: unbound identifier` plus a server that would not boot — which
+  reads exactly like a real defect in a module that compiles cleanly a minute
+  later. Both failures were the race and neither was real.
+
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 
 Built 22 Oct 2026 — the configuration half of the external-feed work, on top of

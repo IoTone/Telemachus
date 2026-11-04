@@ -14,7 +14,9 @@
          ;; issue #118: a person's own sessions
          ep-sessions-list ep-logout ep-session-revoke ep-sessions-revoke-others
          ;; the self-service way back in, which needed a mail transport to exist
-         ep-password-reset-request ep-password-reset-confirm)
+         ep-password-reset-request ep-password-reset-confirm
+         ;; onboarding by address, which is what a transport makes possible
+         ep-member-resend-invite)
 
 (require db-kit/portable
          json
@@ -24,6 +26,7 @@
          (only-in "../../domain/authz/passwords.rkt" kdf-name)
          (only-in "../../domain/beta/antispam.rkt" make-limiter limiter-allow?)
          "../../domain/accounts/reset.rkt"
+         "../../domain/accounts/invite.rkt"
          racket/string
          web-server/http
          (only-in "../../domain/authz/secretbox.rkt" secret-key-id secrets-enabled?)
@@ -194,6 +197,94 @@
                                               'username (vector-ref r 1)
                                               'role (vector-ref r 2))))))))
 
+;; The team's display name and the inviter's, for the message. An invitation that
+;; will not say who sent it or what it is for is one a careful person is right to
+;; throw away, which is the ONE place this subsystem relaxes "ids, never content"
+;; — see the composer.
+(define (team-display-name team-id)
+  (define v (query-maybe-value db-conn "SELECT name FROM teams WHERE id = ?" team-id))
+  (if (and v (not (sql-null? v))) (format "~a" v) "your team"))
+
+(define (person-display-name uid)
+  (define r (query-maybe-row db-conn "SELECT display_name, username FROM users WHERE id = ?" uid))
+  (cond
+    [(not r) "An administrator"]
+    [(and (not (sql-null? (vector-ref r 0))) (not (equal? (format "~a" (vector-ref r 0)) "")))
+     (format "~a" (vector-ref r 0))]
+    [else (format "~a" (vector-ref r 1))]))
+
+;; THE INVITATION ANSWERS WITH NO TOKEN (INVITE-1). The username form hands the
+;; CALLER a `*:*` session for somebody else's account, which is fine for a script
+;; and is not how a person is onboarded: the invitee proves the mailbox and
+;; chooses their own password. The one exception is an instance that cannot send
+;; mail, where the link comes back so it can be handed over — `provision!`'s
+;; precedent, and the alternative is an invitation nobody can act on.
+(define (invite-branch req p body email username role)
+  (define team (principal-team-id p))
+  (define addr (format "~a" email))
+  (define uname (if (and username (not (equal? (format "~a" username) ""))) (format "~a" username) addr))
+  (cond
+    [(invite-problem addr) => (lambda (m) (err m 400))]
+    ;; Usernames are instance-global (TEN-2b), so the check is not team-scoped —
+    ;; and the same 409 the username form answers, because #123 established that
+    ;; a duplicate must not reach the INSERT and become a 500 carrying the SQL.
+    [(query-maybe-value db-conn "SELECT id FROM users WHERE username = ?" uname)
+     (err "username already exists on this instance" 409)]
+    [else
+     (define res (call-with-values
+                  (lambda ()
+                    (invite-member! db-conn #:team team #:role role #:address addr
+                                    #:username username
+                                    #:inviter (principal-user-id p)
+                                    #:inviter-name (person-display-name (principal-user-id p))
+                                    #:team-name (team-display-name team)))
+                  list))
+     (define uid (car res))
+     (define outcome (cadr res))
+     (define link (caddr res))
+     (json-response
+      (hasheq 'user_id uid 'role role 'username uname 'status "invited"
+              'invited #t
+              'queued (eq? outcome 'queued)
+              ;; The note is what stops "no transport" reading as success — the
+              ;; verification endpoint's own posture.
+              'note (if (eq? outcome 'queued)
+                        "An invitation is on its way. The account cannot sign in until it is accepted."
+                        "This instance has no email transport configured, so nothing was sent. Hand this link over yourself; it is shown once.")
+              'activation_token (or link 'null))
+      #:code 201)]))
+
+;; Send it again (INVITE-6). Without it an expired invitation leaves somebody
+;; unreachable except through an operator's password reset, and re-posting the
+;; invitation is a 409 because the username now exists.
+(define (ep-member-resend-invite req id)
+  (define p (current-principal req))
+  (cond
+    [(not p) (unauthorized)]
+    [else
+     (require-perm db-conn p "members:manage")
+     (define res (call-with-values
+                  (lambda ()
+                    (resend-invitation! db-conn (format "~a" id)
+                                        #:inviter (principal-user-id p)
+                                        #:inviter-name (person-display-name (principal-user-id p))
+                                        #:team-name (team-display-name (principal-team-id p))))
+                  list))
+     (cond
+       [(equal? res '(#f)) (err "no such member" 404)]
+       [(equal? res '(not-invited))
+        ;; A REFUSAL RATHER THAN A CONVENIENCE: on an active account this would
+        ;; mint a link that sets a password, which is a password reset — and that
+        ;; has its own route, its own throttle, its own shorter horizon and an
+        ;; enumeration-safe answer. Offering it here would be a second way to do
+        ;; it with none of those.
+        (err "that member has already accepted — a password reset is the other route" 409)]
+       [(equal? res '(no-address)) (err "that invitation has no address to send to" 409)]
+       [else
+        (json-response (hasheq 'ok #t
+                               'queued (eq? (car res) 'queued)
+                               'activation_token (or (cadr res) 'null)))])]))
+
 (define (ep-add-member req)
   (define p (current-principal req))
   (cond
@@ -202,9 +293,16 @@
      (require-perm db-conn p "members:manage")           ; → localized 403 on failure
      (define body (read-json-body req))
      (define username (hash-ref body 'username #f))
+     (define email (hash-ref body 'email #f))
      (define role (hash-ref body 'role "member"))
      (cond
-       [(not username) (err "username required" 400)]
+       ;; AN `email` ASKS FOR AN INVITATION; its absence is today's behaviour,
+       ;; byte for byte. Every fixture, smoke block and demo in this tree creates
+       ;; members by username and is answered with a token, and a flag day for
+       ;; them buys nothing — so the two forms live side by side and the branch
+       ;; is one field.
+       [email (invite-branch req p body email username role)]
+       [(not username) (err "username or email required" 400)]
        ;; #123: this went straight to `create-user!`, so a username that exists
        ;; raised the UNIQUE violation and the dispatcher turned it into a 500
        ;; carrying the INSERT. `POST /api/org/members` has always checked first

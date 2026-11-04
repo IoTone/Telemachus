@@ -56,7 +56,14 @@
 (define (start-mock-smtp! #:port [port 8925]
                           #:fail [fail #f]
                           #:auth [auth #f]
-                          #:starttls? [starttls? #f])
+                          #:starttls? [starttls? #f]
+                          ;; #:tls? — IMPLICIT TLS, where `#:starttls?` is the
+                          ;; negotiated kind. The difference is only WHEN the
+                          ;; handshake happens: here it is before the 220, so the
+                          ;; wrap is at accept and the session never sees a
+                          ;; plaintext byte. Both go through `mock-tls-encode`,
+                          ;; so one certificate serves both.
+                          #:tls? [tls? #f])
   (define l (tcp-listen port 8 #t "127.0.0.1"))
   (set-box! *listener* l)
   (set-box! *accept*
@@ -72,7 +79,14 @@
            ;; with what it was testing.
            (thread (lambda ()
                      (with-handlers ([(lambda (_) #t) (lambda (_) (void))])
-                       (serve-session in out fail auth starttls?))
+                       (cond
+                         [tls?
+                          ;; Wrapped BEFORE the greeting, which is what implicit
+                          ;; TLS means. A failed handshake drops the session
+                          ;; silently, like any other session that raises.
+                          (define-values (sin sout) ((mock-tls-encode) in out))
+                          (serve-session sin sout fail auth starttls?)]
+                         [else (serve-session in out fail auth starttls?)]))
                      (close-ports in out)))
            (loop))))))
   port)

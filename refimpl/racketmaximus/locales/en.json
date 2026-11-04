@@ -220,8 +220,8 @@
       "hash": "c2df33ceb162743df308bbfbe7c46247c180df86"
     },
     "doc.route.post.api.members": {
-      "text": "Add a member to the caller's team with a role; returns the new member's first token.",
-      "hash": "c2e81fdfdb83e0915518a9c74ae921bf9375e74f"
+      "text": "Add somebody to the caller's team with a role, in one of two forms. With `username` it is unchanged: the account is created ACTIVE and the reply carries a `*:*` session token for it, which is right for a script and means the caller holds a credential for somebody else's account. With `email` it is an INVITATION: the account is created `invited` so it cannot sign in, the address is held pending rather than written to `users.email` (nothing is verified until it answers), a link is mailed, and the reply carries NO token — the invitee chooses their own password, and redeeming the link is what both activates the account and proves the address, so no second confirmation message is sent. `username` may be given alongside `email` when the username should not be the address; it defaults to the address. On an instance with no transport nothing is sent and the link comes back once so it can be handed over, which is the only honest answer — an invitation nobody can act on is worse than one delivered by hand.",
+      "hash": "b85d18e878cb0e8cda46df2dc2091be5e25ed413"
     },
     "ui.draftbudget": {
       "text": "AI budget: about {need} tokens needed, {left} remaining today — raise ai.tokens.total in Usage or the drafts will wait",
@@ -4114,6 +4114,10 @@
     "ui.qvarrivals": {
       "text": "Arrivals",
       "hash": "25ac4e592e552220c894ca6056f09a79c3430049"
+    },
+    "doc.route.post.api.members.id.invite": {
+      "text": "Send an invitation again. Only for a member who has not accepted yet: on an ACTIVE account this would mint a link that sets a password, which is a password reset — and that has its own route, its own throttle, its own shorter horizon and an answer that does not say whether the address has an account. Re-posting the invitation itself is a 409 because the username exists by then, so without this an expired invitation leaves somebody unreachable except through an operator. Re-claiming the address renews its expiry, and the older link stops working.",
+      "hash": "e5a935e6b50c16b0ffe9c14055e2ebd4aef27591"
     },
     "doc.perm.webhooks:manage": {
       "text": "Configure outbound webhooks.",
