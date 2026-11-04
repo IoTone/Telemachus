@@ -38,6 +38,8 @@
 ;; `executors.json`, and MAIL-3 is what keeps it that way. An operator pointing
 ;; this at `127.0.0.1:25` is the ordinary single-box deployment, not an attack.
 
+(require (only-in "../net/remote-detail.rkt" printable-text clip-text))
+
 (require db-kit/portable
          racket/string
          racket/list
@@ -146,13 +148,21 @@
 ;; lines" is a property every message wants; HOW MUCH of a value to keep is a
 ;; decision with a different number per caller, because 200 characters of a
 ;; relay's reply routinely cuts off the part that says why.
-(define (printable a)
-  (regexp-replace* #px"[\x00-\x1f\x7f]" (if (string? a) a (format "~a" a)) "?"))
+(define printable printable-text)
 
 ;; Bound a value for a message, saying that it was cut. A sentence that merely
 ;; stops is one a reader does not trust (SEC-8's rule for `provider-detail`).
-(define (clip s n)
-  (if (> (string-length s) n) (string-append (substring s 0 n) " … (cut)") s))
+;; SEC-12: BOTH BODIES MOVED to `domain/net/remote-detail.rkt`, which is now the
+;; one home for "somebody else's server's own words, made safe to put in a
+;; message that outliving the call makes a copy of". The names stay, because
+;; `addresses.rkt` and `server/api/mail.rkt` import `printable` from here and
+;; SMTP is the vocabulary they are reading. The pair in this file was the RIGHT
+;; one of the four spellings — `provider-detail` had the cap and not the
+;; control-character strip — so what moved is the answer, not a compromise
+;; between them. The suffix is the model seam's "… (truncated)" now rather than
+;; " … (cut)": one wording, and a dead-letter list that says the same thing
+;; whichever subsystem filled it.
+(define (clip s n) (clip-text s n))
 
 ;; ---- the configuration row ----------------------------------------------------
 (define COLS (string-append "id, host, port, security, username, password, from_address, from_name, "

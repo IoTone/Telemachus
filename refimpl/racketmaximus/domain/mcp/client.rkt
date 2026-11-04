@@ -10,6 +10,8 @@
 ;; teardown. Calls on one connection are serialized so concurrent agent requests
 ;; don't interleave.
 
+(require (only-in "../net/remote-detail.rkt" remote-detail))
+
 (require (only-in "../../config.rkt" impl-root) json
          racket/string
          racket/port
@@ -36,7 +38,16 @@
       (define resp ((mcp-conn-rpc c) (hasheq 'jsonrpc "2.0" 'id id 'method method 'params params) id secs))
       (cond
         [(not (hash? resp)) (error 'mcp "no/invalid response from ~a" method)]
-        [(hash-has-key? resp 'error) (error 'mcp "~a" (hash-ref (hash-ref resp 'error) 'message "error"))]
+        ;; SEC-12: a remote MCP server's own words, bounded and made printable.
+        ;; This is the asker SEC-8 found outside `provider-detail` and recorded
+        ;; as a refactor; the refactor turned up that `provider-detail` itself
+        ;; was missing the control-character half, so all four askers share both
+        ;; halves now. `error.message` rather than `error` because the field path
+        ;; is JSON-RPC's business and the bound is not.
+        [(hash-has-key? resp 'error)
+         (error 'mcp "~a" (remote-detail (let ([e (hash-ref resp 'error)])
+                                           (and (hash? e) (hash-ref e 'message #f)))
+                                         #:absent "the server refused and said nothing"))]
         [else (hash-ref resp 'result (hasheq))]))))
 
 (define (notify c method params)

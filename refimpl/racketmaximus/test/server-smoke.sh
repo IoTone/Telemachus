@@ -3431,6 +3431,30 @@ else
   echo "  note   'untrusted egress refuses every address this suite can listen on, which is"
   echo "  note   the policy working; the store path is test/research-tests.rkt's."
 fi
+echo "== redeem: a mailed token's redemption is throttled (SEC-13) =="
+# THIS BLOCK IS LAST, for the reason the reset-request throttle above is last: it
+# EXHAUSTS the per-address allowance for fifteen minutes, so no redemption after
+# it can succeed. 30 in fifteen minutes is generous on purpose — a shared NAT
+# means one bad actor can spend an office's allowance, and an onboarding day of
+# twenty people behind one address must not be locked out of activating — so
+# tripping it takes a loop rather than a handful of calls.
+#
+# Counted before this was written: the whole suite makes FIVE redemption calls,
+# well under the bound, which is why nothing earlier changes behaviour.
+RD_CODE=""
+for i in $(seq 1 40); do
+  RD_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/password-reset/confirm \
+    -H 'Content-Type: application/json' -d '{"token":"nope","password":"irrelevant1"}')
+  [ "$RD_CODE" = "429" ] && break
+done
+assert "redeem: repeated reset redemptions are throttled with a 429" "$RD_CODE" '429'
+# THE PROPERTY WORTH ASSERTING: one limiter for BOTH endpoints, because the
+# resource is one — the cost of a redemption attempt. Two budgets would be two
+# halves of one thing and would double what an attacker can spend. So activation
+# is already over the bound here with no loop of its own.
+assert "redeem: …and the activation endpoint shares that one bound" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/activate \
+      -H 'Content-Type: application/json' -d '{"token":"nope","password":"irrelevant1"}')" '429'
 
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail

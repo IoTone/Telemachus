@@ -19,7 +19,7 @@
 ;; through every one of those call sites to say the same thing. The pool is lazy,
 ;; so requiring this module costs nothing until a query runs.
 
-(provide (all-defined-out)
+(provide client-ip-of (all-defined-out)
          ;; re-exported so every handler keeps reaching them through kit
          (all-from-out "errors.rkt"))
 
@@ -161,6 +161,14 @@
 ;; issue #40: the identity headers are honoured only from a peer we trust — see
 ;; domain/authz/peer.rkt for what that means and why. A deployment behind a
 ;; trusted reverse proxy names it in TELEMACHUS_TRUSTED_HEADER_PEERS.
+;; SEC-13: ONE answer to "which address is calling", because that question must
+;; not be answered differently in two places — it decides a peer gate, an audit
+;; entry and a throttle. `"?"` rather than #f, so a caller composing a limiter
+;; KEY cannot silently key every unknown caller on the same `#f` by accident in
+;; one place and crash in another.
+(define (client-ip-of req)
+  (or (with-handlers ([exn:fail? (lambda (_) #f)]) (request-client-ip req)) "?"))
+
 (define (header-identity-allowed? req)
   (define ip (with-handlers ([exn:fail? (lambda (_) #f)]) (request-client-ip req)))
   (peer-trusted? ip (parse-peer-allowlist (tmach-env "TRUSTED_HEADER_PEERS"))))

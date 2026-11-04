@@ -1588,7 +1588,7 @@ formatting something in.** Four defects fixed, two standing examples corrected.
   enumeration — parameters, then refusals — which is what a threat model would
   have told us to do in a planned order.
 
-## The security sweep, third pass: the METHOD (SEC‑9…11) — **built 4 Nov 2026** (issue #186)
+## The security sweep, third pass: the METHOD (SEC‑9…13) — **built 4 Nov 2026** (issue #186)
 
 The first two passes were each ONE enumeration — the request-scoped parameters,
 then the refusals that quote a value — and each was chosen from the previous
@@ -1609,6 +1609,8 @@ open** — a public endpoint that redeems a mailed token with no throttle
 | 🔑 **SEC‑9** | `/derive`'s derivation warranted the READ and bounded NOTHING about the write — fixed, and the severity stated narrowly |
 | **SEC‑10** | The two surfaces that grow by accident are PINNED, so growing one cannot be silent |
 | **SEC‑11** | `style-src 'unsafe-inline'` re-priced by measuring the thing underneath it — declined, with the numbers |
+| **SEC‑12** | One rule with FOUR askers that did not agree — and the one outside the model seam had the answer |
+| **SEC‑13** | Redeeming a mailed token was free work for a stranger, on two public routes |
 
 - 🔑 **SEC‑9 — THE WRITE TARGET WAS UNCONSTRAINED, AND IT WAS MEASURED RATHER
   THAN SUPPOSED.** PULL‑9's rule is that *"a worker token is not a key to the
@@ -1677,14 +1679,71 @@ open** — a public endpoint that redeems a mailed token with no throttle
   turning up, which means the ENUMERATION is the thing to re-run rather than the
   attribute count.
 
-**What the three passes between them did NOT reach, and it is now a ranked list
-rather than a pile**: the `GET /api/i18n/catalog` cap (a decision about a public
-read the sign-in screen depends on, and the owner's), `provider-detail`'s fourth
-asker in `domain/mcp/client.rkt` (one home across two subsystems — a refactor),
-and throttling the two token-redemption endpoints (defence in depth at 192 bits,
-cheap now the limiter exists). The threat model's last section carries that list,
-which is the difference between an issue with leftovers and a document with a
-next step.
+
+- 🔑 **SEC‑12 — WRITING THE ONE HOME FOUND A BEHAVIOUR DIFFERENCE WORTH MORE THAN
+  THE DUPLICATION.** SEC‑8 made `provider-detail` the one home for the model,
+  embedding and transcription seams and recorded a fourth asker outside it —
+  `domain/mcp/client.rkt`, which formatted a remote MCP server's `error.message`
+  **whole** — as "a refactor rather than a security fix". It was not: doing the
+  refactor turned up a FIFTH spelling in another subsystem, and the three did not
+  agree. `provider-detail` **capped and did not strip control characters**;
+  `mail/transport.rkt`'s `clip` + `printable` capped **and** stripped them; the
+  MCP client did neither. **The mail pair was the right one**, and its own
+  comment said why — *"no forged log lines is a property every message wants"* —
+  which applies HARDEST to the model seam rather than least, because
+  `provider-detail`'s output becomes an exception message and so reaches a
+  **sealed `error` column AND stderr**, the copy #83 r4 names as the one most
+  likely to be read by a person. So a remote provider that put a CRLF and a
+  plausible-looking line in its own `error` string was writing into this
+  instance's container log. **Nothing had noticed because the three model seams
+  were compared against each other and the subsystem that had the answer was
+  never in the comparison.** `domain/net/remote-detail.rkt` is the one home, with
+  the two halves kept SEPARATE because they are two decisions: what is printable
+  has no knob, while how much to keep is a number with a different right answer
+  per caller — `transport.rkt`'s own recorded reason for not sharing a constant.
+  The field path stays the protocol's business (`resp.error` for an
+  OpenAI-compatible endpoint, `resp.error.message` for JSON‑RPC, a reply line for
+  SMTP); the bound and the printability are not. **Control characters are
+  REPLACED, not dropped**, because a value whose length changes silently cannot
+  be compared with what the far end claims it sent — and two different strings
+  would compare equal. Three controls, all three biting, one of them that very
+  rule.
+- **SEC‑13 — THE THROTTLE IS NOT REALLY ABOUT GUESSING THE TOKEN, AND SAYING SO
+  IS WHAT MAKES IT WORTH DOING.** The first pass recorded `POST /api/activate` as
+  unthrottled and priced it as defence in depth at 192 bits of
+  `crypto-random-bytes`, which is right about guessing. What the third pass
+  measured is that an unauthenticated caller could make this instance do
+  **unbounded peppered-HMAC and indexed-SELECT work** on a public route — the same
+  shape as the `GET /api/i18n/catalog` amplification the first pass left open —
+  and that a SECOND route of the same class (`POST /api/password-reset/confirm`)
+  arrived in between with nothing re-running the survey.
+  **ONE LIMITER FOR BOTH**, because the resource is one: the cost of a redemption
+  attempt. Two budgets would be two halves of one thing and would double what an
+  attacker can spend (LIVE‑IN's argument, in a throttle), and the smoke asserts
+  exactly that — activation is already over the bound with no loop of its own,
+  which only holds if the budget is shared. **Keyed on the address, because there
+  is nothing else**: the token IS the only other identifier and it is precisely
+  what an attacker varies. **Generous on purpose and the cost is stated**: a
+  shared NAT means one bad actor can spend an office's allowance, so 30 in
+  fifteen minutes rather than the login's tighter 20 a minute — a trade this
+  platform already accepts one route along. The window self-clears, so unlike
+  #116's account lock there is no state only an operator can clear and the way
+  back in cannot be closed by this. The clause is **FIRST** in both handlers, or
+  the cheap half would stay free. `client-ip-of` moved to `server/kit.rkt` with
+  three askers, because "which address is calling" decides a peer gate, an audit
+  entry and now a throttle, and two copies must never answer it differently.
+
+**THE RANKED LIST IS THE OUTPUT OF THE METHOD, AND TWO OF ITS FOUR ITEMS WERE
+CLOSED THE SAME DAY THEY WERE RANKED** — SEC‑12 and SEC‑13 above. Both had been
+recorded by an earlier pass as "a refactor" and "defence in depth", which were
+true descriptions and both wrong about the size of what was behind them: one hid
+a log-forging path into the container log, the other unbounded keyed-hash work
+for a stranger. **That is the argument for ranking leftovers in a document rather
+than leaving them at the end of an issue comment.** What remains is the
+`GET /api/i18n/catalog` cap, which is a decision about a public read the sign-in
+screen depends on and so is the owner's, and re-running the console
+interpolation enumeration whenever a renderer is added — which is what keeps
+SEC‑11's answer about `style-src` true rather than merely recorded.
 
 ## The measured performance sweep (PERF) — **built 30 Oct 2026** (issue #185)
 

@@ -2,7 +2,8 @@
 
 ;; #128 job 2: operator-facing variables are read through ONE accessor,
 ;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
-(require (only-in "../../config.rkt" tmach-env))
+(require (only-in "../net/remote-detail.rkt" remote-detail)
+         (only-in "../../config.rkt" tmach-env))
 
 ;; domain/ai/executor.rkt — the local-model executor (data plane). Calls an
 ;; OpenAI-compatible chat endpoint (llama-server / ollama / vLLM / …) configured
@@ -162,15 +163,15 @@
 ;; copies. A cap bounds the exposure without removing the diagnostic, which is
 ;; the trade a type name cannot make for a field whose text IS the answer.
 (define PROVIDER-DETAIL-MAX 400)
+;; SEC-12: the bound and the PRINTABILITY are one rule with four askers, and
+;; this one used to have only half of it. The output reaches an exception
+;; message, so it reaches a sealed `error` column AND stderr — the copy #83 r4
+;; names as the one most likely to be read by a person — which means a remote
+;; provider that put a CRLF and a plausible line in its own `error` string was
+;; writing into this instance's container log. `mail/transport.rkt` had the
+;; answer in another subsystem's vocabulary the whole time.
 (define (provider-detail resp)
-  (define e (hash-ref resp 'error #f))
-  (cond
-    [(not e) "no detail"]
-    [else
-     (define s (format "~a" e))
-     (if (> (string-length s) PROVIDER-DETAIL-MAX)
-         (string-append (substring s 0 PROVIDER-DETAIL-MAX) "… (truncated)")
-         s)]))
+  (remote-detail (hash-ref resp 'error #f) #:max PROVIDER-DETAIL-MAX))
 
 (define (transport-error-kind e)
   (define r (and (exn:fail:model-retryable? e) (exn:fail:model-retryable-reason e)))
