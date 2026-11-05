@@ -6874,7 +6874,7 @@ DATABASE_URL="postgres://…" raco test …                            # the sam
   been one enumeration — parameters, then refusals — and that is what a threat
   model would have told us to do in a planned order.
 
-## The security sweep, third pass: the METHOD (SEC‑9…11, issue #186)
+## The security sweep, third pass: the METHOD (SEC‑9…13, issue #186)
 
 `docs/design/threat-model.md` — ten surfaces, each with what is enforced, what is
 NOT, and when to re-read it — plus `test/threat-model-tests.rkt`, which fails
@@ -6884,6 +6884,8 @@ numbers.
 ```sh
 raco test test/threat-model-tests.rkt   # 4 cases, four controls, all biting
 raco test test/pull-tests.rkt           # 37 cases; SEC-9's two are controlled
+raco test test/requestlog-tests.rkt test/mcp-tests.rkt   # SEC-12, three controls
+bash test/server-smoke.sh               # the "redeem:" block LAST — it exhausts the allowance
 ```
 
 - **THE ARGUMENT FOR A METHOD IS A MEASUREMENT, NOT A PREFERENCE.** The public
@@ -6940,15 +6942,62 @@ raco test test/pull-tests.rkt           # 37 cases; SEC-9's two are controlled
   appearance of this shape, after a patch that did not apply at all and a `sed`
   whose replacement contained `{}`.
 
+- 🔑 **SEC‑12 — WRITING THE ONE HOME IS WHAT FOUND THE DEFECT, which is why it
+  was not the cosmetic refactor SEC‑8 ranked it as.** SEC‑8 left
+  `domain/mcp/client.rkt` recorded as `provider-detail`'s fourth asker, "a
+  refactor rather than a security fix". Doing it turned up a FIFTH spelling and
+  three that did not agree: `provider-detail` capped and did NOT strip control
+  characters; `mail/transport.rkt`'s `clip` + `printable` capped AND stripped
+  them; the MCP client did neither. **The mail pair was right, and its own
+  comment said why** — "no forged log lines is a property every message wants" —
+  which bites HARDEST on the model seam, because `provider-detail`'s output
+  becomes an exception message and so reaches a sealed `error` column AND stderr,
+  #83 r4's "copy most likely to be read by a person". **A provider that put a
+  CRLF and a plausible line in its own `error` string was writing into this
+  instance's container log.** Nothing had noticed because the three model seams
+  were only ever compared with each other and the subsystem holding the answer
+  was never in the comparison. `domain/net/remote-detail.rkt` is the one home,
+  with the halves SEPARATE because they are two decisions — what is printable has
+  no knob, how much to keep is a number with a different right answer per caller.
+  **Control characters are REPLACED, not dropped**: a value whose length changes
+  silently cannot be compared with what the far end claims it sent, and two
+  different strings would compare equal. The FIELD PATH stays the protocol's
+  business; the bound and the printability are not.
+- **SEC‑13 — THE THROTTLE IS NOT ABOUT GUESSING THE TOKEN, and saying so is what
+  makes it worth doing.** 24 bytes of `crypto-random-bytes` was never guessable,
+  which is how the first pass priced `/api/activate` and why it left it. What is
+  real is that an unauthenticated caller could make the instance do **unbounded
+  peppered-HMAC and indexed-SELECT work** on a public route — `i18n/catalog`'s
+  shape — and that a second route of the same class
+  (`POST /api/password-reset/confirm`) arrived in between with nothing
+  re-checking. **ONE limiter for both**, because the resource is one, and the
+  smoke asserts it by showing activation already over the bound with no loop of
+  its own, which only holds if the budget is shared. Keyed on the address,
+  because the token is the only other identifier and is exactly what an attacker
+  varies. **30 in fifteen minutes, generous on purpose, with the shared-NAT cost
+  stated** — an onboarding day of twenty people behind one address must not be
+  locked out — and the window self-clears, so unlike #116's lock there is no
+  state only an operator can clear. The clause is FIRST in both handlers, or the
+  cheap half stays free. `client-ip-of` moved to `server/kit.rkt` with three
+  askers: "which address is calling" decides a peer gate, an audit entry and now
+  a throttle, and two copies must never answer it differently.
+- **THE SMOKE'S THROTTLE BLOCK GOES LAST AND THE BUDGET WAS COUNTED FIRST.** It
+  exhausts the per-address allowance for fifteen minutes, so nothing after it can
+  redeem — the rule the reset-request throttle already follows. The whole suite
+  makes FIVE redemption calls, counted before the bound was chosen, which is why
+  30 changes nothing earlier.
+
 ### What three passes have NOT reached, ranked
 
-The threat model's last section carries this, which is the difference between an
-issue with leftovers and a document with a next step: the
-`GET /api/i18n/catalog` cap (a decision about a public read the sign-in screen
-depends on — the owner's); `provider-detail`'s fourth asker in
-`domain/mcp/client.rkt` (one home across two subsystems, a refactor); and
-throttling the two token-redemption endpoints (defence in depth at 192 bits,
-cheap now the limiter exists).
+**TWO OF THE FOUR WERE CLOSED THE SAME DAY THEY WERE RANKED** (SEC‑12, SEC‑13),
+and both had been recorded earlier as "a refactor" and "defence in depth" — true
+descriptions, both wrong about the size of what was behind them. That is the
+argument for ranking leftovers in a document rather than leaving them at the end
+of an issue comment. What is left: the **`GET /api/i18n/catalog` cap**, which is
+a decision about a public read the sign-in screen depends on and so is the
+owner's; and **re-running the console interpolation enumeration** whenever a
+renderer is added, which is what keeps SEC‑11's answer about `style-src` true
+rather than merely recorded.
 
 ## The measured performance sweep (PERF‑1…6, issue #185)
 

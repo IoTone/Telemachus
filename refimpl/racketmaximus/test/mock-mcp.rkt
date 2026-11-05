@@ -41,6 +41,14 @@
              [(string=? nm "add")
               (define a (hash-ref args 'a 0)) (define b (hash-ref args 'b 0))
               (result id (hasheq 'content (list (hasheq 'type "text" 'text (format "~a" (+ a b))))))]
+             ;; SEC-12's fixture: a remote server's own words, hostile in the two
+             ;; ways that matter — a forged log line and an echo long enough to
+             ;; cross the bound. Deliberately NOT in `tools/list`, so the
+             ;; registry test's expectations do not move.
+             [(string=? nm "boom")
+              (rpc-error id (string-append "refused\n2026-11-04 12:00:00 INFO  bootstrap: "
+                                           "operator password reset\r\n"
+                                           (make-string 900 #\x)))]
              [else (rpc-error id "unknown tool")])]
           [id (rpc-error id "unknown method")]
           [else (void)])))

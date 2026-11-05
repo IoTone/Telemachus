@@ -12,7 +12,9 @@ This is the method, and it earns its place by a measurement rather than by being
 asked for: **the public surface grew from 23 routes to 25 between the first pass
 and the third, and the two new ones are in the exact class the first pass had
 flagged and left open** — a public endpoint that redeems a mailed token with no
-throttle. Nothing re-ran the survey, because nothing said when to. A list of
+throttle. Nothing re-ran the survey, because nothing said when to. (SEC‑13 below
+closes both; the point of the measurement is that nothing would have gone looking
+for the second one, not that it stayed open.) A list of
 surfaces with a re-run condition is what turns "we looked once" into "we look
 when it changes", and `test/threat-model-tests.rkt` pins the two surfaces that
 grow by accident so an addition has to be a deliberate edit of this file — the
@@ -40,7 +42,8 @@ row says so; where it does not, it says that instead.
 |---|---|
 | **Assets** | the sign-in path, the instance's own identity and branding, the beta funnel and its prospect data, the bootstrap, and three endpoints that redeem a mailed token |
 | **Enforced** | `POST /api/login` is throttled per account AND per address, with the two 429s deliberately identical so the throttle is not the oracle the body refuses to be (#116–#118); the username/unknown-account timing oracle is closed by running the live KDF against a dummy hash on BOTH cheap paths, and the test is a RATIO rather than a millisecond bound (#117). `POST /api/beta/signup` has the funnel's own velocity caps, disposable check and dedup. `POST /api/bootstrap` is loopback-or-secret and first-run-only (#40/#41). Every response carries the baseline CSP, `nosniff`, `Referrer-Policy` and `X-Frame-Options`; HSTS only under `TMACH_TLS`. A 500 body is `{error, request_id}` with the message on stderr (#123) — including inside an SSE stream, which kept the leak for a year after #123 (SEC‑1). |
-| **NOT enforced** | **`POST /api/activate` and `POST /api/password-reset/confirm` have no throttle.** Both redeem a 24-byte `crypto-random-bytes` token, so this is defence in depth rather than a hole — and the second one ARRIVED AFTER the first pass recorded the first, which is the measurement this document exists because of. **`GET /api/i18n/catalog` is an unauthenticated amplification**: a tiny request for a whole catalog, uncapped. It must stay public, because the sign-in screen picks its language before anyone holds a token, so capping a public read is a decision rather than an oversight. |
+| **Also enforced (SEC‑13)** | **`POST /api/activate` and `POST /api/password-reset/confirm` are throttled**, by ONE limiter keyed on the address, because the resource is one — the cost of a redemption attempt — and two budgets would double what an attacker can spend. The honest reason is NOT guessing (24 bytes of `crypto-random-bytes` was never guessable): it is that an unauthenticated caller could make this instance do unbounded peppered-HMAC and indexed-SELECT work. Generous at 30 in fifteen minutes with the shared-NAT cost stated, and the window self-clears, so unlike #116's account lock there is no state only an operator can clear. |
+| **NOT enforced** | **`GET /api/i18n/catalog` is an unauthenticated amplification**: a tiny request for a whole catalog, uncapped. It must stay public, because the sign-in screen picks its language before anyone holds a token, so capping a public read is a decision rather than an oversight — and it is the one open item on this surface. |
 | **Re-run when** | a route gains `#:auth 'public`. The gate fails until this section and the pinned list are both edited. |
 
 ## Surface 2 — the worker token
@@ -137,7 +140,8 @@ enumeration above is the thing to re-run, not the attribute count.
 | | |
 |---|---|
 | **Enforced** | ONE fetcher (`domain/net/fetch.rkt`), `'untrusted` by DEFAULT so a caller that says nothing is safe, DNS resolved by name with the socket's real **peer** vetted before a byte is written, a byte cap, a timeout, a redirect cap with EVERY HOP re-vetted, credentials withheld off-origin, and the URL's query redacted on the way INTO the exception (FEED‑6). The policy attaches to **who chose the URL** (FEED‑4): a feed is operator-authored and may be `'trusted`; a bookmark is member-authored and has no `'trusted` mode at all, not even for an operator (RG‑3). A model request is logged with a KEYED digest of the prompt rather than a bare SHA‑256, which would make the table a confirmation oracle (RED‑18). `TMACH_REQUIRE_NO_CONTENT_LOGGING` refuses a hosted backend that has not declared itself, BEFORE the body is composed. A sensitivity label can refuse unredacted text per executor at two tiers (RED‑24). |
-| **NOT enforced** | text with no document is outside the sensitivity policy — a free prompt, the agent's tool results — because req 4 governs documents and any caller can paste content it read elsewhere. `domain/mcp/client.rkt` formats a remote server's `error.message` whole, outside `provider-detail`'s 400-character bound (recorded in SEC‑8, a refactor rather than a fix). |
+| **Also enforced (SEC‑12)** | a remote party's own words go through ONE home, `domain/net/remote-detail.rkt`, with BOTH halves: bounded at 400 characters saying it was cut, and made printable. Four askers — the model, embedding and transcription seams, the SMTP transport and the MCP client. Writing that home is what found the half `provider-detail` never had: its output becomes an exception message, so it reaches a sealed `error` column AND stderr, and a provider that put a CRLF in its own `error` string was writing into this instance's container log. |
+| **NOT enforced** | text with no document is outside the sensitivity policy — a free prompt, the agent's tool results — because req 4 governs documents and any caller can paste content it read elsewhere. |
 
 ## Surface 9 — data at rest
 
@@ -158,14 +162,23 @@ enumeration above is the thing to re-run, not the attribute count.
 Ranked by what the columns above actually say, not by novelty:
 
 1. **The `/api/i18n/catalog` cap** — the one open item on surface 1 that is a
-   decision rather than a measurement, and it is the owner's: capping a public
-   read that the sign-in screen depends on.
-2. **`provider-detail`'s fourth asker** — `domain/mcp/client.rkt`, one home
-   across two subsystems, which SEC‑8 identified and declined as a refactor.
-3. **Throttling the two token-redemption endpoints** — defence in depth at 192
-   bits, and cheap now that the limiter exists.
+   decision rather than a measurement, and **it is the owner's**: capping a
+   public read that the sign-in screen depends on before anyone holds a token.
+2. ~~**`provider-detail`'s fourth asker**~~ — **done, SEC‑12**, and it was not
+   the cosmetic refactor it was ranked as: the one home turned up a fifth
+   spelling and a disagreement, and the subsystem outside the comparison had the
+   right answer.
+3. ~~**Throttling the two token-redemption endpoints**~~ — **done, SEC‑13**, and
+   the reason changed in the doing: not guessing, which was never feasible, but
+   unbounded keyed-hash and database work for a stranger.
 4. **Re-run the console interpolation enumeration** when a renderer is added;
    that is what makes surface 7's answer about `style-src` still true.
+
+**That two of the four were done the same day they were ranked is the argument
+for ranking them.** Both had been recorded by an earlier pass as "a refactor" and
+"defence in depth" — true descriptions, and both wrong about the size of what was
+behind them. A list that says what is left and why is the thing that gets read;
+the leftovers at the end of an issue comment are not.
 
 And the standing instruction, which is the whole point of the file: when a
 surface grows, the gate fails. Edit the reasoning, not just the list.

@@ -9,7 +9,9 @@
 ;; constructors — is server/kit.rkt.
 
 (provide GOV quota-429 quota-hold-reason note-deferred! idem-key-of
-         with-idem)
+         with-idem
+         ;; SEC-13, plus the constants FOR test/token-redeem-tests.rkt
+         redeem-throttled? REDEEM-IP-MAX REDEEM-WINDOW)
 
 (require db-kit/portable
          json
@@ -18,7 +20,45 @@
          (only-in "../domain/quota/quota.rkt" quota-check window-bounds window-resets-at)
          (only-in "../domain/sched/governor.rkt" make-governor)
          (only-in "../domain/idem/idem.rkt" idem-fingerprint idem-lookup idem-store!)
+         (only-in "../domain/beta/antispam.rkt" make-limiter limiter-allow?)
          "kit.rkt")
+
+;; ---- SEC-13: redeeming a mailed token costs work, and it was free ---------------
+;; `POST /api/activate` and `POST /api/password-reset/confirm` are PUBLIC and each
+;; does a peppered HMAC and an indexed SELECT per call. The first security pass
+;; recorded the first of them as unthrottled and called it defence in depth at
+;; 192 bits of `crypto-random-bytes`, which is right about GUESSING — and the
+;; third pass measured that the SECOND one arrived afterwards, in the same class,
+;; with nothing re-running the survey. So this is not really about guessing a
+;; token; it is that an unauthenticated caller could make this instance do
+;; unbounded keyed-hash and database work, which is the same shape as the
+;; `GET /api/i18n/catalog` amplification the same pass left open.
+;;
+;; ONE LIMITER FOR BOTH, because the resource is one: the cost of a redemption
+;; attempt. Two budgets would be two halves of one thing and would double what
+;; an attacker can spend — LIVE-IN's argument, in a throttle.
+;;
+;; KEYED ON THE ADDRESS, because there is nothing else: the token IS the only
+;; other identifier, and keying on it is exactly what an attacker varies. In
+;; memory and per process for the reason `client-ip-of`'s own note gives — an
+;; address is a THROTTLE, so a restart clearing it costs nothing and an attacker
+;; changing address defeats it anyway, while an account LOCK is a control and
+;; needs a row.
+;;
+;; GENEROUS ON PURPOSE, AND THE COST IS STATED. A shared NAT means one bad actor
+;; can spend an office's allowance, so an onboarding day of twenty people behind
+;; one address must not be locked out of activating — which is why it is 30 in
+;; fifteen minutes rather than the login's 20 a minute, a trade this platform
+;; already accepts one route along and tighter. The window self-clears, so unlike
+;; #116's account lock there is no state only an operator can clear: the way back
+;; in cannot be closed by this.
+(define REDEEM-IP-MAX 30)
+(define REDEEM-WINDOW 900)
+(define redeem-ip-limiter (make-limiter))
+
+(define (redeem-throttled? ip)
+  (not (limiter-allow? redeem-ip-limiter ip (current-seconds)
+                       #:max REDEEM-IP-MAX #:window REDEEM-WINDOW)))
 
 ;; ---- AI jobs: RBAC → quota → governor slot → meter --------------------------
 (define GOV (make-governor))

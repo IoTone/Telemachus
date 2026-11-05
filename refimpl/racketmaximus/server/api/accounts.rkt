@@ -45,6 +45,7 @@
          (only-in "../../domain/help/helpsearch.rkt" help-available?)
          (only-in "../../domain/help/helpstore.rkt" help-locales)
          (only-in "../../domain/ai/executor.rkt" embed-configured?)
+         "../admission.rkt"
          "../kit.rkt")
 
 (define (ep-whoami req)
@@ -394,8 +395,10 @@
 ;; The audit log is this platform's record of who did what (DEL-7 keeps it
 ;; through an erasure, #84 r3 chains and exports it) and "who signed in, from
 ;; where" was absent from it entirely.
-(define (client-ip-of req)
-  (or (with-handlers ([exn:fail? (lambda (_) #f)]) (request-client-ip req)) "?"))
+;; SEC-13: MOVED to `server/admission.rkt`, which is where the throttle that
+;; needs it now lives and is required by both askers. One definition, because
+;; "which header do we believe about who is calling" is a question two copies
+;; must never answer differently.
 
 ;; The per-ADDRESS limiter is in memory and per process, deliberately, and the
 ;; per-ACCOUNT one (a row, migration 0049) is not. An address is a throttle: a
@@ -503,6 +506,11 @@
   (define tok (hash-ref body 'token #f))
   (define pw (hash-ref body 'password #f))
   (cond
+    ;; SEC-13, and it is FIRST on purpose: the point is that no keyed hash and no
+    ;; query happen for a caller over the bound, so a clause that validated the
+    ;; body first would leave the cheap half free.
+    [(redeem-throttled? (client-ip-of req))
+     (err "too many attempts from this address — wait a few minutes" 429)]
     [(not tok) (err "token required" 400)]
     [(reset-password-problem (and (string? pw) pw)) => (lambda (p) (err p 400))]
     [else

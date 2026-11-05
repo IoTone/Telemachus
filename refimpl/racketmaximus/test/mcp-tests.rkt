@@ -29,6 +29,34 @@
   (check-equal? (mcp-call-tool c "add" (hasheq 'a 40 'b 2)) "42")
   (mcp-close c))
 
+;; ---- SEC-12 (#186): a remote server's error is bounded and printable -------------
+;; SEC-8 recorded `domain/mcp/client.rkt` as `provider-detail`'s fourth asker and
+;; left it as a refactor. It was not only a duplication: this client formatted
+;; `error.message` WHOLE, and the model seam it was supposed to match turned out
+;; to be missing the control-character half as well — which `mail/transport.rkt`
+;; has had all along, with a comment saying "no forged log lines is a property
+;; every message wants".
+;;
+;; It matters here for the same reason it matters there: this message becomes an
+;; exception, which reaches a stored `error` column and stderr.
+(test-case "mcp: a remote server's error cannot forge a log line or fill the log"
+  (define c (mcp-connect "racket" (list (path->string mock))))
+  (define msg
+    (with-handlers ([exn:fail? (lambda (e) (exn-message e))])
+      (mcp-call-tool c "boom" (hasheq))
+      "the server did not refuse, so this case proved nothing"))
+  (mcp-close c)
+  (check-false (regexp-match? #rx"\n" msg)
+               "a newline in somebody else's error must not survive into a log line")
+  (check-false (regexp-match? #rx"\r" msg))
+  (check-true (< (string-length msg) 500)
+              (format "bounded; got ~a characters" (string-length msg)))
+  (check-true (and (regexp-match? #rx"truncated" msg) #t)
+              "and it says it was cut")
+  ;; …and the detail SURVIVES, because it is the operator's only diagnostic for a
+  ;; server that will not answer.
+  (check-true (and (regexp-match? #rx"refused" msg) #t)))
+
 (test-case "mcp registration: server tools land in the registry + dispatch via RBAC"
   (define cfg (make-temporary-file "tmx-mcp-~a.json"))
   (call-with-output-file cfg #:exists 'replace

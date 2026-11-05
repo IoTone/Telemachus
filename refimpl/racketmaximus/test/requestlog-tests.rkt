@@ -475,3 +475,33 @@
   (define short "model `qwen2.5:7b` not found")
   (check-equal? (provider-detail (hasheq 'error short)) short)
   (check-false (regexp-match? #rx"truncated" (provider-detail (hasheq 'error short)))))
+
+;; ---- SEC-12 (#186): …AND IT IS PRINTABLE, which it was not -----------------------
+;; The bound was half the rule and the half it had. `mail/transport.rkt` has
+;; carried the other half in SMTP's vocabulary the whole time, with a comment
+;; saying "no forged log lines is a property every message wants" — and it
+;; applies HARDEST here rather than least, because this string goes into an
+;; exception message, which reaches a sealed `error` column AND stderr: the copy
+;; #83 r4 names as the one most likely to be read by a person.
+;;
+;; So a provider that put a newline and a plausible-looking line in its own
+;; `error` string wrote into this instance's container log. Nothing had noticed
+;; because the three model seams were compared against each other and the one
+;; that had the answer was in another subsystem.
+(test-case "a provider cannot forge a log line through its own error string"
+  (define forged "invalid_api_key\n2026-11-04 12:00:00 INFO  bootstrap: operator password reset to hunter2")
+  (define out (provider-detail (hasheq 'error forged)))
+  (check-false (regexp-match? #rx"\n" out)
+               "a newline in somebody else's error string must not survive into a log line")
+  (check-false (regexp-match? #rx"\r" out))
+  ;; …and the TEXT is still there, because it is the operator's diagnostic. The
+  ;; control for the obvious wrong fix: dropping the characters instead of
+  ;; replacing them makes the length disagree with what the far end claims it
+  ;; sent, and makes two different strings compare equal.
+  (check-true (and (regexp-match? #rx"invalid_api_key" out) #t))
+  (check-equal? (string-length out) (string-length forged)
+                "replaced, not dropped — a value whose length changes silently cannot be compared"))
+
+(test-case "every control character goes, not only the ones in a newline"
+  (define out (provider-detail (hasheq 'error "a\u0000b\u001bc\u007fd")))
+  (check-equal? out "a?b?c?d"))

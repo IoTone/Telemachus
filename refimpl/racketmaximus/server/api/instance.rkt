@@ -24,6 +24,7 @@
          (only-in "../../domain/quota/quota.rkt" default-policy!)
          (only-in "../../domain/authz/crypto.rkt" constant-time=?)
          (only-in "../../surface/messages.rkt" msg-already-init msg-bootstrap-done)
+         "../admission.rkt"
          "../kit.rkt")
 
 ;; ---- endpoints --------------------------------------------------------------
@@ -107,6 +108,12 @@
   (define tok (hash-ref b 'token #f))
   (define pw (hash-ref b 'password #f))
   (cond
+    ;; SEC-13: the same bound as the reset redemption, from the same limiter,
+    ;; because the resource is one — the cost of a token-redemption attempt. The
+    ;; first security pass recorded this route as unthrottled; the third measured
+    ;; that its sibling had arrived in the meantime with nobody re-checking.
+    [(redeem-throttled? (client-ip-of req))
+     (err "too many attempts from this address — wait a few minutes" 429)]
     [(or (not tok) (not pw)) (err "token and password required" 400)]
     [(< (string-length (format "~a" pw)) 8) (err "password must be at least 8 characters" 400)]
     [else
