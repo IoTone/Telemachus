@@ -39,6 +39,7 @@
 ;; this at `127.0.0.1:25` is the ordinary single-box deployment, not an attack.
 
 (require (only-in "../net/remote-detail.rkt" printable-text clip-text))
+(require (only-in "../../config.rkt" tmach-env))
 
 (require db-kit/portable
          racket/string
@@ -61,7 +62,12 @@
          ;; exported FOR the tests: the header composition and the deadline are
          ;; the two halves worth asserting without a mail server, and an export
          ;; with a test behind it is not an over-wide export (#110 r4).
-         compose-message call-with-deadline exn:fail:mail? exn:fail:mail-permanent?)
+         compose-message call-with-deadline exn:fail:mail? exn:fail:mail-permanent?
+         ;; MAIL-27: one home for "what does verification mean", exported FOR the
+         ;; tests because driving a real handshake is the only way to establish
+         ;; that the two branches agree — and they are the two branches nothing
+         ;; exercised until this slice.
+         verifying-context make-starttls-encode make-tls-connect)
 
 ;; #19's seam. `#:credential`, NOT the content gate: ENC-23 found a live defect
 ;; where #85's `webhooks.secret` was declared through this macro's default seal,
@@ -167,7 +173,13 @@
 ;; ---- the configuration row ----------------------------------------------------
 (define COLS (string-append "id, host, port, security, username, password, from_address, from_name, "
                             "base_url, active, last_test_epoch, last_test_ok, last_test_error, "
-                            "updated_by, updated_epoch"))
+                            "updated_by, updated_epoch, "
+                            ;; APPENDED, so every existing `vector-ref` index in
+                            ;; `row->transport` and `transport-set!`'s read of the
+                            ;; stored password keeps its meaning. A column inserted
+                            ;; in the middle of this list is a silent off-by-one in
+                            ;; two functions, and the password is one of them.
+                            "verify_tls"))
 
 ;; THE PASSWORD IS NEVER IN A READ. `transport-ref` answers `has_password` and
 ;; nothing else — #19's rule for a token, and `webhook-list`'s. An operator who
@@ -186,7 +198,11 @@
           'last_test_ok (let ([v (vector-ref r 11)]) (if (sql-null? v) 'null (= 1 v)))
           'last_test_error (nz (vector-ref r 12))
           'updated_by (nz (vector-ref r 13))
-          'updated_epoch (vector-ref r 14)))
+          'updated_epoch (vector-ref r 14)
+          ;; REPORTED, which is the half that makes a default of `false` honest
+          ;; rather than quiet (RED-20's "undeclared" field): an operator can see
+          ;; that their TLS is unverified without reading this module.
+          'verify_tls (= 1 (vector-ref r 15))))
 
 (define (transport-row conn)
   (query-maybe-row conn (string-append "SELECT " COLS " FROM email_transport WHERE id = ?") TRANSPORT-ID))
@@ -224,7 +240,7 @@
 ;; mode: a setting that silently does nothing is how an operator concludes the
 ;; feature is broken — the call an unknown theme token, an unknown retention field
 ;; and an unknown feature all make.
-(define KNOWN-FIELDS '(host port security username password from_address from_name base_url active))
+(define KNOWN-FIELDS '(host port security username password from_address from_name base_url active verify_tls))
 
 (define (transport-problem doc)
   (cond
@@ -263,6 +279,18 @@
             "base_url must be an http(s) URL"))
      => values]
     [(let ([v (hash-ref doc 'active #t)]) (and (not (boolean? v)) "active must be true or false")) => values]
+    [(let ([v (hash-ref doc 'verify_tls #f)]) (and (not (boolean? v)) "verify_tls must be true or false")) => values]
+    ;; VERIFICATION WITH NO TLS IS REFUSED RATHER THAN STORED INERT (MAIL-28).
+    ;; With `security: "none"` there is no handshake to verify, so the field
+    ;; would be a setting that silently does nothing — the call the unknown
+    ;; field two clauses up makes, and the one an unknown theme token, an
+    ;; unknown retention field and an unknown feature all make. It also refuses
+    ;; the one ordering an operator could get wrong without noticing: turning
+    ;; verification on and the mode down to `none` in the same request.
+    [(and (hash-ref doc 'verify_tls #f)
+          (equal? (hash-ref doc 'security "starttls") "none")
+          "verify_tls needs TLS: set security to starttls or tls, or leave verify_tls off")
+     => values]
     [else #f]))
 
 ;; Read-modify-write of the whole row, with an ABSENT password leaving the stored
@@ -286,19 +314,22 @@
   (define args
     (list (f 'host) (f 'port) (hash-ref doc 'security "starttls") (f 'username)
           pw (f 'from_address) (f 'from_name) (f 'base_url)
-          (if (hash-ref doc 'active #t) 1 0) (or by sql-null) (now)))
+          (if (hash-ref doc 'active #t) 1 0)
+          (if (hash-ref doc 'verify_tls #f) 1 0)
+          (or by sql-null) (now)))
   ;; No ON CONFLICT: the dialects spell upsert differently and this is one row —
   ;; settings.rkt's own reason.
   (if cur
       (apply query-exec conn
              (string-append "UPDATE email_transport SET host = ?, port = ?, security = ?, username = ?, "
                             "password = ?, from_address = ?, from_name = ?, base_url = ?, active = ?, "
-                            "updated_by = ?, updated_epoch = ? WHERE id = '" TRANSPORT-ID "'")
+                            "verify_tls = ?, updated_by = ?, updated_epoch = ? WHERE id = '" TRANSPORT-ID "'")
              args)
       (apply query-exec conn
              (string-append "INSERT INTO email_transport (host, port, security, username, password, "
-                            "from_address, from_name, base_url, active, updated_by, updated_epoch, id) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '" TRANSPORT-ID "')")
+                            "from_address, from_name, base_url, active, verify_tls, updated_by, "
+                            "updated_epoch, id) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '" TRANSPORT-ID "')")
              args))
   (transport-ref conn))
 
@@ -430,6 +461,11 @@
   (when bad (mail-error! #t "~a: ~a" (clip (printable recipient) 200) bad))
   (define-values (hdr lines) (compose-message t recipient subject body #:message-id mid))
   (define security (hash-ref t 'security))
+  ;; `hash-ref` with a DEFAULT, not a bare lookup: `smtp-deliver!` is handed a
+  ;; transport hash and the unit suite builds one by hand, so a missing key here
+  ;; would make every such fixture raise rather than behave as the shipped
+  ;; default does.
+  (define verify? (and (hash-ref t 'verify_tls #f) #t))
   (define user (let ([u (hash-ref t 'username)]) (and (string? u) (not (string=? u "")) u)))
   (call-with-deadline secs 'smtp
     (lambda ()
@@ -448,6 +484,25 @@
          ;; message rather than from a structured status because `net/smtp` does
          ;; not surface one; the pattern is anchored at a word boundary so a
          ;; latency figure or a port number in the text cannot be read as a code.
+         ;; A FAILED CERTIFICATE VERIFICATION IS PERMANENT, AND IT HAS TO SAY
+         ;; WHOSE DECISION IT WAS (MAIL-31). Two things are wrong with letting it
+         ;; fall through to the clause below. It carries no SMTP code, so
+         ;; `permanent?` reads #f and the delivery is retried on the whole curve
+         ;; — ten identical handshake failures against a certificate that will
+         ;; never verify, which is the shape the 5xx/4xx split exists to avoid.
+         ;; And openssl's own text (`certificate verify failed`) is identical for
+         ;; an untrusted issuer and for a name that does not match, and says
+         ;; nothing about the switch that asked — so an operator who has just
+         ;; turned verification on reads it as the relay having broken. The
+         ;; detail is KEPT, bounded, with ours in front of it: SEC-8's line, and
+         ;; the same posture `provider-detail` takes for a gateway's reply.
+         [(lambda (e) (and (exn:fail? e) verify? (certificate-failure? (exn-message e))))
+          (lambda (e)
+            (mail-error! #t (string-append
+                             "the relay's TLS certificate was not accepted, and verify_tls is on "
+                             "— trust it with TMACH_MAIL_CA_BUNDLE, check that the certificate "
+                             "covers the configured host, or turn verify_tls off: ~a")
+                         (clip (printable (exn-message e)) 300)))]
          [exn:fail?
           (lambda (e)
             (define m (exn-message e))
@@ -463,8 +518,10 @@
          ;; hook. Passing both, or the wrong one, fails as a hang or as a protocol
          ;; error nobody can read, which is why the mode is stored (MAIL-11) and
          ;; not guessed from the port.
-         #:tcp-connect (if (equal? security "tls") ssl-connect tcp-connect)
-         #:tls-encode (if (equal? security "starttls") starttls-encode #f)))
+         #:tcp-connect (if (equal? security "tls") (make-tls-connect verify?) tcp-connect)
+         #:tls-encode (if (equal? security "starttls")
+                          (make-starttls-encode verify? (hash-ref t 'host))
+                          #f)))
       (void))))
 
 ;; THE STARTTLS ENCODER EXISTS BECAUSE `ports->ssl-ports` PASSED STRAIGHT IN IS
@@ -502,3 +559,92 @@
                     #:mode mode
                     #:encrypt 'auto
                     #:close-original? close-original?))
+
+;; ---- verifying the relay (MAIL-26…31) ----------------------------------------
+;;
+;; THE EXTRA CA SOURCE IS WHAT MAKES VERIFICATION USABLE RATHER THAN MERELY
+;; STRICTER (MAIL-29). The case this transport exists for includes a self-signed
+;; or privately-signed internal relay, and a switch whose only outcome there is
+;; "no mail leaves" is a switch nobody turns on. `TMACH_MAIL_CA_BUNDLE` is loaded
+;; IN ADDITION to the platform's default sources, so an operator with a private
+;; CA gets verification against it and keeps it for a public relay too.
+;;
+;; `SSL_CERT_FILE` is honoured as a fallback because it is the variable the rest
+;; of the world sets and the one the Nix closure already speaks; naming our own
+;; and ignoring the conventional one would make an operator who had already set
+;; it conclude the feature is broken.
+(define (mail-ca-bundle)
+  (define v (or (tmach-env "MAIL_CA_BUNDLE") (getenv "SSL_CERT_FILE")))
+  (and (string? v) (not (string=? v "")) v))
+
+;; ONE HOME FOR "WHAT DOES VERIFICATION MEAN", asked by BOTH branches (MAIL-27).
+;; Two copies is `executor-can-run?`'s drift in a place where the failure is
+;; silent and in the attacker's favour: the implicit-TLS branch and the STARTTLS
+;; branch would each have to be right, and the one that quietly stopped
+;; verifying would still deliver mail and report success.
+;;
+;; HOSTNAME VERIFICATION IS NOT SEPARATELY OPTIONAL, and that is the decision in
+;; this function (MAIL-30). A verified chain with no name check accepts any
+;; certificate a public CA ever issued, for any host — so against the active
+;; machine-in-the-middle this whole switch is about, chain-only verification
+;; buys very nearly nothing while reading in a console exactly like protection.
+;; So `verify_tls` means both, or it means nothing.
+;; READ OFF THE MESSAGE, because `ports->ssl-ports` and `ssl-connect` raise a
+;; plain `exn:fail` and there is no structured status to branch on — the same
+;; reason the 5xx/4xx split one screen up is a regexp. It is deliberately NARROW:
+;; it must not swallow an ordinary connection failure, which is retryable and
+;; whose remedy has nothing to do with a trust store. Asked ONLY when
+;; verification is on, so a build with the switch off cannot reach it at all.
+(define (certificate-failure? m)
+  (and (string? m)
+       (regexp-match? #px"(?i:certificate|verify failed|hostname|unable to get local issuer)" m)
+       #t))
+
+(define (verifying-context)
+  (define ctx (ssl-make-client-context 'auto))
+  (ssl-load-default-verify-sources! ctx)
+  (let ([b (mail-ca-bundle)])
+    (when b
+      ;; A bundle an operator NAMED and that is not there is a refusal, not a
+      ;; fallback to the default sources: falling back would verify against a
+      ;; different trust store than the one they configured and report success.
+      (unless (file-exists? b)
+        (mail-error! #t "TMACH_MAIL_CA_BUNDLE names a file that is not there: ~a" b))
+      (ssl-load-verify-source! ctx b)))
+  (ssl-set-verify! ctx #t)
+  (ssl-set-verify-hostname! ctx #t)
+  ctx)
+
+;; The two makers exist because `net/smtp` chooses the keywords: it calls the
+;; encoder with `#:encrypt 'tls` hardcoded and the connector as `(host port)`,
+;; so the verification decision and the hostname have to be CLOSED OVER rather
+;; than passed. The host is the one from the stored configuration, never
+;; anything the relay says about itself — a name taken from the far end is a
+;; name the far end chose.
+(define (make-starttls-encode verify? host)
+  (if (not verify?)
+      starttls-encode
+      (lambda (in out
+               #:mode [mode 'connect]
+               #:encrypt [_encrypt 'tls]
+               #:close-original? [close-original? #t])
+        (ports->ssl-ports in out
+                          #:mode mode
+                          #:encrypt 'auto
+                          ;; `#:hostname` is how the NAME reaches verification on
+                          ;; this path — `ssl-connect` takes it as its first
+                          ;; argument and an upgraded pair of ports has nowhere
+                          ;; else to carry it. Without it the chain is checked and
+                          ;; the name is not, which MAIL-30 says is the state that
+                          ;; reads like protection and very nearly is not.
+                          #:context (verifying-context)
+                          #:hostname host
+                          #:close-original? close-original?))))
+
+(define (make-tls-connect verify?)
+  (if (not verify?)
+      ssl-connect
+      ;; `ssl-connect`'s own first argument is the name verification uses, and
+      ;; `net/smtp` hands it the configured host — so this branch needs no
+      ;; `#:hostname` and must not second-guess the name it is given.
+      (lambda (h port) (ssl-connect h port (verifying-context)))))

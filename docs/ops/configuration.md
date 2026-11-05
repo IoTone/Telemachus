@@ -421,6 +421,37 @@ load-bearing rather than an optimisation. Extracted text arrives with per-word
 /api/repo-obj/<id>/spans?at=<offset>` resolves — this is the first reader that
 fills them.
 
+## Email delivery: verifying the relay (MAIL-26…31)
+
+The SMTP transport itself is **a database row, not environment** — an admin
+configures the host, port, security mode, credential and `From` address over
+`PUT /api/email-transport`, so no restart and no shell on the box is needed. One
+thing about it is an operator variable, because it is about this host's trust
+store rather than about the relay:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TMACH_MAIL_CA_BUNDLE` | unset | A PEM file of certificate authorities to trust **in addition to** this host's default sources, when `verify_tls` is on. `SSL_CERT_FILE` is honoured as a fallback. A path that is not there is a refusal, not a silent fall back to the defaults. |
+
+**`verify_tls` is off by default, and that is the posture every existing
+instance already had.** `net/smtp` passes no TLS context, so until this was
+built both TLS modes accepted any certificate: TLS here defended against a
+passive listener on the path and never against an active
+machine-in-the-middle. Turning it on by default would refuse the self-signed
+internal relay many of these deployments run — so the switch is yours, and the
+current posture is on every read of `GET /api/email-transport` rather than
+left to be inferred.
+
+With it on, **both the chain and the hostname are checked**; there is no
+chain-only setting, because a verified chain with no name check accepts any
+certificate a public CA ever issued for any host, which reads like protection
+and very nearly is not. For an internal relay, point `TMACH_MAIL_CA_BUNDLE` at
+your own CA (or at the relay's own self-signed certificate) — that is what
+makes verification usable rather than merely stricter. A certificate that is
+not accepted is a **permanent** failure, not retried on the backoff curve, and
+the dead letter names the switch and this variable rather than only quoting
+openssl.
+
 ## Multi-tenancy and hosted mode
 
 | Variable | Default | What it does |
