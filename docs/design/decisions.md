@@ -6278,3 +6278,66 @@ that wanted it. And a console control, for the reason the dimension above has
 none: the field is on the read and `PUT /api/email-transport` already sets it.
 
 
+
+## ORG — org-mode notes and a graph of what they link to (issues #246 and #247) — DESIGNED, NOT BUILT
+
+Design: `docs/design/org-notes-and-note-graph.md`. **No migration, no route, no
+code** — read it before building any of it, and read ORG‑14 before anybody draws
+an authored edge beside a derived mention.
+
+Two things decide the shape before any decision below. **Nothing in this build
+links a note to a note** — `notes` is id/team/owner/visibility/title/body/two
+timestamps plus #245's `note_tags` — so #247 has no edge set and #246 is what
+creates one; the order is forced rather than chosen. And **this was a parked
+question that the owner has now answered**: `research-graph-rag.md`'s out-of-scope
+list says of wiki-links *"if the owner wants the authored half, say so — it is a
+note syntax and a second mention source, and it is a different slice"*, and these
+two issues are that word. They settle half of **RG‑14** from a different door, as
+the reading tool rather than the question-answering one.
+
+**The scope was decided with the owner on 5 Nov 2026: a body SYNTAX plus
+interchange, and a note stays one flat body.** The org **outliner data model** —
+a headline tree, `:PROPERTIES:` drawers, TODO keywords, typed `SCHEDULED` dates —
+is declined, and that is not a smaller version of the same thing: a note would
+stop being a flat body, so search, `15-editor.js`, `note_tags`,
+`note-tools.rkt` and #247's own node set all change shape with it, and the graph
+becomes a tree of headlines rather than a graph of notes. It is a second
+resource and its own issue.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **ORG‑1** | Which syntax, and whether Markdown stays | **Markdown stays and is the default; `notes.format` is `'markdown'` or `'org'`, declared per note** · vs replacing the renderer · vs auto-detecting from the body | Every note that exists is Markdown and `mdRender` is the renderer the e2e gate's §3c sanitiser case covers. Auto-detection is the tempting version and is wrong on its first line: a body beginning `* something` is a valid Markdown bullet AND a valid org headline, and they render completely differently — so a detector would silently change what somebody's note looks like, and change it again the next time they edited line one. |
+| **ORG‑2** | Converting an existing note | **A declaration that changes RENDERING only; the body is never rewritten** · vs converting the markup on switch | Reversible, where a conversion is not: the org renderer over Markdown source gives a readable mess rather than an error, and a conversion that got one construct wrong would have eaten the only copy. |
+| 🔑 **ORG‑3** | The renderer's safety | **ED‑4's order exactly — escape first, then block/inline rules over escaped text emitting a closed tag set — SHARING `esc` and `mdSafeUrl` with `mdRender`** · vs its own URL allowlist · vs sanitising after | A Markdown renderer is effectively a sanitiser, so "does it escape" is a question about what the code COMPUTES and cannot be answered by grepping it — hence a runtime case in `demo-validate.mjs` §3c with an `<img onerror>`, a `<script>`, `[[javascript:…][click]]` and its entity-encoded variant. The shared scheme allowlist is the one place in this renderer where a divergence is a stored XSS rather than an ugly paragraph. |
+| **ORG‑4** | How much org | **A STATED subset; anything outside it renders as its own text** · vs tracking the spec | In: headlines, lists, `#+BEGIN_SRC`/`EXAMPLE`, `*bold*` `/italic/` `_underline_` `=verbatim=` `~code~`, `[[t][d]]`, tables, `#+TITLE:`/`#+FILETAGS:`, headline `:tags:`. Out: babel, `#+INCLUDE:`, property drawers, TODO keywords, footnotes, LaTeX, typed timestamps. A stated subset with an honest failure beats an open-ended promise, which is `mdRender`'s own line. |
+| **ORG‑5** | `#+INCLUDE:` | **Refused by name, visibly** · vs rendering it as inert text · vs implementing it | In real org it reads a file from the filesystem, so implementing it is an LFI with the author's own note as the weapon. Inert text would be safe and would leave an operator wondering why the content never appears — the call an unknown theme token and an unknown classifier backend both make, that a setting which silently does nothing is the hardest thing on a surface to diagnose. |
+| **ORG‑6** | What a link may point at | **A note id (what the picker inserts), or an exact case-folded TITLE within the team (what a person types); an `http(s)`/`mailto:` target renders as an anchor and creates NO edge** · vs titles only · vs ids only · vs external edges too | Ids are stable across a rename, which is why org-roam uses them; titles are what somebody types. **An ambiguous title is a broken link that says it is ambiguous** rather than one of the candidates — titles are not unique, and picking one makes a link mean a different note depending on creation order. Excluding external targets is what keeps the entire edge set inside ONE authorization domain, and a URL already has a home that archives it (#191 slice 1). |
+| **ORG‑7** | Where the edges live | **Extracted to `note_links(src, dst, team_id, label, raw_target)` in the body's own transaction** · vs parsed on every graph read · vs a delimited column | #247 needs an edge set it can query and authorize per row. Parsing on read is `LIKE '%[[%'` with a LEADING wildcard, which **PERF‑5 measured as unable to use its index at all** — the same measurement that found `search-all`'s key search cannot use `idx_repo_objects_key`. TAG‑2's join-table argument at a second asker. |
+| **ORG‑8** | A link to a note that is not there | **Stored as broken (`dst` NULL, `raw_target` kept) and drawn visibly broken** · vs dropping the row · vs refusing the write | It is the commonest failure this feature will have — somebody deletes a note — and a link that silently became plain text is how a reader concludes the editor ate their markup. A link to a nonexistent note is not the same fact as no link. |
+| 🔑 **ORG‑9** | Authorizing an edge | **`can?` at BOTH ends at read time; an edge whose far end the caller cannot see is DROPPED AND NOT REPORTED** · vs trusting the row · vs reporting a withheld count | A link row confers nothing (QUEUE‑3: the resource is authorized, never the row). And the asymmetry with ORG‑8 is the point: "there is a note here you may not read, and this one links to it" is an existence oracle on a colleague's private note, so a broken link is REPORTED and an unreadable one is INDISTINGUISHABLE FROM ABSENT. KG‑3's rule, which is what lets this graph be trustworthy with no new authorization code. |
+| **ORG‑10** | A target in another team | **Treated exactly as nonexistent — stored broken** · vs refusing the write · vs resolving it and letting the org gate refuse the read | `notes.id` is instance-global, so such a target resolves in SQL; resolving it would leave an edge that ORG‑9 silently drops for ever, which is worse than a visible refusal. Collapsing it into ORG‑8's answer rather than ORG‑9's is deliberate: the author learns their link does not work and learns nothing about whether an id elsewhere in the instance exists. `repo-get`'s collapse of a refusal and a miss. |
+| **ORG‑11** | Interchange | **`GET /api/notes/:id?as=org` (attachment) and `POST /api/notes/import`; `#+TITLE:` is the title and `#+FILETAGS:` goes through `tags-clean`** · vs a repository object · vs no interchange | `tags-clean` is TAG‑4's one home, so an imported tag normalizes exactly as a typed one does rather than through a second rule. The round trip is asserted **byte-identical for the body**, which is the only property an org user cares about. `text/org` is not a registered media type, so it goes out as the download path already sends anything else. |
+| **ORG‑12** | Tags on an org note | **The BODY is the source of truth: `#+FILETAGS:` is authoritative on every write, and `tags` in a request against an org note is REFUSED by name** · vs the column winning · vs reading the keyword on import only | Two homes for one fact is the drift this tree names everywhere, and the home that must win is the one the author can SEE. Reading it on import only leaves a hand-edited `#+FILETAGS:` line doing nothing, silently. Headline-level `:tags:` are rendered and NOT stored, because a headline is not a note. **The cost is stated rather than discovered: #245's `note_autotag` cannot work on an org note** (its write path is `notes-set-tags!`), so it refuses by name and names `#+FILETAGS:` as the remedy; a tool that rewrote the keyword line is the obvious next decision and is not this slice's. |
+| 🔑 **ORG‑13** | #247's layout, and the d3 request | **A SEEDED, FIXED-ITERATION force layout, computed once and drawn still, as inline SVG** · vs vendoring d3-force · vs RG‑9's deterministic radial · vs a live simulation | `script-src 'self'` blocks a CDN, so d3 is ~280 KB vendored into a console that draws every other picture it has by hand. This narrows RG‑9 rather than ignoring it: of its three grounds for declining a force simulation, the dependency is answered by not taking one and the ~200 lines of physics is ~40 for a Verlet integrator over a few dozen nodes — **the one that survives is non-determinism**, because this project's gates are its evidence and a layout no screenshot reproduces and no e2e assertion can pin a node in is a feature with nothing behind it. A fixed seed and a fixed tick count answers exactly that, and computing once means no animation loop holding a session open against #38's idle clock (QVIZ‑6). |
+| 🔑 **ORG‑14** | Joining the notes graph to the knowledge graph | **There is NO reconciliation and they are two screens** · vs one picture with two edge styles · vs folding authored links in as mentions | RG‑5 recorded this as "a reconciliation rule nobody has asked for"; this is the answer rather than another deferral. An authored edge is what a PERSON asserted; a derived mention is what a model READ out of a document, bound to the version it was read from. Two different kinds of statement, with different warrants, and in one picture a reader cannot tell which is which — in a product whose knowledge graph earns its trust precisely by saying where every fact came from. One of the two would have to be drawn as weaker, which is a visual encoding of a distinction the data already carries better. Whether they ever meet is its own decision. |
+| **ORG‑15** | Backlinks | **Ship with the table, not with the drawing** · vs after #247 | `note_links` read in reverse IS "what links here", one query under ORG‑9's rule. In org-roam and Obsidian it is used far more than the graph picture, so it costs nothing and is most of the value of slice 2. |
+| **ORG‑16** | The size of the graph | **Capped node set, `truncated` reporting BOTH ways of stopping, and the DEFAULT view is one note's neighbourhood** · vs the whole team · vs paging | CLS‑27 and VEC‑29's rule. A team with five thousand notes cannot be drawn at all and must not try — RG‑9's own argument, that a whole-graph map is unreadable past a few dozen nodes under any layout whatsoever. A whole-team view sits behind an explicit control, and `truncated` distinguishes the cap from a neighbourhood that filled it, because the two have different remedies. |
+
+**What does not change, which is most of it:** `can?` on a note, the visibility
+triple, `notes:read`/`notes:write`, the tag vocabulary, `search-all`'s coverage
+of `notes.body`, the editor's view preferences, and every #245 tool but
+`note_autotag`. **No new permission and no feature switch** — both renderers ship
+on every instance, because a format is not a capability.
+
+**Build plan**, and slice 2 is #247's prerequisite: (1) the format column and the
+renderer, no new table; (2) `note_links`, extraction inside the body write, and
+backlinks; (3) the interchange, independent of 2 and 4; (4) #247's graph. Slices
+1–3 are #246; slice 4 is #247.
+
+**What this design does not promise:** that a force layout is more legible than a
+radial one (nobody has measured it — ORG‑13 rests on the owner having asked for
+the Obsidian look, not on a number); that the subset is enough for a real org
+user's files (the first import of somebody's actual notes is what will say which
+construct is missing); and that an authored graph improves anything measurable —
+unlike RG's slice 5 there is no recall question here, because this is a
+navigation surface and not a retrieval index.
