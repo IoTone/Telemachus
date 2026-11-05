@@ -47,10 +47,20 @@ RUNTIME_PREFIXES="TMACH_MODEL_"
 # `test/env-names-tests.rkt` is skipped: its `UNIT_*` probes are variables that
 # exist only inside that file, to prove the fallback. One exclusion with a
 # reason, not a list of them.
-from_suffixes=$(grep -rhoE '\(tmach-env "[A-Z0-9_]+"' \
+# `-a` ON BOTH SWEEPS, and it is not a style choice: a single raw control
+# character in a Racket string literal makes the file BINARY to grep, which with
+# `-o` prints "Binary file <path> matches" INSTEAD of the matches — and this
+# script then reads those four words as variable names and fails naming them.
+# One did exist (`test/research-tests.rkt` held a literal NUL inside a
+# `#px"[\\\u0000-\u001F]"` class), and it failed this gate on macOS while CI's
+# grep happened to survive it, which is the wrong way round: a gate only CI runs
+# is a gate whose failures nobody reads. `-I` is the WRONG remedy — it SKIPS such
+# a file, so a variable read there reads as documented-and-unread and the gate
+# fails in the other direction instead.
+from_suffixes=$(grep -arhoE '\(tmach-env "[A-Z0-9_]+"' \
                   --include='*.rkt' --exclude='env-names-tests.rkt' refimpl 2>/dev/null \
                 | sed -E 's/.*"([A-Z0-9_]+)"/TMACH_\1/' | sort -u)
-from_literals=$(grep -rhoE 'TMACH_[A-Z0-9_]+' \
+from_literals=$(grep -arhoE 'TMACH_[A-Z0-9_]+' \
             --include='*.rkt' --include='*.sh' --include='*.nix' \
             --include='*.mjs' --include='*.js' --include='*.yaml' --include='*.yml' \
             --exclude='env-names-tests.rkt' \

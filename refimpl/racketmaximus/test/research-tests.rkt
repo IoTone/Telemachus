@@ -305,7 +305,7 @@
   (define out3 (research-fetch! c p (research-get c id3 t)
                                 #:fetch (canned 200 '(("content-type" . "text/plain")) #"z")))
   (check-true (hash-ref out3 'ok) (format "~a" out3))
-  (check-false (regexp-match? #px"[\\ -]" (hash-ref out3 'key))
+  (check-false (regexp-match? #px"[\\\u0000-\u001F]" (hash-ref out3 'key))
                (format "key was ~s" (hash-ref out3 'key))))
 
 ;; FOUND BY A CONTROL THAT DID NOT BITE. The case above exercises the PATH, so
