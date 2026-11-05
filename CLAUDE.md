@@ -2568,12 +2568,103 @@ RESEARCH_TEST_URL=https://example.com/ bash test/server-smoke.sh   # …plus the
 - **`(require "/abs/path.rkt")` is a bad module path** — a throwaway probe needs
   `(require (file "/abs/path.rkt"))`. Second appearance.
 
-**Not built, deliberately**: slice 2's distillation workflow (`doc_text` →
-`doc_classify` → `kg_extract` over the stale set, which needs only
-`research_list_stale`), RG‑12's scheduled re-fetch and its per-host courtesy
-delay (off unless configured, and the `etag`/`last_modified` columns are already
-stored for it), a console screen, and everything below RG‑14 — which is a product
-question, not a technical one, and nothing should start on a guess.
+**Not built at THIS slice, deliberately**: slice 2's distillation (built the
+next day — the section below), RG‑12's scheduled re-fetch and its per-host
+courtesy delay (off unless configured, and the `etag`/`last_modified` columns are
+already stored for it), a console screen, and everything below RG‑14 — which is a
+product question, not a technical one, and nothing should start on a guess.
+
+## The distillation, and the deadlock it found (RG‑24…27, issue #191 slice 2)
+
+Built 4 Nov 2026. `domain/research/research-tools.rkt` (one tool,
+`research_list_stale`) and `plugins/research/` (one workflow,
+`distil-bookmarks`). **No migration, no route, no permission, no environment
+variable, and no new tool but the lister** — which is what the build plan said,
+for a reason it did not know.
+
+```sh
+raco test test/research-distil-tests.rkt                              # 6 cases
+DATABASE_URL="postgres://…" raco test test/research-distil-tests.rkt  # both dialects
+raco test test/flow-tests.rkt                                          # 34 cases; WF‑18 is LAST
+```
+
+- **MOST OF IT WAS ALREADY TRUE, AND THE TEST IS WHAT ESTABLISHED THAT** (RG‑24).
+  It drives an archived bookmark end to end **through the shipped specs** rather
+  than by calling tools: `text/html` is in `extract.rkt`'s markup list, so
+  **Index Documents** reads an archived page; `kg-list-unextracted` excludes only
+  DERIVED documents and an archive is deliberately not one, so **Index
+  Knowledge** extracts from it; and the mention that lands names the page **and
+  the version it was read from** — RG‑5's whole promise, asserted rather than
+  claimed. So what was missing was not work but a QUESTION ("which bookmarks are
+  behind") and a RATE: the shipped drains are keyed on the whole team's
+  documents, so an operator who has just bookmarked twelve pages cannot distil
+  those without draining everything else at the same batch size.
+  `embed-documents`' own argument for existing separately (VEC‑24), landing the
+  same way — the first step is free and the second spends the AI budget.
+- **BEING BEHIND IS A JOIN AGAINST THE MARKERS THE DOCUMENT ALREADY CARRIES**
+  (RG‑25) — `repo_text` and `kg_extractions`, never a `distilled` column on
+  `research_sources`. RG‑4 is that the distillation produces nothing new in the
+  schema, and a column would be a second copy of a decision the next re-fetch
+  re-makes, free to disagree with the document — `polling`'s and `archived`'s
+  rule (RG‑23) a third time. It also makes re-fetching correct for free: the
+  markers are keyed to the VERSION, so a changed page is behind again with
+  nothing to reset.
+- 🔑 **A PAGE THAT WAS READ AND HAD NO TEXT IN IT IS TERMINAL, AND THE BLANK TEST
+  CANNOT BE SQL** (RG‑26). `repo_extract_text` records an unreadable document as
+  processed-with-nothing — deliberately, so one bad file cannot wedge a team's
+  indexing — and `kg-list-unextracted` then declines an empty text, so such a
+  page can never acquire a `kg_extractions` row and would be listed by every run
+  **for ever**: an operator draining until the workflow finds nothing never
+  finishes (VEC‑23, exactly). **And `t.content <> ''` cannot express it**: under
+  `TMACH_ENCRYPT_CONTENT` the stored content is a SEALED string, so an empty text
+  is not an empty column and the clause is TRUE for it — a check that works on
+  the documented default and silently stops working on a sealed instance. The
+  window is bounded in SQL (`RESEARCH-STALE-SCAN` 200, `RESEARCH-STALE-BATCH`
+  25) and the blank test is made in Racket on the unsealed text. **RG‑2's own
+  limitation arrives here as a test**: a single-page application archives as its
+  loader shell, which extracts to nothing, so such a bookmark is archived,
+  versioned and searchable by URL and title and is never offered for
+  distillation.
+- **`doc_classify` IS LEFT OUT ALTHOUGH RG‑4 NAMED IT** (RG‑27). It needs a
+  `labels` list, which CLS‑5 settled is a team's own vocabulary and a
+  spec-authored literal; there is no label set a research plugin could supply
+  that would be right for anybody, and a wrong one writes `doc_type` values no
+  trigger and no `?attr=` filter will ever match. `classify-backfill` already
+  does this with the team's own labels.
+- **IT IS A WORKFLOW TOOL, NOT A CONVERSATIONAL ONE** (`#:agent? #f`): a drain
+  lister exists to hand a step a page of ids, which is the line the agent-surface
+  gate draws.
+- 🔑 **AND THE SLICE FOUND WF‑18, WHICH IS WORTH MORE THAN THE SLICE.**
+  `distil-bookmarks` is the first spec in the tree with a NON-TERMINAL `map`, and
+  the second run of a drain — both lists empty — wedged a pool thread for ever.
+  The reasoning is in the workflow-engine section above; what belongs here is why
+  nobody had met it: every shipped spec's `map` is its last step.
+- **NOTHING CHECKS A TOOL STEP'S BINDINGS AGAINST THE TOOL'S OWN SCHEMA**, and
+  this spec is where that surfaced: `kg_extract` takes **`#:object`** where
+  `repo_extract_text` takes `#:id`. `validate-spec` refuses an unknown FIELD of a
+  step and `check-input!` requires every declared workflow INPUT, so a wrong
+  keyword is simply a binding the tool never sees and arrives at run time as
+  `no such document: ` with nothing after the colon. **Recorded rather than
+  fixed**: making the validator schema-aware is its own decision and would have
+  to cope with a plugin-registered tool that is not loaded at publish time.
+
+**Four traps paid again:**
+
+- **THE ENGINE SHIPS `tool:`, `choice` AND `map`, SO THREE TOOLS PER ITEM IS TWO
+  MAPS OVER THE SAME ID LIST**, not one map over three tools — `map` fans out
+  over ONE tool and `flow:` is deferred (WF‑9). Threading the first map's
+  positional results into the second would also re-align every binding the moment
+  a child failed (WF‑13), which is why both maps are `#:over` the lister's list.
+- **`define-tool`'s `#:description` MUST BE A STRING LITERAL**, not a
+  `string-append`.
+- **A SIDE-EFFECT-ONLY REQUIRE USES AN EMPTY `only-in`**
+  (`(only-in "../../domain/repo/index-tools.rkt")`), which is how two tool
+  modules whose `LIST-BATCH` constants collide can both be instantiated for
+  registration — #110 r3's side-effect-require trap, met from the other side.
+- **`sync-locale ja` REWRITES THE WHOLE CATALOG**: the four new `doc.*` strings
+  were patched into `locales/ja.json` TEXTUALLY, beside `doc.perm.research:use`
+  — 16 added lines, no reordering.
+
 
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 
@@ -4763,7 +4854,7 @@ bash scripts/check-config-reference.sh      # 93 variables, both directions
   and `data/telemachus.db` (a path inside a volume — a migration, not an alias).
   Four surfaces half-done would be worse than one verified.
 
-**THE GATE WAS DEFEATED THREE TIMES, AND EVERY FIX MADE THE RULE LESS CLEVER.**
+**THE GATE HAS BEEN DEFEATED FOUR TIMES, AND EVERY FIX MADE THE RULE LESS CLEVER.**
 This is the part worth reading before writing another source-scanning gate:
 
 - **It followed a `result` symlink into the Nix store** and read a PACKAGED COPY
@@ -4778,6 +4869,25 @@ This is the part worth reading before writing another source-scanning gate:
   the variable inside a longer format string sailed past — three suites failed on
   `"…(<old>_MAX_JOB_SECONDS=~a)"`. 64 lines across 30 files; the rule is now "no
   mention on a non-comment line".
+- **A SINGLE RAW CONTROL CHARACTER IN A RACKET SOURCE FILE TURNED THE GATE'S OWN
+  OUTPUT INTO ITS ANSWER** (found 4 Nov 2026). `test/research-tests.rkt` held a
+  literal NUL inside a `#px"[\\\u0000-\u001F]"` class — the only file in the
+  whole tree with a control byte in it — which makes the file BINARY to grep, and
+  with `-o` grep prints `Binary file <path> matches` INSTEAD of the matches. The
+  gate read those four words as variable names and failed naming them. **It
+  failed on macOS while CI's grep happened to survive it**, which is the wrong
+  way round and is this file's own rule about a gate only CI running. Two fixes,
+  both kept: the literal is escapes now (an identical string, asserted
+  character by character) and both sweeps pass **`-a`**. **`-I` is the WRONG
+  remedy** — it SKIPS such a file, so a variable read there reads as
+  documented-and-read-nowhere and the gate fails in the other direction instead.
+  Positive-controlled both ways with a probe file carrying a NUL and a
+  `TMACH_*` name.
+- **AND IT CORRECTS THIS FILE'S OWN ADVICE ONE LAYER DOWN.** "`pregexp` has no
+  `\r` or `\n` escape — use real CR/LF characters" is true and safe for CR and
+  LF, which no tool calls binary. It is NOT safe for NUL or the other C0
+  characters, which is what a `[\x00-\x1f]` class is made of: there, spell them
+  `\uHHHH` in the Racket string.
 
 ### Job 3: the documents an operator FOLLOWS (ENVN‑10/11, #128)
 
