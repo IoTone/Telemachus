@@ -384,8 +384,18 @@ owner's. Nothing below slice 2 should be started on a guess.
    a `#:fetch` seam that defaults to the real fetcher while the egress cases pass
    no seam at all. RG‑15…22 in `decisions.md` record what that and six other
    questions were decided as.
-2. **The distillation** — a `distil-bookmarks` workflow over tools that already
-   exist. No new tool but `research_list_stale`. The graph fills by itself.
+2. ~~**The distillation**~~ — **BUILT, 4 Nov 2026**, and "the graph fills by
+   itself" turned out to be literally true: `test/research-distil-tests.rkt`
+   drives an archived page through the SHIPPED `index-documents` and
+   `index-knowledge` specs and the mention that lands names the page and the
+   version it was read from, with no research-specific code. So what this slice
+   built is the QUESTION nothing could answer — `research_list_stale`, "which
+   bookmarks are behind" — and a `distil-bookmarks` drain that distils them at
+   their own rate, which is `embed-documents`' own argument for existing
+   separately. `doc_classify` is deliberately not in it (RG‑27: labels are a
+   team's vocabulary). RG‑24…27 record it; **the slice also found a DEADLOCK in
+   the engine**, because it is the first spec in the tree with a non-terminal
+   `map` — see WF‑18.
 3. *(the fork — RG‑14)* **either** the neighbourhood drawing and a bookmarks
    screen, **or** the graph‑RAG retrieval seam and the shared citation verifier.
 4. **The other one.**
@@ -396,7 +406,7 @@ owner's. Nothing below slice 2 should be started on a guess.
    should say exactly that. CHUNK‑10 is the precedent: the hypothesis was sound
    and the measurement disconfirmed it.
 
-**Slice 1 is merged, so what #191 asked for first is answered**: a bookmarked URL
+**Slices 1 and 2 are built, so what #191 asked for first is answered**: a bookmarked URL
 is fetched, archived under its own repository key, re-fetchable into new versions
 of that same key, and picked up with no further work by keyword search,
 `?semantic=1`, `repo_retrieve`, the knowledge graph and the document pipeline.

@@ -1597,6 +1597,31 @@ contract (WF‑9), and `define-workflow` is a macro that emits it, the same move
   admission and the org gate are all inherited. Nothing lives in memory — a run
   survives a restart because the rows are the state.
 - Ships `tool:<name>`, `choice` and `map` (fan-out). `agent`/`job:`/`flow:` deferred.
+- 🔑 **A `map` THAT IS NOT THE LAST STEP USED TO DEADLOCK A POOL THREAD, AND
+  EVERY SHIPPED SPEC'S MAP BEING LAST IS THE ONLY REASON IT NEVER FIRED**
+  (WF‑18, found 4 Nov 2026 by #191 slice 2's `distil-bookmarks`, the first spec
+  with a non-terminal one). `complete-map!` is a critical section for a good
+  reason — children settle on different threads, so "was I the last one?" and the
+  parent's write must be atomic — and it also called **`flow-advance!` inside**
+  it. An advance into a `map` over an EMPTY list takes the `(null? items)` arm,
+  which calls `complete-map!` again on the SAME thread, and `map-lock` is a plain
+  `make-semaphore 1`. The thread blocks for ever holding a claimed job, the lease
+  expires, the reaper requeues it, and the next attempt deadlocks another thread:
+  **a team loses a pool slot per attempt with no error anywhere**, which on the
+  default `ai.concurrency` of 2 is an outage that looks like the queue going
+  quiet. The advance is decided inside the lock and performed OUTSIDE it now;
+  nothing is given up, because the parent is already `done` with its cursor
+  written, so a concurrent child still sees `status != "running"`.
+  **The first fix broke three other cases, because `(when #f …)` answers
+  `#<void>`, which is TRUTHY** — so every child advanced the run and the map
+  re-ran once per child. The decision comes back through `eq? #t`. Third
+  appearance of that shape after `'null` in a feed's `pull_request` and in a
+  schedule's "has this ever fired". **The test runs the drain in a thread with a
+  60-second deadline and is the LAST case in `flow-tests.rkt`**, because a
+  regression is a hang and killing the stuck worker leaves `map-lock` held for
+  ever — so every later case that completes a map would block too, and the suite
+  would wedge instead of reporting one failure. Being last bounds that to
+  nothing.
 - **A `map` DECLARES what a child's error does to its siblings** (`on_error`,
   WF‑11…WF‑17, issue #236). `"fail"` is the default and is what every `map` did
   before the key existed; `"continue"` records the child's error and carries on,

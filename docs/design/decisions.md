@@ -1791,12 +1791,12 @@ fresh one. The claim path's SEMAPHORE is also unexamined as a contention point �
 these figures are one process polling serially, which is the serialized cost but
 not the queueing behaviour of thirty real hosts.
 
-## Research over a knowledge graph (RG) — **proposed 30 Oct 2026; SLICE 1 BUILT 4 Nov 2026** (issue #191)
+## Research over a knowledge graph (RG) — **proposed 30 Oct 2026; SLICES 1–2 BUILT 4 Nov 2026** (issue #191)
 
 Bookmarked URLs, archived against link rot, distilled into the knowledge graph
-this platform already has, drawn, and asked questions of. **Slice 1 — the
-bookmark and its archive — is built** (RG‑15…23 below); slices 2 onward are not,
-and **slice 3 still waits on RG‑14, which is the owner's**. Full reasoning and
+this platform already has, drawn, and asked questions of. **Slices 1 and 2 — the
+bookmark with its archive, and the distillation — are built** (RG‑15…27 below);
+**slice 3 still waits on RG‑14, which is the owner's**. Full reasoning and
 the slice plan are in [research-graph-rag.md](research-graph-rag.md); this is the
 record.
 
@@ -1875,6 +1875,38 @@ the day the public bundle route answered 500 instead of its intended 404.**
 Racket's URL parser answers `'up` for `..` and `'same` for `.`, so
 `(string=? (path/param-path seg) "")` is a contract violation rather than a wrong
 answer. Format first, then compare. Its own test is what caught it.
+
+
+### Slice 2: and most of it was already true (RG‑24…27, built 4 Nov 2026)
+
+`domain/research/research-tools.rkt` (one tool), `plugins/research/` (one
+workflow). **No migration, no route, no permission, no environment variable, and
+no new tool but the lister** — which is what the build plan said, for a reason it
+did not know.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **RG‑24** | What slice 2 actually had to build | **Almost nothing: the chain already worked, and the slice is a LISTER and a RATE** · vs a research-specific pipeline · vs a summarising tool | `test/research-distil-tests.rkt` drives it end to end **through the shipped specs**: `text/html` is in `extract.rkt`'s markup list so **Index Documents** reads an archived page, `kg-list-unextracted` excludes only DERIVED documents and an archive is deliberately not one so **Index Knowledge** extracts from it, and the mention that lands names the page **and the version it was read from** — RG‑5's whole promise, now asserted rather than claimed. So what was missing was not work but a QUESTION ("which bookmarks are behind") and a RATE: the shipped drains are keyed on the whole team's documents, so an operator who has just bookmarked twelve pages cannot distil those without draining everything else at the same batch size. That is exactly `embed-documents`' own argument for existing separately, and it lands the same way here — the first step is free and the second spends the AI budget. |
+| **RG‑25** | How "behind" is known | **A JOIN against the markers the DOCUMENT already carries (`repo_text`, `kg_extractions`)** · vs a `distilled` column on `research_sources` · vs a marker table | RG‑4 is that the distillation produces nothing new in the schema, and a column here would be a second copy of a decision the next re-fetch re-makes — it could disagree with the document, which is `polling`'s and `archived`'s rule (RG‑23) a third time. It also makes re-fetching correct for free: the markers are keyed to the VERSION, so a changed page is behind again with nothing to reset. |
+| 🔑 **RG‑26** | What stops the drain being infinite | **A page that was READ and had no text in it is terminal and never offered again — and the blank test CANNOT be SQL** · vs offering it for ever · vs a retry counter | `repo_extract_text` records an unreadable document as processed-with-nothing (deliberately, so one bad file cannot wedge a team's indexing), and `kg-list-unextracted` then declines an empty text — so such a page can never acquire a `kg_extractions` row and would be listed by every run for ever, which means an operator draining until the workflow finds nothing never finishes (VEC‑23, exactly). **And `t.content <> ''` cannot express it**: under `TMACH_ENCRYPT_CONTENT` the stored content is a sealed string, so an empty text is not an empty column and the test is TRUE for it — a check that worked on the documented default and silently stopped working on a sealed instance. So the window is bounded in SQL and the blank test is made in Racket on the unsealed text. **RG‑2's own limitation arrives here as a test**: a single-page application archives as its loader shell, which extracts to nothing, so such a bookmark is archived, versioned and searchable by URL and title and is never offered for distillation. |
+| **RG‑27** | Why `doc_classify` is not in the workflow | **Left out; classifying bookmarks is `classify-backfill` with the team's own labels** · vs guessing a label set · vs a `labels` input on this workflow | RG‑4 named it, and it needs a `labels` list — which CLS‑5 settled is a team's own vocabulary and a spec-authored literal. There is no label set a research plugin could supply that would be right for anybody, and a wrong one writes `doc_type` values no trigger and no `?attr=` filter will ever match. The workflow that does this already exists. |
+
+**THE SLICE FOUND A DEADLOCK IN THE ENGINE, and that is worth more than the
+slice.** `distil-bookmarks` is the first spec in the tree with a NON-TERMINAL
+`map`, and the second run of a drain — both lists empty — wedged a pool thread
+for ever. See **WF‑18**: `complete-map!` advanced the run while holding its own
+non-reentrant lock, and an advance into an empty `map` re-entered it on the same
+thread. Every shipped spec's map is its last step, which is the only reason
+nobody had met it.
+
+**`#:object`, NOT `#:id`** — and the two tools this spec chains disagree about
+the name. Worth knowing why that is only caught at run time: `validate-spec`
+refuses an unknown FIELD of a step and `check-input!` requires every declared
+workflow INPUT, but **nothing checks a tool step's bindings against the tool's
+own schema**, so a wrong keyword is simply a binding the tool never sees and
+arrives as `no such document: ` with nothing after the colon. Recorded rather
+than fixed: making the validator schema-aware is its own decision, and it would
+have to cope with a plugin-registered tool that is not loaded at publish time.
 
 ## External feeds and a prioritised work queue (FEED) — **proposed 22 Oct 2026** (issue #114)
 
@@ -5692,7 +5724,7 @@ operator's entire ingest — and the `--sizes`/`--overlaps` narrowing exists
 because a MODEL comparison wants one cell per model rather than eighteen, which
 would confound the model with the chunking. Neither was in the plan.
 
-## A child's error, and what it does to its siblings (WF‑11…WF‑17, issue #236)
+## A child's error, and what it does to its siblings (WF‑11…WF‑18, issue #236)
 
 Decided and built 1 Nov 2026. `on_error` on a `map` step; `exn:fail:misconfigured`
 in `domain/tools/faults.rkt`; the per-child report on the fan-out's parent. **No
@@ -5713,6 +5745,7 @@ it.
 | WF‑15 | a fan-out where **nothing** succeeded is not a success | ✅ decided |
 | WF‑16 | a plugin materializes **per version**, so it can ship a second one | ✅ decided — found here |
 | WF‑17 | a **drain** tolerates an awkward item; a fan-out over a **named list** does not | ✅ decided |
+| 🔑 WF‑18 | `complete-map!` advances the run **outside** its own lock | ✅ fixed — a DEADLOCK, found 4 Nov 2026 |
 
 - **WF‑11 — THE TOLERANCE WAS ALREADY CHOSEN AND LIVED IN THE WRONG PLACE.**
   `index-documents` over thirteen documents completed 7 of 7 and `index-knowledge`
@@ -5803,6 +5836,53 @@ every shipped drain rendered without the retry it asks for. Found while surfacin
 `on_error`, which the page now carries for the fan-outs that tolerate a failure
 and leaves unsaid for the ones that do not: a column that is only ever one value
 tells a reader nothing (#178).
+
+- 🔑 **WF‑18 — THE ENGINE COULD DEADLOCK A POOL THREAD, AND THE ONLY REASON IT
+  NEVER HAD IS THAT EVERY SHIPPED SPEC'S `map` IS ITS LAST STEP.** Found on
+  4 Nov 2026 by #191 slice 2, whose `distil-bookmarks` is the first spec in the
+  tree with a NON-TERMINAL `map` — and found as a hang rather than as a failure,
+  which is the worst way to meet it.
+
+  `complete-map!` is a critical section for a good reason, written down at the
+  semaphore: children finish on different threads, so "was I the last one?" and
+  the parent's write have to be atomic or the next step is enqueued twice. The
+  defect is that it also called **`flow-advance!` from inside** that section. An
+  advance into a `map` whose list is EMPTY takes the `(null? items)` arm, which
+  calls `complete-map!` again — **same thread, and `map-lock` is a plain
+  `make-semaphore 1`**. The thread blocks for ever holding a claimed job; its
+  lease expires; the reaper requeues it; the next attempt deadlocks another pool
+  thread. **A team loses a slot per attempt until the job exhausts them, with no
+  error anywhere** — and on the default `ai.concurrency` of 2 that is an outage
+  that looks like the queue going quiet. QUOTA‑3's "a batch stops and looks like
+  a hang" with a genuine hang behind it.
+
+  The fix gives up nothing: the advance is decided inside the lock and performed
+  outside it, and by then the parent is already `done` with the cursor written,
+  so a second child arriving concurrently still sees `status != "running"` and
+  does nothing — which is the whole property the section exists for.
+
+  **AND THE FIRST FIX BROKE THREE OTHER CASES, because `(when #f …)` ANSWERS
+  `#<void>`, WHICH IS TRUTHY.** The body is a nest of `when`s, so "did it
+  settle?" came back void for every child that was not the last — every one of
+  them advanced the run, and the map re-ran once per child. `flow-tests.rkt`'s
+  step-id trace is what said so, printing `make` four times. The decision comes
+  back through `eq? #t` now rather than being merely truthy. Third appearance of
+  this shape after `'null` in a feed's `pull_request` field and in a schedule's
+  "has this ever fired".
+
+  **THE TEST RUNS THE DRAIN IN A THREAD WITH A 60-SECOND DEADLINE, AND IS THE
+  LAST CASE IN THE FILE.** A regression is a HANG, so the assertion is "it came
+  back at all" — and the positive control taught the second half: killing the
+  stuck worker leaves `map-lock` held for ever, so every later case that
+  completes a map blocks too and the suite wedges instead of reporting one
+  failure. That is not a flaw in the test; it is what a process-wide lock held by
+  a stuck thread does, and it cannot be avoided from inside the same process.
+  Being last bounds the collateral to nothing.
+
+  **WF‑15 is what keeps an empty fan-out from failing the run**, and it matters
+  for exactly this shape: `(positive? expected)` is the clause that separates
+  "nothing succeeded" from "there was nothing to do", so a drain whose backlog is
+  empty reports success. Without it every re-run of a finished drain would error.
 
 ## A long document is translated in sections (TR‑1…TR‑8, issues #231 and #232)
 
