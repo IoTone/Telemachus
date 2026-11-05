@@ -515,11 +515,44 @@
 ;; Children finish on different worker threads, so the "was I the last one?" read
 ;; and the parent's write have to be one critical section — otherwise two children
 ;; both see a full house and the next step is enqueued twice.
+;;
+;; WF-18 — AND THE ADVANCE MUST HAPPEN OUTSIDE IT, which is a DEADLOCK this
+;; module had until #191 slice 2 wrote the first spec with a non-terminal `map`.
+;; `flow-advance!` called from inside the critical section can reach the NEXT
+;; step, and if that step is a `map` over an EMPTY list it calls `complete-map!`
+;; again (the `(null? items)` arm above) — on the same thread, on a semaphore
+;; that is not reentrant. The thread then blocks for ever holding a claimed job,
+;; its lease expires, the reaper requeues it, and the next attempt deadlocks
+;; another pool thread: a team loses a slot per attempt until the job exhausts
+;; them, which on the default `ai.concurrency` of 2 is an outage with no error
+;; anywhere.
+;;
+;; Nothing is given up by moving it. The parent is already `done` and the cursor
+;; is already written when the lock is released, so a second child arriving
+;; concurrently sees `status != "running"` and does nothing — which is the
+;; property the section exists for, unchanged.
+;;
+;; It never fired before because EVERY shipped spec's `map` is its last step
+;; (`index-documents`, `index-knowledge`, `embed-documents`,
+;; `transcribe-documents`, `classify-backfill`), so no run ever advanced FROM a
+;; map into another one.
 (define map-lock (make-semaphore 1))
 
 (define (complete-map! conn run-id parent-id)
-  (call-with-semaphore map-lock
-    (lambda ()
+  ;; #t when the parent settled and the run should now be advanced — decided
+  ;; inside the lock, acted on outside it.
+  ;;
+  ;; `eq? #t` AND NOT MERELY TRUTHY, because the body is a nest of `when`s and
+  ;; **`(when #f …)` ANSWERS `#<void>`, WHICH IS TRUTHY IN RACKET** — the same
+  ;; shape as `'null` being truthy, which this tree has paid for in a feed's
+  ;; `pull_request` field and in a schedule's "has this ever fired". Without the
+  ;; `eq?` every child of a fan-out advances the run instead of only the last,
+  ;; and the map re-runs once per child: `flow-tests.rkt`'s step-id trace is what
+  ;; caught it, printing "make" four times.
+  (define advance?
+    (eq? #t
+     (call-with-semaphore map-lock
+      (lambda ()
       (define prow (query-maybe-row conn (string-append SSELECT " WHERE id = ?") parent-id))
       (when prow
         (define parent (row->step prow))
@@ -585,18 +618,27 @@
                  ;; with one message about N documents
                  (seal-step-output parent-id (jsexpr->string out))
                  (seal-step-error parent-id msg) parent-id)
-               (finish! conn run-id "error" #:error msg)]
+               (finish! conn run-id "error" #:error msg)
+               ;; EXPLICITLY #f: this branch's value is what decides whether the
+               ;; caller advances, and `finish!`'s own return value is not a
+               ;; decision about that — a run that just errored must not then be
+               ;; advanced.
+               #f]
               [else
                (query-exec conn
                  "UPDATE workflow_steps SET status = 'done', output = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
                  (seal-step-output parent-id (jsexpr->string out)) parent-id)
-               (when rrow
-                 (define run (row->run rrow))
-                 (define nxt (step-next (spec-of conn run) (step-ref (spec-of conn run) (hash-ref parent 'step_id))))
-                 (query-exec conn "UPDATE workflow_runs SET cursor_json = ? WHERE id = ?"
-                             (seal-run-cursor run-id
-                                   (jsexpr->string (if nxt (hasheq 'next nxt) (hasheq)))) run-id)
-                 (flow-advance! conn run-id))])))))))
+               (cond
+                 [rrow
+                  (define run (row->run rrow))
+                  (define nxt (step-next (spec-of conn run) (step-ref (spec-of conn run) (hash-ref parent 'step_id))))
+                  (query-exec conn "UPDATE workflow_runs SET cursor_json = ? WHERE id = ?"
+                              (seal-run-cursor run-id
+                                    (jsexpr->string (if nxt (hasheq 'next nxt) (hasheq)))) run-id)
+                  ;; WF-18: the advance is the CALLER's, outside the lock.
+                  #t]
+                 [else #f])]))))))))
+  (when advance? (flow-advance! conn run-id)))
 
 (define (enqueue-step! conn run step-row-id)
   (define job (enqueue-job! conn #:team (hash-ref run 'team_id) #:user (hash-ref run 'user_id)

@@ -1,0 +1,7 @@
+{
+  "id": "research",
+  "name": "Research Archive",
+  "version": "0.1.0",
+  "description": "A workflow that distils bookmarked pages: find the archives that are still behind, extract their text for search, then take facts out of them into the knowledge graph. Re-run it any time; it only touches what is behind.",
+  "entry": "main.rkt"
+}

@@ -8,6 +8,7 @@ Workflows shipped by plugins. Each is a validated spec (the public contract, WF�
 | `classify-backfill` | doc-pipeline | 2 | 2 | Backfill document types over a prefix: find the documents that have no type yet and classify each one, up to 25 per run. Safe to re-run — a document that already has a type is skipped — so a large backlog is drained by running it until it finds nothing. Pass backends ["rules"] to backfill without spending model budget. |
 | `classify-eval` | doc-pipeline | 1 | 1 | Measure the classifier against the team's labelled fixtures — the documents under a prefix carrying a doc_type_expected attribute. Reports accuracy and coverage for each backend on its own, per label, with what each label was confused for and how confident the right and wrong answers were. Writes nothing: no type is recorded and no trigger fires, so a fixture set can be evaluated as often as you like. |
 | `classify-review-extract` | doc-pipeline | 1 | 14 | Decide which kind of document this is; when the classifier is less sure than `min_confidence`, park the run and ask a person instead of guessing. Their decision is recorded on the document — approved as it stands, corrected to another type, or withdrawn when it is none of them — and the run then extracts fields against the schema for that type. |
+| `distil-bookmarks` | research | 1 | 3 | Take what is in the archived pages of bookmarked URLs: extract their text for search, then extract entities and relations into the knowledge graph. Finds the bookmarks whose archive is still behind — never extracted, or re-fetched since — and leaves the rest alone. A page that was read and had no text in it is not offered again. Safe to re-run; processes up to 25 bookmarks per run and the second half spends the team's AI budget. |
 | `embed-documents` | doc-indexer | 2 | 2 | Chunk the extracted text of repository documents and store an embedding per chunk, for semantic retrieval. Finds documents whose text has no vectors for the current version (or vectors from a different model), then embeds each one. Needs TMACH_EMBED_URL. Safe to re-run; processes up to 25 documents per run and spends the team's embedding budget. |
 | `feed-propose` | feeds | 1 | 2 | An agent reads one pulled item and writes a proposal beside it; the run then parks on a person. Nothing acts on the proposal — v1 has no acting tool, and when it has one it goes on the approve branch. |
 | `feed-triage` | feeds | 1 | 1 | Put one pulled item on the work queue with a priority, a due date and skills. The queue is an index: this records what triage decided. |
@@ -122,6 +123,22 @@ Steps:
 | `is_letter` | `choice` | when `{"eq":["${steps.classify.output.result.label}","letter"]}` then `letter_text` else `r_is_invoice` | next in order |
 | `r_is_invoice` | `choice` | when `{"eq":["${steps.correct.output.result.label}","invoice"]}` then `invoice_text` else `r_is_letter` | next in order |
 | `r_is_letter` | `choice` | when `{"eq":["${steps.correct.output.result.label}","letter"]}` then `letter_text` | next in order |
+
+## `distil-bookmarks` — Distil Bookmarks
+
+Take what is in the archived pages of bookmarked URLs: extract their text for search, then extract entities and relations into the knowledge graph. Finds the bookmarks whose archive is still behind — never extracted, or re-fetched since — and leaves the rest alone. A page that was read and had no text in it is not offered again. Safe to re-run; processes up to 25 bookmarks per run and the second half spends the team's AI budget.
+
+Plugin: `research` · version 1 · max steps 60 · starts at `find`
+
+Takes no input.
+
+Steps:
+
+| Step | Uses | Binding | Next |
+|---|---|---|---|
+| `find` | `tool:research_list_stale` | `{}` | next in order |
+| `text` | `map` | over `${steps.find.output.result}` → `tool:repo_extract_text` with `{"id":"${item}"}` | next in order · retry 1 · on a child's error, continue |
+| `facts` | `map` | over `${steps.find.output.result}` → `tool:kg_extract` with `{"object":"${item}"}` | end · retry 1 · on a child's error, continue |
 
 ## `embed-documents` — Embed Documents
 

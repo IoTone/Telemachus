@@ -2107,6 +2107,14 @@
       "text": "Forbidden: {perm}",
       "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
     },
+    "doc.tool.research_list_stale": {
+      "text": "List bookmarked URLs whose archived page is still behind: the text has not been extracted for search yet, or it has and no facts have been taken out of it for the knowledge graph. Returns repository object ids — the archived pages, not the bookmark rows — capped at a batch; run the workflow again to continue. A page that was read and had no text in it is NOT listed, because it would otherwise be offered for ever.",
+      "hash": "f9a1c583045cde5025bba2073acf57ecfe57b3a8"
+    },
+    "ui.kg_search": {
+      "text": "Find an entity",
+      "hash": "5ad82ac25c9a7f7dd60bda8cee0b53bcbb7b97cc"
+    },
     "doc.workflow.feed-propose.name": {
       "text": "Propose what to do about a feed item",
       "hash": "5d76cb34696d2bf139ff6b71aca92b53ada7623d"
@@ -2122,10 +2130,6 @@
     "ui.status": {
       "text": "Status",
       "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
-    },
-    "ui.kg_search": {
-      "text": "Find an entity",
-      "hash": "5ad82ac25c9a7f7dd60bda8cee0b53bcbb7b97cc"
     },
     "ui.wkadd": {
       "text": "Add a worker",
@@ -4307,9 +4311,17 @@
       "text": "A workflow that extracts text from repository documents into the search index: find what is unindexed, fan out, extract. Re-run it any time; it only touches what changed.",
       "hash": "d08d63795f44a20053f6f918b103c58a95685c87"
     },
+    "doc.workflow.distil-bookmarks.name": {
+      "text": "Distil Bookmarks",
+      "hash": "e7bbcb2a83b95a7308396e78fc39688e57b51422"
+    },
     "ui.mlminehint": {
       "text": "Where this account is notified, and what about. An address is not used until it has been confirmed.",
       "hash": "c55e71b4b3a18c30800a95485e6d440100e80fde"
+    },
+    "doc.workflow.distil-bookmarks": {
+      "text": "Take what is in the archived pages of bookmarked URLs: extract their text for search, then extract entities and relations into the knowledge graph. Finds the bookmarks whose archive is still behind — never extracted, or re-fetched since — and leaves the rest alone. A page that was read and had no text in it is not offered again. Safe to re-run; processes up to 25 bookmarks per run and the second half spends the team's AI budget.",
+      "hash": "a9b14e9922da30e9872736ad007a5c0765237bcd"
     },
     "doc.route.patch.api.repo-obj.id.attributes": {
       "text": "Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it.",
@@ -4434,6 +4446,10 @@
     "doc.route.post.api.l10n.draft": {
       "text": "Queue AI drafts for a locale's missing strings, in batches of 20 scheduler jobs, quota-metered.",
       "hash": "742d6ecb83ed152c1255676ccadbf17b2ad7034b"
+    },
+    "doc.plugin.research": {
+      "text": "A workflow that distils bookmarked pages: find the archives that are still behind, extract their text for search, then take facts out of them into the knowledge graph. Re-run it any time; it only touches what is behind.",
+      "hash": "e7229c1e3aa372ef7ee2d0fc4e131858cfda0e76"
     },
     "doc.route.get.api.s3.credentials": {
       "text": "The caller's S3 access keys (secrets never shown again) and the endpoint/bucket to use them with.",

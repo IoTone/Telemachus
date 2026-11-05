@@ -34,6 +34,7 @@ Every tool a workflow step may use, from `define-tool` declarations and plugin r
 | `repo_list_unembedded` | — | `files:read` | built-in | List repository documents whose extracted text has no chunk embeddings yet for the current version, or whose embeddings are from a different model. Returns object ids, capped at a batch; run the workflow again to continue. |
 | `repo_list_unindexed` | — | `files:read` | built-in | List repository documents whose text has not been extracted for search yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the indexing workflow again to continue. |
 | `repo_retrieve` | yes | `files:read` | built-in | Find the passages of the team's repository documents closest in MEANING to a question, for answering from them. Returns a passage's text with its document key and the character offsets it was read at, so an answer can cite where it came from. Needs TMACH_EMBED_URL and documents that the Embed Documents workflow has already processed; it finds nothing on a team with no embeddings, rather than falling back to keyword search. |
+| `research_list_stale` | — | `research:use` | built-in | List bookmarked URLs whose archived page is still behind: the text has not been extracted for search yet, or it has and no facts have been taken out of it for the knowledge graph. Returns repository object ids — the archived pages, not the bookmark rows — capped at a batch; run the workflow again to continue. A page that was read and had no text in it is NOT listed, because it would otherwise be offered for ever. |
 | `shipment_eta` | yes | `chat:use` | integrator-demo | Estimate arrival days for a shipment lane. |
 | `translate_text` | yes | `chat:use` | translate-chat | Translate text into a target language. |
 | `update_note` | yes | `notes:write` | built-in | Update a note's title and/or body by id. |
@@ -389,6 +390,15 @@ Permission: `files:read` · source: built-in
 |---|---|---|---|
 | `limit` | number | no | How many passages to return (default 8, at most 20) |
 | `question` | string | yes | The question to find passages for, in any language |
+
+## `research_list_stale`
+
+List bookmarked URLs whose archived page is still behind: the text has not been extracted for search yet, or it has and no facts have been taken out of it for the knowledge graph. Returns repository object ids — the archived pages, not the bookmark rows — capped at a batch; run the workflow again to continue. A page that was read and had no text in it is NOT listed, because it would otherwise be offered for ever.
+
+Permission: `research:use` · source: built-in
+
+No parameters.
+
 
 ## `shipment_eta`
 

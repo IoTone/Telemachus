@@ -707,3 +707,64 @@
                                    #:when (equal? (hash-ref d 'slug) slug))
                           d))
                 2 "a bump supersedes rather than rewrites"))
+
+;; ---- WF-18: two maps in a row, the second over nothing --------------------------
+;; A DEADLOCK, found by #191 slice 2 writing the first spec with a NON-TERMINAL
+;; `map`. `complete-map!` held its own lock while calling `flow-advance!`, and an
+;; advance into a `map` over an EMPTY list calls `complete-map!` again — same
+;; thread, non-reentrant semaphore. The thread blocked for ever holding a claimed
+;; job; its lease then expired, the reaper requeued it, and the next attempt
+;; deadlocked another pool thread, so a team lost a slot per attempt with no
+;; error anywhere. Every shipped spec's map is its LAST step, which is why no run
+;; had ever advanced from one map into another.
+;;
+;; THE CASE IS RUN WITH A DEADLINE, IN A THREAD, because the failure mode is a
+;; HANG and a `check-equal?` on a run that never finishes tells nobody anything.
+;; This is the one place in these tests where the assertion is "it came back at
+;; all".
+;;
+;; AND IT IS DELIBERATELY THE LAST CASE IN THIS FILE, which the positive control
+;; is what taught: on a regression the deadline fires and the worker is killed
+;; while holding `map-lock`, so the semaphore is never released and EVERY later
+;; case that completes a map blocks too — the suite wedges instead of reporting
+;; one failure. That is not a flaw in the test, it is what a process-wide lock
+;; held by a stuck thread does, and it cannot be avoided from inside the same
+;; process. Being last bounds the collateral to nothing. (The control confirmed
+;; both halves: with the advance back inside the lock, this case does not return
+;; and the run stays `running`.)
+;; The second map's list is an INPUT passed as `'()`, which is exactly the shape a
+;; drain has: the lister's output is a binding, and once the backlog is gone it is
+;; the empty array.
+(define-workflow empty-fan
+  #:input ([subjects array] [nothing array])
+  (step first (map #:over (in subjects) (tool create_note #:title (item) #:body "one")))
+  (step second (map #:over (in nothing) (tool create_note #:title (item) #:body "two")))
+  (step tally (tool list_notes) #:end))
+
+(test-case "a map over an EMPTY list after another map does not deadlock the pool"
+  (define conn (fresh))
+  (define p (owner-of conn))
+  (define d (flow-publish! conn p empty-fan))
+  (define run (flow-run-start! conn p d #:input (hasheq 'subjects '("alpha") 'nothing '())))
+  (define done (make-channel))
+  (define worker (thread (lambda () (drain! conn) (channel-put done 'ok))))
+  (define finished (sync/timeout 60 done))
+  (unless finished (kill-thread worker))
+  (check-equal? finished 'ok
+                "the drain never returned — complete-map! re-entered its own lock (WF-18)")
+  (define final (flow-run-get conn p (hash-ref run 'id)))
+  (check-equal? (hash-ref final 'status) "done" (format "~a" (hash-ref final 'error 'null)))
+  ;; …and the empty map is a settled step with an honest zero, not a skipped one
+  (define second (findf (lambda (s) (equal? (hash-ref s 'step_id) "second")) (hash-ref final 'steps)))
+  (check-true (and second #t) "the empty map ran as a step")
+  (check-equal? (hash-ref second 'status) "done")
+  (check-equal? (hash-ref (hash-ref second 'output) 'count) 0)
+  (check-equal? (hash-ref (hash-ref second 'output) 'succeeded) 0)
+  ;; WF-15 says a fan-out where NOTHING succeeded fails the run — and ZERO items
+  ;; is not that case. `(positive? expected)` is what keeps the two apart, and it
+  ;; matters for exactly this shape: a drain whose backlog is empty must report
+  ;; success, or every re-run of a finished drain would error.
+  (check-false (hash-has-key? (hash-ref second 'output) 'failures))
+  ;; the step AFTER the empty map really did run, which is the whole point
+  (check-true (and (findf (lambda (s) (equal? (hash-ref s 'step_id) "tally"))
+                          (hash-ref final 'steps)) #t)))
