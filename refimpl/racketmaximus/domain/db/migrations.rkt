@@ -2347,6 +2347,34 @@
        "UPDATE activation_tokens SET purpose = 'activate' WHERE purpose IS NULL"
        "CREATE INDEX idx_activation_purpose ON activation_tokens(user_id, purpose)"))))
 
+(define m-0072-mail-verify-tls
+  (migration "0072-mail-verify-tls"
+    (lambda (conn)
+      ;; MAIL-26 — WHETHER THE RELAY'S CERTIFICATE IS VERIFIED, AND THE DEFAULT
+      ;; IS WHAT THE TRANSPORT ALREADY DID. `transport.rkt`'s own header has
+      ;; stated since the MAIL slice that the TLS branches do NOT verify:
+      ;; `net/smtp` passes no `#:context`, so the default client context answers
+      ;; and that one accepts a self-signed certificate. So TLS here has
+      ;; defended against a PASSIVE listener on the path and never against an
+      ;; active machine-in-the-middle, which can present any certificate it
+      ;; likes.
+      ;;
+      ;; It is a COLUMN and not an environment variable for the reason the
+      ;; credential beside it is a column (MAIL-3): the requirement is that an
+      ;; ADMIN configures the transport over HTTP, with no restart and no shell
+      ;; on the box. There is exactly one transport row, so a column here is
+      ;; instance-wide anyway.
+      ;;
+      ;; DEFAULT 0, which is this tree's standing rule rather than a preference:
+      ;; an upgrade must change nothing anybody has deployed (ENVN-1, DEL-9,
+      ;; PULL-15a), and verification would refuse the self-signed internal relay
+      ;; these deployments often run — so flipping it silently would stop a
+      ;; working instance's mail with a message about a certificate. RED-20's
+      ;; shape: the gap is REPORTED rather than assumed, because `verify_tls` is
+      ;; on every read.
+      (exec* conn
+       "ALTER TABLE email_transport ADD COLUMN verify_tls INTEGER NOT NULL DEFAULT 0"))))
+
 (define m-0071-research-sources
   (migration "0071-research-sources"
     (lambda (conn)
@@ -2442,4 +2470,5 @@
                              m-0064-chunk-vectors m-0065-help-corpus
                              m-0066-job-finished-age m-0067-model-request-job
                              m-0068-note-tags m-0069-email
-                             m-0070-token-purpose m-0071-research-sources))
+                             m-0070-token-purpose m-0071-research-sources
+                             m-0072-mail-verify-tls))

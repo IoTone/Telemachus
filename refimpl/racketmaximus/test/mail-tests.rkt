@@ -74,10 +74,11 @@
 
 ;; A transport row pointing at a port, with no credential.
 (define (configure! c #:port port #:base [base "https://tmach.example.test"]
-                    #:active [active #t] #:security [sec "none"])
-  (transport-set! c (hasheq 'host "127.0.0.1" 'port port 'security sec
+                    #:active [active #t] #:security [sec "none"]
+                    #:host [host "127.0.0.1"] #:verify [verify #f])
+  (transport-set! c (hasheq 'host host 'port port 'security sec
                             'from_address "tmach@example.test" 'from_name "TMach"
-                            'base_url base 'active active)))
+                            'base_url base 'active active 'verify_tls verify)))
 
 ;; A team, a member, and a verified address for them.
 ;;
@@ -879,3 +880,193 @@
 (test-case "MAIL-9: implicit TLS really connects, with the wrap before the 220"
   (tls-case "implicit tls" PORT-TLS "tls" #f #t))
 
+
+;; ---- MAIL-26…31: the relay's certificate ---------------------------------------
+;;
+;; THE TWO CASES ABOVE ESTABLISH THAT THE HANDSHAKE HAPPENS. These establish what
+;; it is worth, which until this slice was less than it looked: `net/smtp` passes
+;; no `#:context`, so the default client context answered and that one accepts a
+;; self-signed certificate — the two cases above pass against a certificate this
+;; file generates for itself, which is exactly the point.
+;;
+;; `verify_tls` is OFF by default (MAIL-26), so the first thing asserted is that
+;; the shipped posture is unchanged; everything after it is what the switch buys.
+
+(define PORT-VERIFY 8952)
+
+;; THE NAME IS AN ARGUMENT, not a `getenv` with a literal in it — which is what
+;; ENVN-2's gate refuses and what this file's first version wrote. The gate's
+;; rule is about the READ (`(getenv "TMACH_…")`), so passing the name to a helper
+;; that reads it through a variable is the sanctioned shape and is exactly what
+;; `content-encryption-tests` does with `TMACH_SECRET_KEY`. Composing it out of
+;; pieces to slip past the pattern would be evading the gate rather than
+;; satisfying it, which is the opposite of what every fix to that gate has done.
+(define CA-BUNDLE-VAR "TMACH_MAIL_CA_BUNDLE")
+
+;; `content-encryption-tests`' shape, and it has to restore even when a check
+;; raises — a leaked bundle would make every later case in this file verify
+;; against a trust store it did not ask for.
+(define (with-env name value thunk)
+  (define saved (getenv name))
+  (dynamic-wind (lambda () (putenv name value))
+                thunk
+                (lambda () (putenv name (or saved "")))))
+
+;; A SAN, because `/CN=127.0.0.1` IS NOT ENOUGH and the difference is invisible
+;; until something verifies. OpenSSL's hostname check reads subjectAltName and an
+;; IP must be there as `IP:`; a CN carrying an address has been deprecated for
+;; years and `X509_check_ip` does not consult it. So the certificate the other
+;; cases use — correct for them, since nothing checks a name — cannot be reused
+;; here, and a test that reused it would report a NAME failure as a chain failure.
+(define (self-signed/san!)
+  (define ssl (find-executable-path "openssl"))
+  (cond
+    [(not ssl) #f]
+    [else
+     (define d (build-path (find-system-path 'temp-dir)
+                           (format "tmach-mailverify-~a" (current-inexact-milliseconds))))
+     (make-directory* d)
+     (define key (build-path d "k.pem"))
+     (define crt (build-path d "c.pem"))
+     (define code
+       (parameterize ([current-output-port (open-output-nowhere)]
+                      [current-error-port (open-output-nowhere)])
+         (system*/exit-code ssl "req" "-x509" "-newkey" "rsa:2048" "-nodes"
+                            "-keyout" (path->string key) "-out" (path->string crt)
+                            "-days" "1" "-subj" "/CN=127.0.0.1"
+                            "-addext" "subjectAltName = IP:127.0.0.1")))
+     (and (zero? code) (file-exists? crt) (file-exists? key) (cons crt key))]))
+
+;; One shape for all four, because what differs between them is three arguments
+;; and the expected answer — and writing them out four times is how two of them
+;; end up asserting subtly different things about the same switch.
+(define (verify-case label #:host host #:verify verify #:bundle bundle #:expect expect)
+  (define pair (self-signed/san!))
+  (cond
+    [(not pair)
+     (printf "mail-tests: SKIPPED ~a — no openssl on PATH, so the verification branch went unexercised\n" label)]
+    [else
+     (define c (fresh))
+     (mock-clear!)
+     ;; THE NAME IS PASSED AS A VALUE, never written as a literal `getenv` —
+     ;; ENVN-2's gate fails on the literal, and it failed on the first version of
+     ;; this helper. `content-encryption-tests`' `with-env` is the shape.
+     (with-env CA-BUNDLE-VAR
+       (if (eq? bundle 'cert) (path->string (car pair)) (or bundle ""))
+       (lambda ()
+        (parameterize ([mock-tls-encode (accept-encoder (car pair) (cdr pair))])
+          (start-mock-smtp! #:port PORT-VERIFY #:starttls? #t #:tls? #f)
+          (configure! c #:port PORT-VERIFY #:security "starttls" #:host host #:verify verify)
+          (define-values (ok? err) (mail-send-test! c "tls@example.test"))
+          (stop-mock-smtp!)
+          (cond
+            [(eq? expect 'delivered)
+             (check-true ok? (format "~a: expected delivery, got: ~a" label err))
+             (check-true (mock-msg? (mock-last-message))
+                         (format "~a: a whole message crossed the verified connection" label))]
+            [else
+             (check-false ok? (format "~a: expected a refusal and the message was delivered" label))
+             (check-true (string? err) (format "~a: the refusal says something" label))
+             ;; IT NAMES THE SWITCH THAT ASKED (MAIL-31). openssl's own text is
+             ;; identical for an untrusted issuer and for a name that does not
+             ;; match, and says nothing about `verify_tls` — so an operator who
+             ;; has just turned it on would read it as the relay having broken.
+             (check-true (regexp-match? #px"verify_tls" err)
+                         (format "~a: the refusal names the switch, not only openssl: ~a" label err))
+             (check-true (string-contains? err CA-BUNDLE-VAR)
+                         (format "~a: …and the way out" label))]))))
+     (close-db! c)]))
+
+(test-case "MAIL-26: the shipped default does not verify, and that is the posture an upgrade keeps"
+  ;; THE DEFAULT IS ASSERTED AT THE ROW, not inferred from a delivery: a
+  ;; transport written with no `verify_tls` at all must read back `false`, or the
+  ;; migration's DEFAULT 0 is doing something other than what it says and every
+  ;; existing instance's posture would have changed under it.
+  (define c (fresh))
+  (transport-set! c (hasheq 'host "127.0.0.1" 'port 2525 'security "starttls"
+                            'from_address "tmach@example.test"))
+  (check-false (hash-ref (transport-ref c) 'verify_tls)
+               "an upgrade must not start verifying on its own")
+  ;; and it is REPORTED, which is what makes a default of `false` honest rather
+  ;; than quiet — an operator can see the posture without reading the module.
+  (check-true (hash-has-key? (transport-ref c) 'verify_tls))
+  (close-db! c))
+
+(test-case "MAIL-28: verification with no TLS is refused, not stored inert"
+  (define c (fresh))
+  (check-exn exn:fail?
+             (lambda ()
+               (transport-set! c (hasheq 'host "127.0.0.1" 'port 2525 'security "none"
+                                         'from_address "tmach@example.test"
+                                         'verify_tls #t)))
+             "a setting that silently does nothing is how an operator concludes the feature is broken")
+  ;; and the refusal names the way out rather than only the mistake
+  (check-true (regexp-match? #px"starttls|tls"
+                             (transport-problem (hasheq 'host "127.0.0.1" 'port 2525
+                                                        'security "none"
+                                                        'from_address "a@b.test"
+                                                        'verify_tls #t))))
+  (close-db! c))
+
+(test-case "MAIL-26: with verification OFF a self-signed relay is accepted, exactly as before"
+  (verify-case "verify off" #:host "127.0.0.1" #:verify #f #:bundle #f #:expect 'delivered))
+
+(test-case "MAIL-26: with verification ON and nothing trusting it, the same relay is refused"
+  ;; The pair that makes the switch mean something: same certificate, same mock,
+  ;; same session — only the switch moved.
+  (verify-case "verify on, untrusted" #:host "127.0.0.1" #:verify #t #:bundle #f #:expect 'refused))
+
+(test-case "MAIL-29: the CA bundle is what makes verification usable rather than merely stricter"
+  ;; The internal-relay case this feature would otherwise refuse outright, and
+  ;; the reason the knob exists at all: an operator with a private CA gets
+  ;; verification against it instead of a choice between no TLS checking and no
+  ;; mail.
+  (verify-case "verify on, bundle trusts it" #:host "127.0.0.1" #:verify #t
+               #:bundle 'cert #:expect 'delivered))
+
+(test-case "MAIL-30: the NAME is checked too, and this is the case chain-only verification would pass"
+  ;; THE POSITIVE CONTROL FOR HOSTNAME VERIFICATION. The bundle trusts this exact
+  ;; certificate, so the chain verifies; its SAN is `IP:127.0.0.1` and the
+  ;; configured host is `localhost`, which resolves to the same socket. A build
+  ;; that verified the chain and not the name delivers here and reads in a
+  ;; console exactly like one that checks both — which is why `verify_tls` means
+  ;; both or it means nothing.
+  ;; THE CONTROL IS THE SAME HOST WITH THE SWITCH OFF, and without it this case
+  ;; would pass against a build where `localhost` simply does not reach the mock
+  ;; — a connection failure and a name failure are one answer from the outside,
+  ;; because openssl's message is the same for both and a refused socket is a
+  ;; refusal too. So: `localhost` delivers with verification off, and refuses
+  ;; with it on. Only the switch moved.
+  (verify-case "wrong name, verification off" #:host "localhost" #:verify #f
+               #:bundle 'cert #:expect 'delivered)
+  (verify-case "verify on, wrong name" #:host "localhost" #:verify #t
+               #:bundle 'cert #:expect 'refused))
+
+(test-case "MAIL-31: a certificate refusal is PERMANENT, so it is not retried on the whole curve"
+  ;; Ten identical handshake failures against a certificate that will never
+  ;; verify is what the 5xx/4xx split exists to avoid, and a verification
+  ;; failure carries no SMTP code at all — so without its own clause it reads as
+  ;; transient. Asserted on the STRUCT rather than through the delivery sweep,
+  ;; because `permanent?` is what the sweep branches on and it is the property,
+  ;; not the number of attempts somebody counted.
+  (define pair (self-signed/san!))
+  (cond
+    [(not pair)
+     (printf "mail-tests: SKIPPED the permanence case — no openssl on PATH\n")]
+    [else
+     (mock-clear!)
+     (with-env CA-BUNDLE-VAR ""
+       (lambda ()
+         (parameterize ([mock-tls-encode (accept-encoder (car pair) (cdr pair))])
+           (start-mock-smtp! #:port PORT-VERIFY #:starttls? #t #:tls? #f)
+           (define t (hasheq 'host "127.0.0.1" 'port PORT-VERIFY 'security "starttls"
+                             'username 'null 'from_address "a@b.test" 'from_name 'null
+                             'verify_tls #t))
+           (define e
+             (with-handlers ([exn:fail:mail? values])
+               (smtp-deliver! t "to@b.test" "s" "b")
+               #f))
+           (stop-mock-smtp!)
+           (check-true (exn:fail:mail? e) "the refusal is this subsystem's own, not a bare exn")
+           (check-true (exn:fail:mail-permanent? e)
+                       "a certificate that will never verify must not be retried ten times"))))]))

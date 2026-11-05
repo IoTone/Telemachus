@@ -81,6 +81,18 @@ Matrix put its credential in the environment (MTX‑3) because it is a plugin an
 had no other choice. This is core and the requirement is that an **admin**
 configures it, so it is a row: no restart, and no shell on the box.
 
+**`verify_tls` joined that row on 5 Nov 2026 (MAIL‑26…31), and the state before
+it is worth recording.** `net/smtp` passes no TLS context, so both TLS modes
+accepted any certificate — TLS here defended against a passive listener on the
+path and never against an active machine-in-the-middle. It is **off by default**,
+because verification would refuse the self-signed internal relay many of these
+deployments run and an upgrade must change nothing anybody has deployed; the
+posture is on every read rather than left to be inferred. With it on, the chain
+AND the hostname are checked — there is no chain-only setting, because that
+accepts any certificate a public CA ever issued for any host while reading like
+protection — and `TMACH_MAIL_CA_BUNDLE` is what makes it usable for a private CA
+rather than merely stricter. A refusal is permanent and names the switch.
+
 **A team configures nothing about the transport.** A team-chosen SMTP host is an
 SSRF primitive, and the `From` address is the instance's own identity — a team
 able to set it could send mail as the instance. One row.

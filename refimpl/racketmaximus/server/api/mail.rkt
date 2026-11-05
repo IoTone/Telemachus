@@ -80,7 +80,16 @@
                                               'port (hash-ref t 'port)
                                               'security (hash-ref t 'security)
                                               'from_address (hash-ref t 'from_address)
-                                              'active (hash-ref t 'active))))
+                                              'active (hash-ref t 'active)
+                                              ;; TURNING VERIFICATION OFF IS THE
+                                              ;; security-relevant edit on this
+                                              ;; surface, so it belongs in the
+                                              ;; one record that outlives every
+                                              ;; other copy. It is neither a
+                                              ;; credential nor content, which is
+                                              ;; the line the password one line
+                                              ;; up is on the wrong side of.
+                                              'verify_tls (hash-ref t 'verify_tls))))
        (json-response (hasheq 'transport t))]))))
 
 ;; The only way OFF at the instance tier, and RED-34 is why it exists: a `PUT`

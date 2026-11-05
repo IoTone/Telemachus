@@ -2911,6 +2911,40 @@ assert "email: an unknown security mode is refused" \
   "$(curl -s -X PUT $B/api/email-transport -H "Authorization: Bearer $OP" \
      -H 'Content-Type: application/json' -d '{"host":"h","port":25,"security":"ssl","from_address":"a@b.test"}')" \
   'security must be'
+# MAIL-26…31: the relay's certificate. The HTTP half is the posture being
+# VISIBLE and the one refusal that is this surface's own; whether a handshake
+# verifies is `test/mail-tests.rkt`'s, which generates a certificate and drives
+# both branches against it.
+assert "email: the shipped posture is reported, and it does not verify" \
+  "$(curl -s $B/api/email-transport -H "Authorization: Bearer $OP")" \
+  '"verify_tls":false'
+# A SETTING THAT SILENTLY DOES NOTHING is how an operator concludes the feature
+# is broken: with `security: none` there is no handshake to verify.
+assert "email: verification with no TLS is refused, not stored inert" \
+  "$(curl -s -X PUT $B/api/email-transport -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"host":"h","port":25,"security":"none","from_address":"a@b.test","verify_tls":true}')" \
+  'verify_tls needs TLS'
+assert "email: a non-boolean verify_tls is refused" \
+  "$(curl -s -X PUT $B/api/email-transport -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"host":"h","port":25,"security":"tls","from_address":"a@b.test","verify_tls":"yes"}')" \
+  'verify_tls must be'
+# It round-trips WITH a TLS mode, which is the pair that says the refusal above
+# is about the combination rather than about the field existing at all.
+MTV=$(curl -s -X PUT $B/api/email-transport -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' \
+  -d '{"host":"relay.example.test","port":587,"security":"starttls","from_address":"tmach@example.test","verify_tls":true}')
+assert "email: verification is stored with a TLS mode"  "$MTV" '"verify_tls":true'
+# AND THE AUDIT TRAIL CARRIES IT, because turning verification off is the
+# security-relevant edit on this surface and the log outlives every other copy.
+assert "email: the configuration entry records the verification posture" \
+  "$(curl -s "$B/api/admin/audit/export?limit=200" -H "Authorization: Bearer $OP")" \
+  'verify_tls'
+# Put the transport back the way the rest of the file expects it, or every later
+# email block is testing a relay on port 587 that is not there — this file's own
+# repeated lesson about a fixture that changes global state.
+curl -s -o /dev/null -X PUT $B/api/email-transport -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' \
+  -d "{\"host\":\"127.0.0.1\",\"port\":$MS_PORT,\"security\":\"none\",\"username\":\"postmaster\",\"password\":\"s3cret\",\"from_address\":\"tmach@example.test\",\"from_name\":\"TMach\",\"base_url\":\"http://$B\"}"
 # ASSERTED WITH A VIEWER, and that is the point: a MEMBER would be refused too,
 # but so would a correct server that checked nothing team-tier — HELP-7's lesson,
 # where the first version of a permission assertion passed against a member who

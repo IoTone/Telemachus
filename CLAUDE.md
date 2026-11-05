@@ -2201,11 +2201,103 @@ what makes that possible), an unsubscribe link (it would need a GET that mutates
 a preference), and a per-team preference. **The quota dimension IS built** — see
 the section below.
 
-**STATED RATHER THAN IMPLIED**: the STARTTLS and implicit-TLS branches are not
-exercised by any test. Both are the same `smtp-send-message` call with a
-different connector argument, and driving either end to end needs a certificate
-the mock would have to be given; `mock-smtp.rkt` has the hook
-(`mock-tls-encode`) and nothing calls it. The LibreOffice branch's rule.
+**BOTH TLS BRANCHES ARE EXERCISED NOW** (MAIL‑9), and this note used to say they
+were not — it was written when `mock-smtp.rkt`'s `mock-tls-encode` hook had no
+caller, and it stayed after one arrived. `test/mail-tests.rkt` generates a
+self-signed certificate with the `openssl` in the devShell, hands the mock the
+accepting half, and asserts that a WHOLE message crossed the wrap in each mode
+— which is what establishes that MAIL FROM, RCPT TO, DATA, the body and the dot
+were all read through encrypted ports, and in the implicit case the 220 too. A
+box with no `openssl` SKIPS AND SAYS WHICH BRANCH went unexercised, because a
+silent skip is how a path goes untested for a year.
+
+**AND WHAT THOSE TWO CASES DID NOT ESTABLISH IS WHAT THE HANDSHAKE WAS WORTH** —
+see the section below. They passed against a certificate the test file generates
+for itself, which was the whole finding: nothing verified.
+
+## Whether the relay's certificate is checked (MAIL‑26…31)
+
+Built 5 Nov 2026 — the item `transport.rkt`'s own header had carried since the
+MAIL slice, raised four times in passing and never decided. Migration
+`0072-mail-verify-tls`; `verify_tls` on the transport document; one context
+builder and two makers in `domain/mail/transport.rkt`. **No route, no
+permission**, and one operator variable.
+
+```sh
+raco test test/mail-tests.rkt                              # 44 cases; three controls here, all biting
+DATABASE_URL="postgres://…" raco test test/mail-tests.rkt  # the whole file, both dialects
+bash test/server-smoke.sh                                  # the posture, two refusals and the audit entry
+```
+
+- **THE STATE IT WAS IN IS WHY THIS IS A SLICE AND NOT A FLAG.** `net/smtp`
+  passes no `#:context`, so the default client context answered BOTH TLS
+  branches and that one does not verify — a self-signed certificate was
+  accepted. So TLS here defended against a PASSIVE listener on the path and never
+  against an active machine-in-the-middle, which can present any certificate it
+  likes.
+- **THE DEFAULT IS OFF, AND IT IS REPORTED** (MAIL‑26). This tree's standing rule
+  rather than a preference: an upgrade must change nothing anybody has deployed
+  (ENVN‑1, DEL‑9, PULL‑15a), and verification would refuse the self-signed
+  internal relay many of these deployments run — so flipping it silently stops a
+  working instance's mail with a message about a certificate. It is a COLUMN and
+  not an environment variable for the reason the credential beside it is one
+  (MAIL‑3): an admin configures the transport over HTTP, no restart and no shell
+  on the box; there is one transport row, so a column is instance-wide anyway.
+  **On-for-new-rows-only was rejected** — the same field would mean different
+  things depending on when the row was written. What makes a default of `false`
+  honest rather than quiet is that `verify_tls` is on every read: RED‑20's shape,
+  where the gap is visible rather than assumed.
+- **ONE BUILDER, ASKED BY BOTH BRANCHES** (MAIL‑27) — `executor-can-run?`'s drift
+  in a place where the failure is silent and in the attacker's favour: the branch
+  that quietly stopped verifying would still deliver mail and report success. The
+  two makers exist only because `net/smtp` chooses the keywords (the encoder gets
+  `#:encrypt 'tls` hardcoded, the connector is `(host port)`), so the decision
+  and the hostname are CLOSED OVER rather than passed.
+- **`verify_tls` WITH `security: "none"` IS REFUSED, NOT STORED INERT**
+  (MAIL‑28). There is no handshake to verify, so it would be a setting that
+  silently does nothing — the call an unknown field, an unknown theme token, an
+  unknown retention field and an unknown feature all make. It also refuses the
+  one ordering an operator could get wrong without noticing: verification on and
+  the mode down to `none` in the same request.
+- 🔑 **`TMACH_MAIL_CA_BUNDLE` IS WHAT MAKES VERIFICATION USABLE RATHER THAN MERELY
+  STRICTER** (MAIL‑29), loaded IN ADDITION to the host's default sources, with
+  `SSL_CERT_FILE` honoured as a fallback because it is the variable the rest of
+  the world sets and the one the Nix closure already speaks. Without it the
+  switch's only outcome for an internal relay is "no mail leaves", and a switch
+  like that is one nobody turns on. **A bundle an operator NAMED and that is not
+  there is a refusal**, never a fall back to the defaults: falling back verifies
+  against a different trust store than the one they configured and reports
+  success.
+- 🔑 **THE HOSTNAME IS NOT SEPARATELY OPTIONAL: `verify_tls` MEANS THE CHAIN AND
+  THE NAME, OR IT MEANS NOTHING** (MAIL‑30). A verified chain with no name check
+  accepts any certificate a public CA ever issued, for any host — so against the
+  active machine-in-the-middle this switch is about, chain-only verification buys
+  very nearly nothing while reading in a console exactly like protection. The
+  name comes from the STORED configuration, never from anything the relay says
+  about itself. **And `/CN=127.0.0.1` IS NOT ENOUGH**: OpenSSL's check reads
+  subjectAltName and an address must be there as `IP:`, so the certificate the
+  MAIL‑9 cases use — correct for them, since nothing checks a name — cannot be
+  reused here, and a test that reused it would report a NAME failure as a chain
+  failure.
+- **A CERTIFICATE REFUSAL IS PERMANENT AND NAMES THE SWITCH** (MAIL‑31). It
+  carries no SMTP code, so the existing 5xx/4xx split reads it as transient and
+  the delivery is retried on the whole curve — ten identical handshake failures
+  against a certificate that will never verify, which is the shape that split
+  exists to avoid. And openssl's text is IDENTICAL for an untrusted issuer and a
+  mismatched name and says nothing about the switch, so an operator who has just
+  turned verification on reads it as the relay having broken. The detail is kept
+  and clipped with ours in front: SEC‑8's line.
+- **A REFUSAL AND A CONNECTION FAILURE ARE ONE ANSWER FROM THE OUTSIDE**, so the
+  wrong-name case needed a control for it: openssl says `certificate verify
+  failed` either way and a refused socket is a refusal too, so the case would
+  pass against a build where `localhost` simply does not reach the mock. The
+  control is the same host with the switch OFF, which must deliver.
+- **Not built, deliberately**: a probe reporting whether verification WOULD
+  succeed while the switch is off (useful — it would let an operator on a public
+  relay learn "turn this on" at no risk — and it is a second handshake per probe
+  and its own decision); a per-relay pinned certificate, which the CA bundle
+  already covers for the case that wanted it; and a console control, since the
+  field is on the read and the `PUT` already sets it.
 
 ## The transactional mail a service needs: a reset, and an invitation (RESET, INVITE)
 
