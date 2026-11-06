@@ -138,9 +138,29 @@ arriving at a second asker.
 
 A link to a note that does not exist is not the same as no link, and it is the
 commonest failure this feature will have — somebody deletes a note. So
-`dst_note_id` is nullable, `raw_target` is kept, and the renderer draws it
-visibly broken. A link that silently became plain text is how a reader concludes
-the editor ate their markup.
+`raw_target` is kept and the renderer draws it visibly broken. A link that
+silently became plain text is how a reader concludes the editor ate their markup.
+
+🔑 **The decision above is kept exactly and the COLUMN it first named is not, and
+the reason is worth reading before anybody adds one back.** This said
+"`dst_note_id` is nullable"; slice 2 stores no resolution at all, because a
+stored one is a copy of a decision that the NOTES change underneath it. Two
+things decided it. Deleting the target leaves every stored id a lie until
+something nulls it — survivable. And **somebody writes `[[Levee 7 survey]]`
+BEFORE creating that note**, which is exactly how org-roam is used: a stored NULL
+never heals, so the link would stay broken for ever while the note it names sat
+in the same team. Healing it means re-resolving on create, on rename and on
+delete — three statements and an invariant to keep — which is the shape RG‑23,
+TAG‑1, PATH‑1 and the Localization Manager's `missing`/`stale` all refuse.
+
+So what is stored is the target AS WRITTEN plus its fold, written once in the
+same INSERT and never updated, and the resolution is an indexed equality at read
+time. **ORG‑7's objection is satisfied in full**: the expensive half — parsing a
+body — happens on write, and what PERF‑5 measured was a leading-wildcard `LIKE`
+over bodies, not a lookup. `target_fold` is deliberately not the drift shape it
+resembles: it is a pure function of `raw_target`, written beside it, and neither
+is ever rewritten, so they cannot come apart. A resolution can, and that is the
+one thing not stored.
 
 ### 🔑 ORG‑9 — The edge is authorized at BOTH ends, at read time, and an unreadable one is INDISTINGUISHABLE from absent
 
@@ -230,6 +250,16 @@ rule as ORG‑9. In org-roam and Obsidian this is used far more than the graph
 picture is, and it ships in the same slice as the table rather than waiting for
 the drawing.
 
+**Built, and the e2e gate corrected one thing about it that reasoning had not.**
+Both spellings of a note are asked for — its id and its folded title — and an
+inbound TITLE link is suppressed while that title is ambiguous, because such a
+link resolves to neither note and a backlink on a note the link does not reach
+would be a lie. And the two columns of the console's panel are gated
+DIFFERENTLY: outgoing links exist only for an org body, while **backlinks exist
+for any note**, since a Markdown note is linked to by an org one just as
+readily. Gating the whole panel on the note's own format hid every backlink on
+every Markdown target — which is most of a team's notes.
+
 ### ORG‑16 — The graph read is bounded, defaults to a neighbourhood, and reports both
 
 CLS‑27 and VEC‑29's rule. A team with five thousand notes cannot be drawn at all
@@ -260,10 +290,12 @@ cannot find text that is on the screen.
    sanitiser case, and `test/note-format-tests.rkt` for the column and ORG‑2's
    promise. No new table, no new permission and no feature switch. An org user
    can keep org notes today.
-2. **The links** — `note_links` (migration `0074`), extraction inside the body
-   write, backlinks on the note detail, and the ORG‑8/ORG‑9 asymmetry with a
-   positive control for each. Independently useful; **and it is #247's
-   prerequisite**.
+2. **The links** — **BUILT** (5 Nov 2026). `note_links` (migration `0074`),
+   `domain/notes/org-links.rkt` for the syntax and the fold, extraction inside
+   the body's own transaction, `GET /api/notes/:id/links` carrying both
+   directions, the panel on the note detail, and the ORG‑8/ORG‑9 asymmetry with a
+   positive control for each (`test/note-links-tests.rkt`, 19 cases, ten
+   controls). **#247 now has its edge set.**
 3. **The interchange** — `?as=org` and `POST /api/notes/import`, ORG‑11's
    byte-identical round trip. Independent of 2 and of 4.
 4. **The graph** — #247. ORG‑13's layout, ORG‑16's bound and neighbourhood

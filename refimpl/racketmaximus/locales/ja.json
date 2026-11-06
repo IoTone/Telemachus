@@ -1568,6 +1568,10 @@
       "text": "1件のノート。",
       "hash": "6abde483f234c866cac4d76f42dcdbf4cd86bfd4"
     },
+    "doc.route.get.api.notes.id.links": {
+      "text": "このノートがリンクしている先と、このノートにリンクしている元（#246）。`links` は本文に現れる順の発リンク、`backlinks` は同じテーブルを逆向きに読んだものです。存在しないノートへのリンクはリンク切れとして報告され、記述されたままのターゲットと理由（`missing`、または同じ見出しのノートが 2 件ある場合は `ambiguous`）が付きます。呼び出し元が読めないノートが相手側にあるリンクは、単に存在しません — 伏せたことを伝えると、他人のプライベートなノートの存在を示すことになるため、報告されません。",
+      "hash": "6e57c6c5443eb0156e471a0acd5d2d3dfb25c3cb"
+    },
     "doc.tool.feed_queue_status": {
       "text": "キューにある項目を別の状態へ移します：open、claimed、done、dropped のいずれか。",
       "hash": "a4371b500c8fc586e526ec8c7be2d66e0afa717c"
@@ -4031,6 +4035,26 @@
     "ui.orgnoinclude": {
       "text": "ここでは #+INCLUDE: に対応していません — ノートはサーバー上のファイルを読み取れません",
       "hash": "854fb323be836ef017658090506af2580f086576"
+    },
+    "ui.orglinks": {
+      "text": "このノートからのリンク",
+      "hash": "82f64f90bd37faa605332f9e94c9f9077aaabc4f"
+    },
+    "ui.orgbacklinks": {
+      "text": "リンク元",
+      "hash": "e4f1c25c18826e02923f132c5a745854f85e9128"
+    },
+    "ui.orgbroken": {
+      "text": "リンク切れ",
+      "hash": "0b8a1caec23d75d1154b8d9bef9cec6c03697638"
+    },
+    "ui.orgmissing": {
+      "text": "その見出しまたは ID のノートはありません",
+      "hash": "ba2a7b3683e55177df4e99b3a70b78a3fdf257cc"
+    },
+    "ui.orgambiguous": {
+      "text": "同じ見出しのノートが 2 件あるため、どちらにもリンクできません",
+      "hash": "92f9108848b1b227089b95719481e13e9ebd1ace"
     },
     "ui.edtorepo": {
       "text": "リポジトリに保存",

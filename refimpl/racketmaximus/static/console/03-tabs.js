@@ -132,11 +132,17 @@ function artifactCard(a){
 // that do not depend on each other share a round.
 async function notesView(){
   const q = (S.noteTags||[]).map(x=>'tag='+encodeURIComponent(x)).join('&');
-  const [r, tg, mem] = await Promise.all([
+  // #246 slice 2 — the viewed note's edges ride in the SAME round. They are an
+  // independent read, and the sign-in slice measured a sequential await as 300ms
+  // a call; it is also why this is its own route rather than a field on every
+  // note (ORG-9 asks `can?` per edge, which an N-note listing must not pay).
+  const [r, tg, mem, lk] = await Promise.all([
     api('/api/notes'+(q?'?'+q:'')),
     api('/api/note-tags'),
-    api('/api/members')
+    api('/api/members'),
+    S.noteShow ? api('/api/notes/'+encodeURIComponent(S.noteShow)+'/links') : Promise.resolve(null)
   ]);
+  const edges = (lk && lk.ok) ? lk.json : null;
   const notes=r.ok?r.json.notes:[];
   const allTags=tg.ok?tg.json.tags:[];
   const members=mem.ok?mem.json.members:[];
@@ -169,7 +175,7 @@ async function notesView(){
         <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${t('del')}</button></div>
       </div></div>`).join('') || `<p class="muted">—</p>`;
   const card = viewing
-    ? noteViewCard(viewing)
+    ? noteViewCard(viewing, edges)
     : editing
     ? `<div class="card"><h3>${t('editnote')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
       <label>${t('title')}</label><input id="nt" value="${esc(editing.title||'')}">
@@ -263,12 +269,61 @@ function noteTools(key, titleId){
 // viewer's own offset with nothing to catch it (CARD-3's trap). There are no
 // epoch columns on this table, so the string is shown as stored and LABELLED
 // UTC rather than converted wrongly.
-function noteViewCard(n){
+// ORG-8 — THE MAP'S KEYS ARE THE ESCAPED TARGETS, and this is the one place
+// that builds it. By the time `orgRender`'s rules run, a source `&` is `&amp;`,
+// so a map keyed on what the server stored would miss every target containing
+// one; escaping each key once here is what keeps that reasoning in a single
+// place rather than inside the renderer.
+function linkResolution(edges){
+  if(!edges || !edges.links) return null;
+  const m = {};
+  for(const l of edges.links) m[esc(l.target)] = !l.broken;
+  return m;
+}
+// ORG-15 — "what links here" ships with the table rather than waiting for the
+// drawing, because in org-roam and Obsidian it is used far more than the graph
+// picture is. Both directions are drawn, and a BROKEN link says WHY — `missing`
+// or `ambiguous` — because the two have different remedies: create the note, or
+// rename one of the two that share the title.
+//
+// THERE IS NOTHING HERE FOR AN EDGE THE READER MAY NOT SEE, and that is ORG-9
+// rather than an omission: the server never reported one, so there is no count
+// to draw and no row to leave blank.
+// THE TWO COLUMNS ARE NOT GATED THE SAME WAY, and the e2e gate is what
+// established that. OUTGOING links exist only for an org note, because
+// `[[target]]` is org syntax and a Markdown body has no link syntax in this
+// build. BACKLINKS exist for ANY note: a Markdown note is linked TO by an org
+// one just as readily, and "what links here" is the half people actually use
+// (ORG-15). Gating the whole panel on the note's own format hid every backlink
+// on every Markdown target — which is most of a team's notes.
+//
+// With neither — a Markdown note nothing points at — there is no panel at all,
+// rather than an empty heading about a feature that does not apply to it.
+function noteEdgeList(edges, format){
+  if(!edges) return '';
+  const org = format === 'org';
+  const back = edges.backlinks || [];
+  if(!org && !back.length) return '';
+  const reason = r => t(r==='ambiguous'?'orgambiguous':'orgmissing');
+  const out = (edges.links||[]).map(l => l.broken
+    ? `<li><span class="org-link broken">${esc(l.label||l.target)}</span>
+        <span class="muted" style="font-size:12px">${esc(t('orgbroken'))} — ${esc(reason(l.reason))}: <span class="mono">${esc(l.target)}</span></span></li>`
+    : `<li><button class="btn sm ghost" data-h-click="${H(()=>noteShow(l.note_id))}">${esc(l.title||l.target)}</button>
+        ${l.label&&l.label!==l.title?`<span class="muted" style="font-size:12px">${esc(l.label)}</span>`:''}</li>`).join('');
+  const inbound = back.map(b =>
+    `<li><button class="btn sm ghost" data-h-click="${H(()=>noteShow(b.note_id))}">${esc(b.title)||'(untitled)'}</button></li>`).join('');
+  const col = (label, body) => `<div style="flex:1"><label>${esc(label)}</label>
+      ${body?`<ul class="org-edges">${body}</ul>`:`<p class="muted">—</p>`}</div>`;
+  return `<div class="row" style="margin-top:12px;gap:16px;align-items:flex-start">
+    ${org?col(t('orglinks'), out):''}${col(t('orgbacklinks'), inbound)}</div>`;
+}
+function noteViewCard(n, edges){
   const mine = n.owner_user_id === S.me.user_id;
   return `<div class="card">
     <h3 style="margin-top:0">${esc(n.title)||'(untitled)'}
       <span class="badge">${esc(n.visibility)}</span>${mine?' <span class="badge ok">mine</span>':''}</h3>
-    <div class="md">${bodyRender(n.body, n.format)}</div>
+    <div class="md">${bodyRender(n.body, n.format, linkResolution(edges))}</div>
+    ${noteEdgeList(edges, n.format)}
     <div class="muted" style="font-size:12px;margin-top:10px">
       ${esc(t('created'))}: ${esc(n.created_at)} UTC · ${esc(t('updated'))}: ${esc(n.updated_at)} UTC
       · <span class="mono">${esc(n.id)}</span></div>

@@ -479,6 +479,10 @@
       "text": "Publish a workflow spec (validated; unknown fields refused); re-publishing a slug bumps its version.",
       "hash": "57f5717f784659e41b73f398f34d8c757d99d3ff"
     },
+    "doc.route.get.api.notes.id.links": {
+      "text": "What this note links to, and what links to it (#246). `links` is outgoing in the order they appear in the body; `backlinks` is the same table read in reverse. A link to a note that is not there is reported broken, with the target as written and a reason (`missing`, or `ambiguous` when two notes share that title). A link whose other end the caller may not read is simply absent — it is never reported, because saying one was withheld would be an existence oracle on somebody's private note.",
+      "hash": "6e57c6c5443eb0156e471a0acd5d2d3dfb25c3cb"
+    },
     "doc.route.get.api.model-roles": {
       "text": "Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default.",
       "hash": "79dc79b5e8a6eff3f6ad5dab481a4264815387e4"
@@ -595,6 +599,14 @@
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "doc.route.get.api.x.feeds.queue": {
+      "text": "The team's feed work queue, ordered by priority then soonest due date. ?status= open|claimed|done|dropped|all (default: the actionable two), ?feed= a feed slug, ?skill= one skill, ?limit=/?offset=. Every row is re-authorized on the document it points at, so the count is what the caller may read rather than what is there.",
+      "hash": "cfadd1e60a39c8c5785a921b25b0867d4b1086b6"
+    },
+    "ui.orgambiguous": {
+      "text": "two notes share that title, so the link reaches neither",
+      "hash": "92f9108848b1b227089b95719481e13e9ebd1ace"
+    },
     "doc.tool.kg_query.type": {
       "text": "Restrict a name lookup to one entity type, e.g. organization",
       "hash": "bf3b06e97454031c475151174af5ebabf873a414"
@@ -602,10 +614,6 @@
     "doc.route.get.api.email-notify": {
       "text": "Which notification categories this instance sends, the closed category list, the events each one covers, and what they resolve to for the caller. ABSENCE MEANS OFF at this layer, unlike a feature switch: a notification governs whether the instance sends mail to people, and the behaviour that already existed is sending none — so an operator names the categories their instance sends.",
       "hash": "445fa835aa9c2be83ddd9dbfe74f4a24fec5260b"
-    },
-    "doc.route.get.api.x.feeds.queue": {
-      "text": "The team's feed work queue, ordered by priority then soonest due date. ?status= open|claimed|done|dropped|all (default: the actionable two), ?feed= a feed slug, ?skill= one skill, ?limit=/?offset=. Every row is re-authorized on the document it points at, so the count is what the caller may read rather than what is there.",
-      "hash": "cfadd1e60a39c8c5785a921b25b0867d4b1086b6"
     },
     "ui.hoff": {
       "text": "off",
@@ -975,6 +983,10 @@
       "text": "The caller's EFFECTIVE retention policy, with `sources` naming which layer set each value — instance, org or team. The layers TIGHTEN: a shorter horizon wins and `null` (keep for ever) loses to any number, so a team cannot keep data longer than its org allows. Nothing is deleted unless a rule is configured; an unconfigured instance has no rules and sweeps nothing.",
       "hash": "c9231f778313d4e931e44e514ab8f69f3968987a"
     },
+    "ui.orglinks": {
+      "text": "Links from this note",
+      "hash": "82f64f90bd37faa605332f9e94c9f9077aaabc4f"
+    },
     "ui.hmt": {
       "text": "Multi-tenancy",
       "hash": "437ca7ee46f783347bd4c1eaa273bc99f6df4265"
@@ -1343,6 +1355,14 @@
       "text": "sealed",
       "hash": "5d2b90a4c4a5c2194f672a4120ffff9f77e35d30"
     },
+    "ui.orgbroken": {
+      "text": "broken",
+      "hash": "0b8a1caec23d75d1154b8d9bef9cec6c03697638"
+    },
+    "doc.perm.files:delete": {
+      "text": "Delete repository documents.",
+      "hash": "22c27699a83b97492e326f893ae9aa65ae8e532c"
+    },
     "ui.mlmine": {
       "text": "My notifications",
       "hash": "0dc06c2c8a708139c2818ea85d5912d36a5aa7ce"
@@ -1354,10 +1374,6 @@
     "ui.mlfrom": {
       "text": "From address",
       "hash": "19683459156b3c6a2dae1c9fe6be0f1500c64a7d"
-    },
-    "doc.perm.files:delete": {
-      "text": "Delete repository documents.",
-      "hash": "22c27699a83b97492e326f893ae9aa65ae8e532c"
     },
     "ui.palhclose": {
       "text": "Esc or ? to close",
@@ -2571,6 +2587,10 @@
       "text": "view",
       "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
     },
+    "ui.orgbacklinks": {
+      "text": "Linked from",
+      "hash": "e4f1c25c18826e02923f132c5a745854f85e9128"
+    },
     "ui.brandthemereset": {
       "text": "Reset theme",
       "hash": "d8726c4de543a6d05fd3b09750488193ab6c3572"
@@ -2994,6 +3014,10 @@
     "ui.palaction": {
       "text": "action",
       "hash": "34eb4c4ef005207e8b8f916b9f1fffacccd6945e"
+    },
+    "ui.orgmissing": {
+      "text": "no note here has that title or id",
+      "hash": "ba2a7b3683e55177df4e99b3a70b78a3fdf257cc"
     },
     "doc.route.get.api.org.session-policy": {
       "text": "The company's own session timeouts, the instance's, and the effective policy after the instance floor is applied.",

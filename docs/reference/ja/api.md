@@ -126,6 +126,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/note-tags` | bearer | `notes:read` | role | — | チームで使用されているすべてのタグと、呼び出し元が読めるノートのうちそのタグを持つ件数。この一覧はそれらのノートのタグから導出されます (#245) — どのタグが存在するかは保存しないため、タグが空になることはなく、最後のノートから外れた時点で存在しなくなります。?scope=org は会社全体を対象にします。 |
 | POST | `/api/notes/:id/share` | bearer | `notes:manage` | resource | — | ユーザー（所有者、またはnotes:manage）とメモを共有します。与えられた権限はnotes:*のものでなければなりません。 |
 | POST | `/api/notes/:id/autotag` | bearer | `notes:write` | resource | — | 1 つのノートについてモデルにトピックタグを求め、ノート自身の言語でそれを追加します (#245)。既存のタグが削除されることはありません。`added` と、それとは別に `dropped` — モデルが提案したが使用できないタグ — を返します。モデル呼び出しは 1 回で、チームに対して計測されます。 |
+| GET | `/api/notes/:id/links` | bearer | `notes:read` | resource | — | このノートがリンクしている先と、このノートにリンクしている元（#246）。`links` は本文に現れる順の発リンク、`backlinks` は同じテーブルを逆向きに読んだものです。存在しないノートへのリンクはリンク切れとして報告され、記述されたままのターゲットと理由（`missing`、または同じ見出しのノートが 2 件ある場合は `ambiguous`）が付きます。呼び出し元が読めないノートが相手側にあるリンクは、単に存在しません — 伏せたことを伝えると、他人のプライベートなノートの存在を示すことになるため、報告されません。 |
 | GET | `/api/notes/:id` | bearer | `notes:read` | resource | — | 1件のノート。 |
 | PUT | `/api/notes/:id` | bearer | `notes:write` | resource | — | ノートを更新します。 |
 | DELETE | `/api/notes/:id` | bearer | `notes:delete` | resource | — | ノートを削除します。 |

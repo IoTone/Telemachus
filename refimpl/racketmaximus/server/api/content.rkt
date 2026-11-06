@@ -9,7 +9,7 @@
 (provide ep-notes-create ep-notes-list ep-documents-create ep-documents-list
          ep-documents-get ep-documents-update ep-documents-delete
          ep-notes-get ep-notes-update ep-notes-delete ep-notes-share
-         ep-note-tags ep-notes-autotag
+         ep-note-tags ep-notes-autotag ep-note-links
          ep-search ep-kg-entities ep-kg-entity ep-kg-extract)
 
 (require racket/string
@@ -17,7 +17,7 @@
          (only-in "../../config.rkt" content-encryption-enabled?)
          (only-in "../../domain/notes/notes.rkt"
                   notes-create notes-delete notes-get notes-list notes-share notes-update
-                  notes-tag-list)
+                  notes-tag-list note-links-of note-backlinks-of)
          (only-in "../../domain/notes/note-tools.rkt" note-autotag!)
          (only-in "../../domain/tools/faults.rkt" exn:fail:misconfigured?)
          (only-in "../../domain/documents/documents.rkt" documents-create documents-delete documents-get documents-list documents-update)
@@ -101,6 +101,25 @@
   (with-auth req (lambda (p)
     (define n (notes-get db-conn p id))
     (if n (json-response n) (err "not found" 404)))))
+
+;; ORG-15 — ITS OWN ROUTE AND NOT A FIELD ON `GET /api/notes/:id`, which is the
+;; shape `/api/repo-obj/:id/annotations`, `/processing`, `/derivations` and
+;; `/spans` all take. Two reasons, and the first is the load-bearing one: the
+;; note GET is what the LISTING's own shape is, and ORG-9 asks `can?` per edge,
+;; so folding this in would make an N-note read O(N x edges) on a path that
+;; already does per-row `can?`. The second is that one note's links are what a
+;; detail panel wants, and the Notes tab already fetches in a `Promise.all`
+;; round, so it costs no extra latency there.
+;;
+;; BOTH DIRECTIONS IN ONE ANSWER, because a reader looking at a note wants both
+;; and the team's note index is built once for the pair rather than twice.
+(define (ep-note-links req id)
+  (with-auth req (lambda (p)
+    (define out (note-links-of db-conn p id))
+    (if out
+        (json-response (hasheq 'links out
+                               'backlinks (note-backlinks-of db-conn p id)))
+        (err "not found" 404)))))
 
 (define (ep-notes-update req id)
   (with-auth req (lambda (p)

@@ -2486,6 +2486,75 @@
       (exec* conn
        "ALTER TABLE notes ADD COLUMN format TEXT NOT NULL DEFAULT 'markdown'"))))
 
+(define m-0074-note-links
+  (migration "0074-note-links"
+    (lambda (conn)
+      ;; ORG-7 — THE EDGES ARE EXTRACTED ON WRITE RATHER THAN PARSED ON READ.
+      ;; #247 needs an edge set it can query and authorize per row, and parsing
+      ;; every note's body on every graph read is a `LIKE '%[[%'` with a LEADING
+      ;; wildcard — which PERF-5 measured as unable to use its index at all.
+      ;; TAG-2's argument for a join table over a delimited column, at a second
+      ;; asker.
+      ;;
+      ;; 🔑 THERE IS NO `dst_note_id` COLUMN, AND ORG-8 NAMED ONE. The decision
+      ;; it states is kept exactly — a link to a note that does not exist is
+      ;; stored as broken, with its raw target, and reported — but the column is
+      ;; not what keeps it, because a stored resolution is a copy of a decision
+      ;; that the NOTES change under it:
+      ;;
+      ;;   * somebody deletes the target and every stored id pointing at it is
+      ;;     a lie until something nulls it;
+      ;;   * and the one that decided it — somebody writes `[[Levee 7 survey]]`
+      ;;     BEFORE creating that note, which is exactly how org-roam is used,
+      ;;     and a stored NULL never heals. The link would stay broken for ever
+      ;;     while the note it names sat in the same team.
+      ;;
+      ;; Healing it would mean re-resolving on create, on rename and on delete —
+      ;; three statements and an invariant to keep — which is the shape RG-23,
+      ;; TAG-1, PATH-1 and the Localization Manager's `missing`/`stale` all
+      ;; refuse. So what is stored is the TARGET AS WRITTEN plus its fold, both
+      ;; written once in the same INSERT and never updated, and `dst` is resolved
+      ;; by an indexed equality at read time. ORG-7's objection is satisfied in
+      ;; full: the expensive half (parsing a body) happens on write, and the
+      ;; cheap half (matching a target) is a lookup.
+      ;;
+      ;; `target_fold` is therefore NOT the drift shape even though it duplicates
+      ;; information: it is a pure function of `raw_target`, written beside it,
+      ;; and neither is ever rewritten — so they cannot come apart. What could
+      ;; come apart is a resolution, and that is the one thing not stored.
+      (exec* conn
+       (string-append
+        "CREATE TABLE note_links ("
+        "  id TEXT PRIMARY KEY,"
+        "  src_note_id TEXT NOT NULL,"
+        "  team_id TEXT NOT NULL,"
+        ;; the target AS WRITTEN, so ORG-8 can show a reader the link that does
+        ;; not work rather than the empty space where one used to be
+        "  raw_target TEXT NOT NULL,"
+        ;; what actually matches: case-folded and whitespace-collapsed by
+        ;; `fold-key`, in Racket rather than with SQL's `lower()`, because the
+        ;; two dialects do not fold non-ASCII the same way and this console
+        ;; ships `ja`
+        "  target_fold TEXT NOT NULL,"
+        "  label TEXT NOT NULL DEFAULT '',"
+        ;; the order they appear in the body, so "the links in this note" has a
+        ;; deterministic answer rather than the engine's
+        "  ord INTEGER NOT NULL DEFAULT 0)"))
+      ;; "what does this note link to" — the outgoing read
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_note_links_src ON note_links (src_note_id)")
+      ;; ORG-15 — "what links here", which is `note_links` read in REVERSE and is
+      ;; the half people actually use. Keyed on the team as well as the fold
+      ;; because `notes.id` is instance-global (ORG-10) and a backlink must never
+      ;; cross a team.
+      (exec* conn (string-append "CREATE INDEX IF NOT EXISTS idx_note_links_target "
+                                 "ON note_links (team_id, target_fold)"))
+      ;; ONE ROW PER DISTINCT TARGET PER NOTE. An edge is a relation between two
+      ;; notes and two mentions of it are one relation; this is also what bounds
+      ;; a note's row count by its distinct targets rather than by how often
+      ;; somebody repeated themselves.
+      (exec* conn (string-append "CREATE UNIQUE INDEX IF NOT EXISTS idx_note_links_unique "
+                                 "ON note_links (src_note_id, target_fold)")))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2496,4 +2565,5 @@
                              m-0066-job-finished-age m-0067-model-request-job
                              m-0068-note-tags m-0069-email
                              m-0070-token-purpose m-0071-research-sources
-                             m-0072-mail-verify-tls m-0073-note-format))
+                             m-0072-mail-verify-tls m-0073-note-format
+                             m-0074-note-links))
