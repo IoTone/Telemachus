@@ -12,7 +12,7 @@
 
 (require (only-in "../net/remote-detail.rkt" remote-detail))
 
-(require (only-in "../../config.rkt" impl-root) json
+(require (only-in "../../config.rkt" impl-root app-version) json
          racket/string
          racket/port
          racket/system
@@ -21,7 +21,20 @@
 
 (provide (struct-out mcp-conn)
          mcp-connect mcp-connect-stdio mcp-connect-http
-         mcp-close mcp-list-tools mcp-call-tool)
+         mcp-close mcp-list-tools mcp-call-tool
+         mcp-client-version)
+
+;; What this client announces in the initialize handshake: the build's own
+;; version, from `config.rkt`'s `app-version`, which reads VERSION at RUN time so
+;; `raco make` cannot leave a stale number baked into the .zo.
+;;
+;; This was a literal `"0.6.0"` and then a literal `"0.7.0"`, and both were wrong
+;; within one release of being written — main had moved to 0.8.1 while the
+;; handshake still announced 0.7.0, so every MCP server that logged the client
+;; version recorded a build nobody was running. A second spelling of the version
+;; is the defect, not the number in it. `test/mcp-tests.rkt` still pins the
+;; handshake to VERSION, so a future refactor cannot quietly detach it.
+(define mcp-client-version app-version)
 
 ;; rpc    : (request-obj id secs) -> response-obj (the one whose id matches)
 ;; notify : (notif-obj) -> void
@@ -57,7 +70,7 @@
 (define (handshake c secs)
   (request c "initialize"
            (hasheq 'protocolVersion "2024-11-05" 'capabilities (hasheq)
-                   'clientInfo (hasheq 'name "telemachus" 'version "0.6.0"))
+                   'clientInfo (hasheq 'name "telemachus" 'version mcp-client-version))
            secs)
   (notify c "notifications/initialized" (hasheq)))
 

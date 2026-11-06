@@ -4,6 +4,7 @@
 ;; server (test/mock-mcp.rkt). No external deps.  raco test test/mcp-tests.rkt
 
 (require rackunit
+         racket/string
          racket/runtime-path
          racket/file
          racket/tcp
@@ -20,6 +21,7 @@
 
 (define-runtime-path mock "mock-mcp.rkt")
 (define-runtime-path mock-http "mock-mcp-http.rkt")
+(define-runtime-path version-file "../VERSION")
 (define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "mcp client: initialize, tools/list, tools/call"
@@ -85,3 +87,12 @@
   (check-equal? (mcp-call-tool c "add" (hasheq 'a 7 'b 8)) "15")
   (mcp-close c)
   (subprocess-kill proc #t))
+
+
+;; A server that logs the client version must not be told a build that shipped
+;; two releases ago. The constant is local to the client; VERSION is the release
+;; of record, so the two are pinned here rather than read at runtime.
+(module+ test
+  (test-case "the announced MCP client version equals VERSION"
+    (define on-disk (string-trim (file->string version-file)))
+    (check-equal? mcp-client-version on-disk)))

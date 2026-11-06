@@ -331,7 +331,7 @@ append-only by convention and ordered to the microsecond, but nothing proves a
 row was not altered afterwards.
 
 The platform already content-addresses blobs by SHA‑256 and has HMAC in
-`sha2.rkt`. Hash-chaining the decision records is modest work on existing
+`pkgs/sha2-kit`. Hash-chaining the decision records is modest work on existing
 primitives, and for government-facing defensibility it is the difference between
 a record and evidence.
 

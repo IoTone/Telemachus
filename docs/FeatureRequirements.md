@@ -63,7 +63,8 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       `static/ui-strings.json`, folded into `en.json` by the extractor; served
       pre-auth by `GET /api/i18n/catalog`, chain-resolved server-side) — so one
       `extract`, one Manager and one CI gate cover the server and the UI alike.
-      **English, Japanese, Dutch and Latin American Spanish ship, 190/190 each.**
+      **English and Japanese ship complete (2,123 and 2,124 keys); Dutch and Latin American
+      Spanish ship 382 keys each, with `meta.fallback` resolving the rest to English.**
       `nl` and `es-419` were produced *by the Localization Manager*: AI-drafted
       through the scheduler under the team's AI quota, every string
       human-reviewed (169 of 340 UI drafts corrected), exported, and passing the

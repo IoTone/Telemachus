@@ -769,7 +769,8 @@ Any format in, byte-identical out, with the creator setting visibility. See
   — only a namespace and a digest — so a backend has no authorization to get wrong.
 - The namespace is the **org id**, deliberately: global dedup across tenants is an
   existence oracle. Blob refcounts must be org-scoped too (DOC-6).
-- `domain/authz/sha2.rkt` is SHA-256/HMAC-SHA256 over **libcrypto** — do NOT add it
+- `pkgs/sha2-kit` (a sibling collection, required by `domain/authz/authz.rkt`) is
+  SHA-256/HMAC-SHA256 over **libcrypto** — do NOT add it
   to `crypto.rkt`, whose contract is "no native deps". Pinned to NIST/RFC vectors.
 - Uploads are a **raw `PUT` body**, not base64 in JSON. `TMACH_MAX_UPLOAD`
   (default 32 MiB) sets `web-kit`'s `#:max-body-length`; web-server's own default is
