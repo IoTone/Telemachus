@@ -36,7 +36,10 @@
     (json-response (notes-create db-conn p #:title (hash-ref b 'title "")
                                  #:body (hash-ref b 'body "")
                                  #:visibility (hash-ref b 'visibility "team")
-                                 #:tags (hash-ref b 'tags '()))
+                                 #:tags (hash-ref b 'tags '())
+                                 ;; ORG-1 — absent means Markdown, which is what
+                                 ;; every caller written before #246 sends
+                                 #:format (hash-ref b 'format "markdown"))
                    #:code 201))))
 
 ;; #245: `?tag=` is repeatable, so it reads through `query-params` (plural) and
@@ -105,9 +108,13 @@
     ;; a MISSING `tags` key leaves the set alone; `[]` CLEARS it. Those have to
     ;; be different or the last tag could never be removed, which is the one
     ;; place this differs from #239's "blank is absent".
+    ;; ORG-2 — `{"format":"org"}` changes how the body is RENDERED and never
+    ;; touches the body, so it is an ordinary absent-is-leave-alone field beside
+    ;; title and visibility rather than tags' absent/clear pair.
     (define n (notes-update db-conn p id #:title (hash-ref b 'title #f)
                             #:body (hash-ref b 'body #f) #:visibility (hash-ref b 'visibility #f)
-                            #:tags (hash-ref b 'tags #f)))
+                            #:tags (hash-ref b 'tags #f)
+                            #:format (hash-ref b 'format #f)))
     (if n (json-response n) (err "not found" 404)))))
 
 ;; TAG-7 — synchronous, and HELP-23 is the reasoning. One note is ONE model call,

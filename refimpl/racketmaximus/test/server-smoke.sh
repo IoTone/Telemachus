@@ -2801,6 +2801,80 @@ esac
 assert "an unknown note is 404" \
   "$(curl -s -X POST $B/api/notes/no-such-note/autotag -H "Authorization: Bearer $OP" -d '{}')" 'not found'
 
+echo "== a note's body format (#246 slice 1) ====================================="
+# BESIDE THE #245 BLOCK AND FOR ITS REASON: this creates notes in the operator's
+# own team, and an earlier block asserts over `GET /api/notes`. A fixture that
+# changes global state breaks a distant block.
+
+# ORG-1 — the DEFAULT is the whole of the upgrade promise. Every note that
+# exists is Markdown, so a create that names no format must still be one.
+FMTN=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"plain note","body":"# a markdown heading"}')
+assert "format: absent means markdown" "$FMTN" '"format":"markdown"'
+FMTID=$(printf '%s' "$FMTN" | grep -oP '"id":\s*"\K[^"]+')
+assert "format: …and it is on the READ too, not only on the create" \
+  "$(curl -s $B/api/notes/$FMTID -H "Authorization: Bearer $OP")" '"format":"markdown"'
+assert "format: …and on the listing" \
+  "$(curl -s $B/api/notes -H "Authorization: Bearer $OP")" '"format":"markdown"'
+
+# a note can be created as org, and the BODY is stored verbatim — markup and all
+ORGN=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"org note","body":"* Levee 7\n\nsee [[Budget review]] and *this*\n","format":"org"}')
+assert "format: a note can be created as org" "$ORGN" '"format":"org"'
+ORGID=$(printf '%s' "$ORGN" | grep -oP '"id":\s*"\K[^"]+')
+assert "format: the org markup is stored verbatim" "$ORGN" '* Levee 7'
+assert "format: …links included, so a keyword search can find them" "$ORGN" '[[Budget review]]'
+
+# ORG-2 — CONVERTING IS A DECLARATION, NEVER A REWRITE. The body is byte for
+# byte what it was, which is what makes the conversion reversible; a conversion
+# that got one construct wrong would have eaten the only copy.
+CONV=$(curl -s -X PUT $B/api/notes/$FMTID -H "Authorization: Bearer $OP" -d '{"format":"org"}')
+assert "format: converting declares the format"   "$CONV" '"format":"org"'
+assert "format: …and does not touch the body"     "$CONV" '# a markdown heading'
+BACK=$(curl -s -X PUT $B/api/notes/$FMTID -H "Authorization: Bearer $OP" -d '{"format":"markdown"}')
+assert "format: …and it converts back"            "$BACK" '"format":"markdown"'
+assert "format: …with the body still intact"      "$BACK" '# a markdown heading'
+
+# an absent format leaves the stored one alone — an ordinary absent-is-leave-alone
+# field beside title and visibility, and deliberately NOT tags' absent/clear pair
+assert "format: a missing key leaves the format" \
+  "$(curl -s -X PUT $B/api/notes/$ORGID -H "Authorization: Bearer $OP" -d '{"title":"org note v2"}')" \
+  '"format":"org"'
+
+# ORG-1 — an unknown format is REFUSED BY NAME and never coerced to the default.
+# A silent substitution is a note that renders as something other than what its
+# author asked for, with no way to find out but to look.
+assert "format: an unknown format is refused" \
+  "$(curl -s -X PUT $B/api/notes/$ORGID -H "Authorization: Bearer $OP" -d '{"format":"orgmode"}')" \
+  'format must be one of'
+assert "format: …and the refusal names the set" \
+  "$(curl -s -X PUT $B/api/notes/$ORGID -H "Authorization: Bearer $OP" -d '{"format":"orgmode"}')" \
+  'markdown, org'
+assert "format: …and the stored format survives it" \
+  "$(curl -s $B/api/notes/$ORGID -H "Authorization: Bearer $OP")" '"format":"org"'
+# VEC-21's order: everything is validated before anything is written, so the
+# TITLE in that same refused request did not land either — and a refused CREATE
+# leaves no note at all for somebody to notice is rendering wrongly.
+curl -s -X PUT $B/api/notes/$ORGID -H "Authorization: Bearer $OP" \
+  -d '{"title":"org note v3","format":"orgmode"}' >/dev/null
+refute "format: …and the title in that same request did not land" \
+  "$(curl -s $B/api/notes/$ORGID -H "Authorization: Bearer $OP")" 'org note v3'
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"never stored","body":"x","format":"wiki"}' >/dev/null
+refute "format: a refused create writes no note at all" \
+  "$(curl -s $B/api/notes -H "Authorization: Bearer $OP")" 'never stored'
+
+# THERE IS NO NEW PERMISSION AND NO FEATURE SWITCH: a format is not a capability,
+# and both renderers ship on every instance. A plain member writes an org note
+# with the notes:write they already hold.
+MEMORG=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $CAROL" \
+  -d '{"title":"carols org","body":"* hers","format":"org"}')
+assert "format: a plain member may write an org note" "$MEMORG" '"format":"org"'
+# …and a VIEWER still may not write one, for the reason they may not write any
+assert "format: a viewer still cannot" \
+  "$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $VERA" \
+      -d '{"title":"nope","format":"org"}')" 'Forbidden: notes:write'
+
 # ---- email delivery and notifications --------------------------------------------
 # THE BLOCK IS LAST, and this file's own notes are why: a fixture that changes
 # GLOBAL state breaks a distant block, and this one configures an INSTANCE-wide

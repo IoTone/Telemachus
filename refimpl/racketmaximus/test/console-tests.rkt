@@ -20,6 +20,13 @@
 ;; router that has to parse them
 (define-runtime-path describe-rkt "../domain/events/describe.rkt")
 
+;; #246 — ORG-1's vocabulary lives in the DOMAIN, and the console has to agree
+;; with it in both directions. Read as text rather than required: this file is a
+;; source scan and requiring a domain module here would pull the connection pool
+;; in with it (#123's lesson, where a unit test that required `server/kit.rkt`
+;; passed everywhere and failed in CI's sqlite leg alone).
+(define-runtime-path notes-rkt "../domain/notes/notes.rkt")
+
 ;; A TEXT SCAN OVER THE CONSOLE READS ITS OWN COMMENTS, and that has now cost
 ;; four separate assertions in these notes. A check for a code construct must
 ;; look at CODE: `09-repo.js` explains in prose why a modal would mean `Hk()`
@@ -32,6 +39,7 @@
      ln)
    "\n"))
 (define shell (file->string console-html))
+(define ui-strings (file->string (build-path console-dir ".." "ui-strings.json")))
 
 ;; #110 r6 moved the console's 2,295 lines of inline script into
 ;; static/console/*.js. This file named static/index.html and nothing else, so a
@@ -458,19 +466,82 @@
   (check-true (string-contains? html "editorHTML('note', {id:'nb'") "the note body is still #nb")
   (check-true (string-contains? html "editorHTML('doc', {id:'dc'") "…and the document body still #dc"))
 
-(test-case "the Markdown subset escapes BEFORE it renders"
-  ;; What makes the preview safe is the order, not a sanitiser: everything is
+(test-case "both renderers escape BEFORE they render, through ONE escape"
+  ;; What makes a preview safe is the order, not a sanitiser: everything is
   ;; escaped first and the rules then run over escaped text emitting a closed
   ;; set of tags, so nothing from the source is ever passed through as markup.
-  (define body (fn-body "mdRender"))
-  (check-true (and body #t) "mdRender exists")
-  (check-true (string-contains? body "esc(String(src") "the first thing it does is escape")
-  ;; …and the blockquote rule matches the ESCAPED form, which is the tell that
-  ;; the rules really do run after the escape rather than before it.
-  (check-true (string-contains? body "&gt;") "the block rules match escaped markup")
-  ;; a link's scheme is allowlisted rather than filtered
-  (check-true (string-contains? html "function mdSafeUrl") "there is a scheme allowlist")
-  (check-true (string-contains? html "mdSafeUrl(url)") "…and the link rule consults it"))
+  ;;
+  ;; #246 ADDED A SECOND RENDERER, so the order is now a rule with two askers and
+  ;; `escBody` is its one home — which is also where the NUL that both renderers'
+  ;; block sentinels are spelled with is removed, so that reasoning happens once
+  ;; rather than twice.
+  (check-true (string-contains? html "function escBody") "there is one escape")
+  (for ([r '("mdRender" "orgRender")])
+    (define body (fn-body r))
+    (check-true (and body #t) (format "~a exists" r))
+    (check-true (string-contains? body "escBody(src)")
+                (format "the first thing ~a does is escape" r)))
+  ;; …and each renderer's own block rules match the ESCAPED form, which is the
+  ;; tell that the rules really do run after the escape rather than before it:
+  ;; Markdown's blockquote on `&gt;`, and org's emphasis pre-class on the `;`
+  ;; that a source `"` arrives as.
+  (check-true (string-contains? (fn-body "mdRender") "&gt;")
+              "the Markdown block rules match escaped markup")
+  (check-true (string-contains? html "ORG_PRE") "org's emphasis borders are spelled out")
+  ;; A SECOND COPY OF THE SCHEME ALLOWLIST IS THE ONE DIVERGENCE HERE THAT IS A
+  ;; STORED XSS RATHER THAN AN UGLY PARAGRAPH (ORG-3), so it is spelled exactly
+  ;; once and both link rules consult it. Controlled: an `ORG_SCHEMES` beside it
+  ;; fails this.
+  (check-equal? (length (regexp-match* #rx"function mdSafeUrl" html)) 1
+                "the scheme allowlist is spelled once")
+  (check-equal? (length (regexp-match* #px"const [A-Z_]*SCHEMES" html)) 1
+                "…and there is one scheme constant, not one per renderer")
+  (check-true (string-contains? html "mdSafeUrl(url)") "…Markdown's link rule consults it")
+  (check-true (string-contains? html "mdSafeUrl(target)") "…and org's does too"))
+
+(test-case "the console's note formats are the SERVER's, in both directions"
+  ;; ORG-1's vocabulary is closed and it lives in `notes.rkt`: a console offering
+  ;; a third option would produce a refusal naming a format whose origin nobody
+  ;; can see, and a console missing one would make a format unreachable from the
+  ;; only surface that writes notes. #113's shape, in both directions — which is
+  ;; the shape `UNREACHABLE-BY-DESIGN` and `check-config-reference.sh` both use.
+  (define rkt (file->string notes-rkt))
+  (define m (regexp-match #px"define NOTE-FORMATS '[(]([^)]*)[)]" rkt))
+  (check-true (and m #t) "notes.rkt declares NOTE-FORMATS")
+  (define server (map (lambda (x) (string-trim x "\"")) (string-split (cadr m))))
+  (define jm (regexp-match #px"const NOTE_FORMATS = \\[([^]]*)\\]" html))
+  (check-true (and jm #t) "the console declares NOTE_FORMATS")
+  (define console (map (lambda (x) (string-trim (string-trim x) "'")) (string-split (cadr jm) ",")))
+  (check-equal? console server "the two lists agree, order and all")
+  ;; the ORDER is read: Markdown is the column's default, so it is the option a
+  ;; new note opens with
+  (check-equal? (car console) "markdown")
+  ;; and each one has a label, or the select draws a bare key
+  (for ([f (in-list console)])
+    (check-true (string-contains? ui-strings (string-append "\"ui.fmt" f "\""))
+                (format "ui.fmt~a is in the catalog" f))))
+
+(test-case "the body format reaches the preview, the write and the export"
+  ;; ORG-1 — the format is a property of the NOTE, so the three places that act on
+  ;; a body have to read it from the same place. `bodyRender` is the one switch:
+  ;; a second `format === 'org'` in a caller is how one surface starts rendering
+  ;; a note as something its author did not ask for.
+  (check-true (string-contains? html "function bodyRender") "one place picks the renderer")
+  (check-equal? (length (regexp-match* #px"mdRender\\(n[.]body" html)) 0
+                "no note view renders a body without consulting its format")
+  (define tabs (console-code "03-tabs.js"))
+  (check-equal? (length (regexp-match* #px"bodyRender\\(n[.]body, n[.]format[)]" tabs)) 2
+                "both the list and the view card render through it")
+  ;; the writes carry it, or a note created as org is stored as Markdown
+  (for ([f '("doCreateNote" "doSaveNote")])
+    (check-true (string-contains? (fn-body f) "format:edFormat('note')")
+                (format "~a sends the format" f)))
+  ;; …and `editorHTML` seeds the format rather than re-asserting it on every
+  ;; pass, or `edSetFormat`'s own re-render would put the stored one straight
+  ;; back and the control would be unusable
+  (check-true (string-contains? (fn-body "editorHTML") "if (opts.id) st.el = opts.id;"))
+  (check-equal? (length (regexp-match* #px"st[.]fmt = opts[.]format" html)) 0
+                "the format is not re-asserted on every render"))
 
 (test-case "a note and a document can be EDITED, which they could not before"
   ;; `PUT /api/notes/:id` and `PUT /api/documents/:id` have existed as long as

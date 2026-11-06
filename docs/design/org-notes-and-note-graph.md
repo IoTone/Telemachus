@@ -111,6 +111,14 @@ and an external URL already has a home that archives it (a bookmark, #191 slice
 1). That narrowing is what keeps the entire edge set inside one authorization
 domain.
 
+**What slice 1 shipped of this, and what it deliberately did not.** The renderer
+sends an `http(s)`/`mailto:` target through the shared allowlist and draws an
+anchor. An INTERNAL target is drawn as a marked span and NOT an anchor: nothing
+resolves a note id or a title yet, and the console's router has no note route, so
+an `<a>` there would be a link that goes nowhere — which is worse than a marker
+that says what it is. Slice 2's extraction is what resolves it, and slice 4 is
+what makes it navigable.
+
 A bare `[[Some Title]]` is resolved by exact, case-folded title within the team,
 because that is what a person types. **An ambiguous title is a broken link that
 says it is ambiguous** rather than one of the candidates: titles are not unique,
@@ -246,10 +254,12 @@ cannot find text that is on the screen.
 
 ## The build plan
 
-1. **The format and the renderer** — `notes.format` (migration `0073`),
-   `orgRender` beside `mdRender`, the ORG‑4 subset, ORG‑5's refusal, the §3c
-   runtime sanitiser case. No new table. Independently useful: an org user can
-   keep org notes the day it lands.
+1. **The format and the renderer** — **BUILT** (5 Nov 2026). `notes.format`
+   (migration `0073-note-format`), `orgRender` beside `mdRender` sharing
+   `escBody` and `mdSafeUrl`, the ORG‑4 subset, ORG‑5's refusal, the §3c runtime
+   sanitiser case, and `test/note-format-tests.rkt` for the column and ORG‑2's
+   promise. No new table, no new permission and no feature switch. An org user
+   can keep org notes today.
 2. **The links** — `note_links` (migration `0074`), extraction inside the body
    write, backlinks on the note detail, and the ORG‑8/ORG‑9 asymmetry with a
    positive control for each. Independently useful; **and it is #247's

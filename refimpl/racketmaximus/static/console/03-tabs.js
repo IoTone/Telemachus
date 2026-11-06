@@ -156,13 +156,13 @@ async function notesView(){
   const viewing = (S.noteShow && !editing) ? notes.filter(n=>n.id===S.noteShow)[0] : null;
   const list=notes.map(n=>`<div class="note">
       <h4>${esc(n.title)||'(untitled)'} <span class="badge">${esc(n.visibility)}</span> ${n.owner_user_id===S.me.user_id?'<span class="badge ok">mine</span>':''}</h4>
-      <div class="md">${mdRender(n.body)}</div>
-      ${noteTagChips(n)}
+      <div class="md">${bodyRender(n.body, n.format)}</div>
+      ${noteFormatBadge(n)}${noteTagChips(n)}
       <div class="row" style="margin-top:8px">
         <div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteShow((n.id)))}">${t('view')}</button></div>
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags)))}">${t('edit')}</button></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags),(n.format)))}">${t('edit')}</button></div>
         <div><button class="btn sm ghost"${S.autoTagging===n.id?' disabled':''}
           data-h-click="${H((el,ev)=>doAutoTag((n.id)))}"
           title="${esc(t('autotaghint'))}">${S.autoTagging===n.id?esc(t('autotagging')):t('autotag')}</button></div>
@@ -173,7 +173,7 @@ async function notesView(){
     : editing
     ? `<div class="card"><h3>${t('editnote')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
       <label>${t('title')}</label><input id="nt" value="${esc(editing.title||'')}">
-      <label>${t('body')}</label>${editorHTML('note', {id:'nb'})}
+      <label>${t('body')}</label>${editorHTML('note', {id:'nb', formats:NOTE_FORMATS})}
       <label>${t('tags')}</label><input id="ntags" value="${esc((editing.tags||[]).join(', '))}" placeholder="${esc(t('tagsph'))}">
       <div class="muted" style="font-size:12px;margin:-6px 0 8px">${esc(t('tagshint'))}</div>
       <label>${t('visibility')}</label><select id="nv">${
@@ -183,7 +183,7 @@ async function notesView(){
       ${noteTools('note','nt')}</div>`
     : `<div class="card"><h3>${t('newnote')}</h3>
       <label>${t('title')}</label><input id="nt" value="Secret plan">
-      <label>${t('body')}</label>${editorHTML('note', {id:'nb', value:'only for me'})}
+      <label>${t('body')}</label>${editorHTML('note', {id:'nb', value:'only for me', formats:NOTE_FORMATS})}
       <label>${t('tags')}</label><input id="ntags" value="" placeholder="${esc(t('tagsph'))}">
       <div class="muted" style="font-size:12px;margin:-6px 0 8px">${esc(t('tagshint'))}</div>
       <label>${t('visibility')}</label><select id="nv"><option>team</option><option>private</option><option>shared</option></select>
@@ -209,6 +209,18 @@ function tagFilterStrip(tags){
     <span class="muted" style="font-size:12px;margin-right:4px">${esc(t('tags'))}</span>
     ${tags.map(chip).join('')}${clear}</div></div>`;
 }
+// ORG-1's vocabulary, and it is the SERVER's: `NOTE-FORMATS` in notes.rkt is
+// what a write is held to, and a console offering a third option would produce
+// a refusal naming a format nobody can see where it came from. The order is the
+// server's too — Markdown first, because it is the column's default.
+const NOTE_FORMATS = ['markdown', 'org'];
+// Shown only for an org note. A badge reading "markdown" on every note that has
+// ever existed is noise about the default, and this console's own rule
+// (PULL-11e, RED-20) is that a field is worth drawing when it tells a reader
+// something they could not assume.
+function noteFormatBadge(n){
+  return n.format === 'org' ? `<div style="margin-top:8px"><span class="badge">${esc(t('fmtorg'))}</span></div>` : '';
+}
 function noteTagChips(n){
   const ts = n.tags||[];
   if(!ts.length) return '';
@@ -232,10 +244,14 @@ function readTags(){
 // the same two buttons on both surfaces, so they are composed once here rather
 // than spelled out in each card.
 function noteTools(key, titleId){
+  // The LABEL follows the format, because `edExport` writes `.org` for an org
+  // note — a button reading "Export .md" that produces a `.org` file would be
+  // the kind of quietly wrong detail this console's own notes keep catching.
+  const org = edFormat(key) === 'org';
   return `<div class="row" style="margin-top:10px;gap:8px">
-    <div style="flex:0 0 auto"><button class="btn sm ghost"
+    <div style="flex:0 0 auto"><button class="btn sm ghost" id="edexp_${key}"
       data-h-click="${H(()=>edExport(key, (document.getElementById(titleId)||{}).value||'note'))}"
-      title="${esc(t('edexporthint'))}">${t('edexport')}</button></div>
+      title="${esc(t(org?'edexportorghint':'edexporthint'))}">${t(org?'edexportorg':'edexport')}</button></div>
     <div style="flex:0 0 auto"><button class="btn sm ghost"
       data-h-click="${H(()=>edToRepo(key, titleId))}"
       title="${esc(t('edtorepohint'))}">${t('edtorepo')}</button></div></div>`;
@@ -252,28 +268,33 @@ function noteViewCard(n){
   return `<div class="card">
     <h3 style="margin-top:0">${esc(n.title)||'(untitled)'}
       <span class="badge">${esc(n.visibility)}</span>${mine?' <span class="badge ok">mine</span>':''}</h3>
-    <div class="md">${mdRender(n.body)}</div>
+    <div class="md">${bodyRender(n.body, n.format)}</div>
     <div class="muted" style="font-size:12px;margin-top:10px">
       ${esc(t('created'))}: ${esc(n.created_at)} UTC · ${esc(t('updated'))}: ${esc(n.updated_at)} UTC
       · <span class="mono">${esc(n.id)}</span></div>
     <div class="row" style="margin-top:10px;gap:8px">
       <div style="flex:0 0 auto"><button class="btn sm"
-        data-h-click="${H(()=>noteEdit(n.id, n.body, n.title, n.visibility))}">${t('edit')}</button></div>
+        data-h-click="${H(()=>noteEdit(n.id, n.body, n.title, n.visibility, n.tags, n.format))}">${t('edit')}</button></div>
       <div style="flex:0 0 auto"><button class="btn sm ghost"
         data-h-click="${H(()=>noteViewClose())}">${t('close')}</button></div>
     </div></div>`;
 }
-function noteShow(id){ S.noteShow=id; S.noteEdit=null; edReset('note','', 'nb'); renderTab(); }
+function noteShow(id){ S.noteShow=id; S.noteEdit=null; edReset('note','', 'nb', 'markdown'); renderTab(); }
 function noteViewClose(){ S.noteShow=null; renderTab(); }
-function noteEdit(id, body, title, vis, tags){ S.noteEdit=id; S.noteShow=null; edReset('note', body, 'nb'); renderTab(); }
-function noteEditCancel(){ S.noteEdit=null; edReset('note', '', 'nb'); renderTab(); }
+// The FORMAT is set here and not re-asserted on every render, for `editorHTML`'s
+// own reason: opening a note is what declares which renderer its body wants, and
+// a format re-read on each pass would undo the toolbar's own switch.
+function noteEdit(id, body, title, vis, tags, format){ S.noteEdit=id; S.noteShow=null; edReset('note', body, 'nb', format); renderTab(); }
+function noteEditCancel(){ S.noteEdit=null; edReset('note', '', 'nb', 'markdown'); renderTab(); }
 async function doSaveNote(){
   const r=await api('/api/notes/'+S.noteEdit,{method:'PUT',
-    body:{title:val('nt'), body:edRead('note'), visibility:val('nv'), tags:readTags()}});
+    body:{title:val('nt'), body:edRead('note'), visibility:val('nv'), tags:readTags(),
+          format:edFormat('note')}});
   if(r.ok){ S.noteEdit=null; edReset('note','', 'nb'); toast(t('saved'),true); renderTab(); }
   else toast((r.json&&r.json.error)||'error');
 }
-async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',body:{title:val('nt'),body:edRead('note'),visibility:val('nv'),tags:readTags()}});
+async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',
+  body:{title:val('nt'),body:edRead('note'),visibility:val('nv'),tags:readTags(),format:edFormat('note')}});
   if(r.ok){ edReset('note','', 'nb'); toast('created',true); renderTab(); } else toast(r.json.error||'error'); }
 // ONE send, #174's shape: the flag IS the guard and the pending state, there is
 // no `await` between the check and the set, and it is cleared in a `finally` or

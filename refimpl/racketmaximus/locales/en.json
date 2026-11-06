@@ -967,6 +967,14 @@
       "text": "Logo",
       "hash": "83fce8327410848c9eb609acb21732c7c0fec96a"
     },
+    "ui.orgformat": {
+      "text": "Body format",
+      "hash": "33cd5c54fa38432c8b920ceaffea4f221fb6842b"
+    },
+    "doc.route.get.api.retention": {
+      "text": "The caller's EFFECTIVE retention policy, with `sources` naming which layer set each value — instance, org or team. The layers TIGHTEN: a shorter horizon wins and `null` (keep for ever) loses to any number, so a team cannot keep data longer than its org allows. Nothing is deleted unless a rule is configured; an unconfigured instance has no rules and sweeps nothing.",
+      "hash": "c9231f778313d4e931e44e514ab8f69f3968987a"
+    },
     "ui.hmt": {
       "text": "Multi-tenancy",
       "hash": "437ca7ee46f783347bd4c1eaa273bc99f6df4265"
@@ -1211,13 +1219,13 @@
       "text": "Read notes.",
       "hash": "64e9a487433b3a19522136b9e8203dcde8ebb7d7"
     },
+    "ui.orgnoinclude": {
+      "text": "#+INCLUDE: is not supported here — a note cannot read a file from the server",
+      "hash": "854fb323be836ef017658090506af2580f086576"
+    },
     "doc.route.delete.api.doc-triggers.id": {
       "text": "Delete a trigger and its history; the runs it started remain.",
       "hash": "afe84f89cbf1f9cf94cca53d96bb0aea6890ed7e"
-    },
-    "doc.route.get.api.retention": {
-      "text": "The caller's EFFECTIVE retention policy, with `sources` naming which layer set each value — instance, org or team. The layers TIGHTEN: a shorter horizon wins and `null` (keep for ever) loses to any number, so a team cannot keep data longer than its org allows. Nothing is deleted unless a rule is configured; an unconfigured instance has no rules and sweeps nothing.",
-      "hash": "c9231f778313d4e931e44e514ab8f69f3968987a"
     },
     "ui.edexportfail": {
       "text": "the download was refused",
@@ -1867,6 +1875,10 @@
       "text": "An entity name (matched case-insensitively) or an entity id",
       "hash": "b1ce1930aefa3437d0b627497d2a49f116a75e64"
     },
+    "ui.fmtorg": {
+      "text": "Org",
+      "hash": "972f71cfccd314097e773e294569e0e34fc43187"
+    },
     "ui.edmono": {
       "text": "Mono",
       "hash": "c5c5533844c5249c3a9504a5197794dd80c644ca"
@@ -2218,6 +2230,10 @@
     "ui.mlawaiting": {
       "text": "awaiting confirmation",
       "hash": "4c7c3532ae67ce3343eddb56b5bbafa8f416d00c"
+    },
+    "ui.fmtmarkdown": {
+      "text": "Markdown",
+      "hash": "23e67fceae0d77dd571dd25695fc0499faf1bb77"
     },
     "ui.wkconfigured": {
       "text": "configured",
@@ -3063,6 +3079,10 @@
       "text": "Resumes {when}.",
       "hash": "826fcc2fc0cc24a889c559c58c4e78c2d2a4e137"
     },
+    "ui.edexportorghint": {
+      "text": "download the body as an Org file",
+      "hash": "dea0e9ef172c13558aaf79458cb004c3d6bb42a6"
+    },
     "doc.route.get.api.members": {
       "text": "The team's members and roles.",
       "hash": "32197624e684dac944e94da479c4c79400a6ba47"
@@ -3442,6 +3462,10 @@
     "ui.qvinproc": {
       "text": "in process",
       "hash": "99fc8f91a50120270b90e2468c6536e073b4bea9"
+    },
+    "ui.edexportorg": {
+      "text": "Export .org",
+      "hash": "ee12c73b51b4eca343e6af3d6b0c803f107a7bd0"
     },
     "ui.qlive": {
       "text": "updating while the queue moves",

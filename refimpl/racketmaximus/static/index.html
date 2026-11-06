@@ -170,6 +170,16 @@
   .md blockquote{margin:.6em 0;padding:.1em 0 .1em .9em;border-left:3px solid var(--line);
     color:var(--muted)}
   .md table{margin:.6em 0}
+  /* the org subset's own tags (see orgRender). `.org-link` is an INTERNAL link
+     and deliberately not an anchor in this slice — nothing resolves a note id
+     yet — so it is drawn as a marked span rather than as something that looks
+     clickable and is not. `.org-refused` is ORG-5's visible refusal of
+     `#+INCLUDE:`, which must read as a refusal and not as a paragraph. */
+  .md .org-link{border-bottom:1px dashed var(--accent2);cursor:help}
+  .md .org-refused{border-left:3px solid var(--bad);padding:.2em 0 .2em .8em;color:var(--muted)}
+  .md h1.org-title{margin-top:0}
+  .md p.org-filetags{display:flex;flex-wrap:wrap;gap:6px}
+  .ed-fmt{margin:0;height:auto;padding:3px 6px;font-size:12px;width:auto}
   /* #182: the command palette and the shortcut list. Both are overlays over
      whatever is on screen, so they live in the static shell rather than in a
      render pass — a tab re-render must not take the palette down. */

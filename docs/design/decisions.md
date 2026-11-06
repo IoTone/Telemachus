@@ -6279,11 +6279,13 @@ none: the field is on the read and `PUT /api/email-transport` already sets it.
 
 
 
-## ORG — org-mode notes and a graph of what they link to (issues #246 and #247) — DESIGNED, NOT BUILT
+## ORG — org-mode notes and a graph of what they link to (issues #246 and #247) — SLICE 1 BUILT
 
-Design: `docs/design/org-notes-and-note-graph.md`. **No migration, no route, no
-code** — read it before building any of it, and read ORG‑14 before anybody draws
-an authored edge beside a derived mention.
+Design: `docs/design/org-notes-and-note-graph.md`. **ORG‑1…ORG‑5 are built**
+(migration `0073-note-format`, `orgRender` in `static/console/15-editor.js`);
+ORG‑6 is built as far as the renderer goes and its resolution is slice 2's.
+ORG‑7…ORG‑16 are designed and not built — read them before building any of it,
+and read ORG‑14 before anybody draws an authored edge beside a derived mention.
 
 Two things decide the shape before any decision below. **Nothing in this build
 links a note to a note** — `notes` is id/team/owner/visibility/title/body/two
