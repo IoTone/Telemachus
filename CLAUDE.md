@@ -8761,6 +8761,162 @@ bash test/e2e/validate.sh                                       # §3b — the t
   workflow and its own slice, exactly as CLS‑1 and CLS‑24 were two. Tags do not
   reach `search-all` either.
 
+## A note's body may be org markup (ORG‑1…6, issue #246 slice 1)
+
+Built 5 Nov 2026. Migration `0073-note-format`; `NOTE-FORMATS` and
+`format-problem` in `domain/notes/notes.rkt`; `escBody`, `orgRender` and
+`bodyRender` in `static/console/15-editor.js`. **No new route, no new permission,
+no feature switch and no new table.** Design:
+`docs/design/org-notes-and-note-graph.md`, which also specifies slices 2–4 —
+read **ORG‑14** before anybody draws an authored edge beside a derived mention.
+
+```sh
+raco test test/note-format-tests.rkt                              # 11 cases
+DATABASE_URL="postgres://…" raco test test/note-format-tests.rkt  # the ALTER TABLE half
+raco test test/console-tests.rkt                                  # the one-escape and both-directions rules
+bash test/server-smoke.sh                                         # the "#246 slice 1" block, 18 assertions
+bash test/e2e/validate.sh                                         # §3c2 — the org renderer, in a browser
+```
+
+- **WHAT "ORGMODE COMPLIANT" MEANS WAS DECIDED WITH THE OWNER, AND WHAT WAS
+  DECLINED IS THE LOAD-BEARING HALF.** A note's body may be org markup and a note
+  imports and exports as `.org`; **a note stays ONE FLAT BODY**. The org
+  **outliner data model** — a headline tree per note, `:PROPERTIES:` drawers,
+  TODO keywords, `SCHEDULED`/`DEADLINE` as typed dates — is declined, because
+  that is not a format change: a note would stop being a flat body and
+  `search-all`, `15-editor.js`, `note_tags`, `note-tools.rkt` and #247's own node
+  set would all change shape with it. It is a second resource and a different
+  issue.
+- **THE FORMAT IS DECLARED AND NEVER AUTO-DETECTED** (ORG‑1), which is the
+  tempting version and is wrong on its first line: a body beginning
+  `* something` is a valid Markdown bullet **AND** a valid org headline, and the
+  two render completely differently — so a detector would silently change what
+  somebody's note looks like, and change it again the next time they edited that
+  line. `test/note-format-tests.rkt` has that exact body in its pre‑0073 row.
+- **THE DEFAULT IS `'markdown'` AND THAT IS THE WHOLE OF THE UPGRADE PROMISE**
+  (ENVN‑1, DEL‑9, PULL‑15a, MAIL‑26 again). Every note that exists is Markdown
+  and `mdRender` is the only renderer the e2e gate's §3c sanitiser case covered.
+  The column carries a DEFAULT rather than a backfill, and `format` is on every
+  read — RED‑20's shape, which is what makes a default of Markdown honest rather
+  than quiet.
+- **CONVERTING IS A DECLARATION, NEVER A REWRITE** (ORG‑2). `PUT /api/notes/:id
+  {"format":"org"}` changes how the body is RENDERED and does not touch the body.
+  Running the org renderer over Markdown source produces a readable mess rather
+  than an error, which is honest and **reversible** — where a conversion is
+  neither, and one that got a single construct wrong would have eaten the only
+  copy. Asserted byte for byte, both ways, in the unit suite and over HTTP.
+- 🔑 **`escBody` IS THE ONE ESCAPE NOW, BECAUSE THE ORDER IS A RULE WITH TWO
+  ASKERS** (ORG‑3). ED‑4's rule is escape FIRST, so the block and inline rules
+  run over already-escaped text and emit a closed tag set; with a second renderer
+  that reasoning would have been spelled twice. It is also where **NUL is
+  removed**, and that is not cosmetic: both renderers lift blocks out of the text
+  and put them back through a `\u0000X<n>\u0000` sentinel, so a body containing
+  one of those sequences could make the restore swap in a different block. In
+  `mdRender` that is a rendering oddity (what goes back is already-escaped text
+  from the same body); `orgRender` restores an `<a href>` built from a validated
+  URL, so there the sentinel is load-bearing.
+- 🔑 **THERE IS NO `ORG_SCHEMES`, and `console-tests.rkt` counts.** A second copy
+  of the URL scheme allowlist is the one divergence in this renderer that is a
+  **stored XSS** rather than an ugly paragraph, so `mdSafeUrl` is spelled exactly
+  once and both link rules consult it — `executor-can-run?`'s drift in the worst
+  available place. The test asserts ONE `function mdSafeUrl` and ONE
+  `const …SCHEMES` in the whole console.
+- **THE SUBSET IS STATED AND EVERYTHING OUTSIDE IT RENDERS AS ITS OWN TEXT**
+  (ORG‑4), which is the honest failure for a preview. In: headlines `*`…`******`;
+  `-`/`+`/`1.` lists; `#+BEGIN_SRC`/`#+BEGIN_EXAMPLE`; `*bold*` `/italic/`
+  `_underline_` `=verbatim=` `~code~`; `[[target][description]]` and
+  `[[target]]`; tables with a `|---|` separator; `#+TITLE:` and `#+FILETAGS:`;
+  `:tag:tag:` trailing a headline. Out: babel of any kind, `#+INCLUDE:`,
+  property drawers and TODO keywords, footnotes, LaTeX fragments, and timestamps
+  as a data type. A property drawer renders as `:PROPERTIES:` — asserted, so the
+  failure cannot quietly become "it disappeared".
+- **ORG'S EMPHASIS BORDER RULES ARE IMPLEMENTED, AND A URL IS WHY.** `/italic/`
+  written as a naive `/(.+?)/` turns every `https://example.test/a/b/c` in a
+  paragraph into italics, and that is a real body rather than a corner case. So
+  `ORG_PRE`/`ORG_POST` are org's own pre/post character classes plus the
+  no-whitespace-at-the-inner-edge rule. **THE CLASSES NAME WHAT IS IN THE
+  ESCAPED TEXT, NOT WHAT THE AUTHOR TYPED**: by the time they run a source `"`
+  is `&quot;`, so the character actually preceding a marker after a quoted
+  phrase is `;`, and `;` is in the pre-class for that reason and no other.
+- **`#+INCLUDE:` IS REFUSED BY NAME AND VISIBLY** (ORG‑5). In real org it reads a
+  file from the filesystem — an LFI with the author's own note as the weapon —
+  and rendering it as plain text would be safe and would leave an operator
+  wondering why the content never appears. Same call as an unknown theme token
+  and an unknown classifier backend. **The refusal does not echo the path it was
+  asked to read**, which is asserted: it is about the directive, not about a file.
+- **AN INTERNAL LINK IS A MARKED SPAN AND NOT AN ANCHOR, deliberately** (ORG‑6,
+  as far as slice 1 goes). Nothing resolves a note id or a title yet (`note_links`
+  is slice 2) and the console's router has no note route, so an `<a>` would be a
+  link that goes nowhere — worse than a marker that says what it is. An
+  `http(s)`/`mailto:` target IS an anchor, through the shared allowlist, so
+  `[[javascript:alert(1)][click]]` **and its entity-encoded form** are refused by
+  exactly the rule that refuses them in Markdown.
+- **THE RENDERER IS TESTED AT RUNTIME, NOT BY A SOURCE SCAN.** A Markdown
+  renderer is effectively a sanitiser, so "does it escape" is a question about
+  what the code COMPUTES; §3c2 of `demo-validate.mjs` calls the real function on
+  the real page with 21 inputs. `note-format-tests.rkt` says so at the top rather
+  than leaving a reader to wonder where the renderer's coverage is.
+- 🔑 **`edSetFormat` DOES NOT CALL `renderTab()`, AND THE E2E GATE IS WHAT
+  ESTABLISHED THAT IT MUST NOT.** The first version did, and a tab render
+  rebuilds the form's plain inputs from the template — so switching the format
+  **silently discarded the title somebody had just typed** and the note was
+  created under the template's own placeholder. The editor's TEXT survives a
+  render because it lives in `S` (#180); a plain `<input>` does not. So the two
+  things the format decides are repainted in place: the preview through
+  `edInput`, which is already the one place that knows which renderer a pane
+  wants, and the export label by id. CARD‑2's rule one level down — a partial
+  update is not a render pass — and it is cheaper than the render it replaces.
+  **Recorded rather than fixed: `edToggle` and `edZen` still call `renderTab()`,
+  so the toolbar's view buttons lose a typed title the same way.** That is
+  pre-existing and it is the whole Notes form's question (title, tags and
+  visibility are all plain inputs), not the format control's.
+- **THE FORMAT SEEDS THE EDITOR AND IS NOT RE-ASSERTED ON EVERY PASS**, and
+  getting that wrong makes the control unusable rather than merely odd:
+  `edSetFormat` re-renders, so an `editorHTML` that re-read the note's stored
+  format on each pass would put it straight back and the dropdown would appear to
+  do nothing. Opening a note is what sets it (`edReset`), exactly as the body
+  text already worked. Pinned, because it is invisible in review.
+- **THE CONSOLE'S `NOTE_FORMATS` AND THE DOMAIN'S `NOTE-FORMATS` ARE GATED IN
+  BOTH DIRECTIONS.** A console offering a third option produces a refusal naming
+  a format whose origin nobody can see; a console missing one makes a format
+  unreachable from the only surface that writes notes. #113's shape, with the
+  `UNREACHABLE-BY-DESIGN` remedy — and the ORDER is pinned too, because Markdown
+  is the column's default and so is the option a new note opens with.
+- **A format BADGE is drawn only for an org note.** "markdown" on every note that
+  has ever existed is noise about the default; this console's own rule (PULL‑11e,
+  RED‑20) is that a field is worth drawing when it tells a reader something they
+  could not assume. The **export label follows the format** for the same reason —
+  `edExport` writes `.org` for an org note, and a button reading "Export .md"
+  that produces a `.org` file is the quietly wrong detail these notes keep
+  catching.
+- **A NEW CSS CLASS WAS GREPPED FOR FIRST** (#178's lesson): `.org-link`,
+  `.org-refused`, `.org-title`, `.org-filetags` and `.ed-fmt` all have rules in
+  the shell. A class that matches nothing fails nothing and ships a bare
+  user-agent element. **The shell is cached at startup, so a live box needs a
+  RESTART** for those rules; `static/console/*.js` is read per request.
+- **THE FORMAT IS NOT A CAPABILITY**, so there is no permission and no feature
+  switch: both renderers ship on every instance. A plain member writes an org
+  note with the `notes:write` they already hold, and a viewer still cannot write
+  one — asserted with a VIEWER, because a member holds both permissions and the
+  same assertion against one passes against a server that checks nothing
+  (HELP‑7's lesson, now in its fourth place).
+- **An org note's markup is in its body, so a keyword search for `[[` matches
+  it.** Stated rather than fixed: stripping markup before indexing would mean a
+  second parser on the write path, and the alternative nobody wants is a search
+  that cannot find text that is on the screen.
+- **`escBody` IS BEHAVIOUR-PRESERVING FOR `mdRender`, AND THAT WAS CHECKED BY
+  RUNNING IT** rather than argued — all ten of §3c's Markdown cases produce
+  byte-identical output before and after. **And the existing test caught the
+  change**: `console-tests.rkt` asserted `esc(String(src` inside `mdRender`, so
+  the refactor failed it, correctly. The test was strengthened to the new
+  one-escape rule rather than weakened to suit the refactor.
+- **Not built at this slice, by the design's own slicing**: `note_links` and the
+  extraction (slice 2, and it is #247's prerequisite), the `.org` interchange
+  (slice 3, ORG‑11), the graph (slice 4, ORG‑13/‑16), ORG‑12's `#+FILETAGS:`
+  authority and its `note_autotag` refusal, and ORG‑15's backlinks. ORG‑12 is
+  why this slice asserts that **tags and the format do not interact** — saying so
+  is what makes the next slice's change visible as a change.
+
 ## A workflow tool is not a conversational tool (`#:agent?`, reported from outside)
 
 The agent is offered the tools the team has ENABLED that fit the window, and for

@@ -4008,6 +4008,30 @@
       "text": "ダウンロードが拒否されました",
       "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
     },
+    "ui.edexportorg": {
+      "text": "本文を .org でエクスポート",
+      "hash": "ee12c73b51b4eca343e6af3d6b0c803f107a7bd0"
+    },
+    "ui.edexportorghint": {
+      "text": "本文を Org ファイルとしてダウンロードします",
+      "hash": "dea0e9ef172c13558aaf79458cb004c3d6bb42a6"
+    },
+    "ui.orgformat": {
+      "text": "本文の形式",
+      "hash": "33cd5c54fa38432c8b920ceaffea4f221fb6842b"
+    },
+    "ui.fmtmarkdown": {
+      "text": "Markdown",
+      "hash": "23e67fceae0d77dd571dd25695fc0499faf1bb77"
+    },
+    "ui.fmtorg": {
+      "text": "Org",
+      "hash": "972f71cfccd314097e773e294569e0e34fc43187"
+    },
+    "ui.orgnoinclude": {
+      "text": "ここでは #+INCLUDE: に対応していません — ノートはサーバー上のファイルを読み取れません",
+      "hash": "854fb323be836ef017658090506af2580f086576"
+    },
     "ui.edtorepo": {
       "text": "リポジトリに保存",
       "hash": "9d0e8997855a6a8c3235ddfe2eedf66ded7cb315"

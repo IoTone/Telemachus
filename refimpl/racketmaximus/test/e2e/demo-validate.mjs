@@ -289,6 +289,144 @@ try {
     ok('a list renders', probe.list.includes('<li>one</li>'), probe.list);
   }
 
+  // ── 3c2. the org-mode preview, as the same sanitiser (issue #246, ORG-3) ───
+  // ORG-3's rule: `orgRender` takes `mdRender`'s own safety order and SHARES
+  // `escBody` and `mdSafeUrl` with it. A Markdown renderer is effectively a
+  // sanitiser, so this cannot be a source assertion — it runs the real function
+  // on the real page, exactly as the block above does, and the inputs are the
+  // ones somebody would actually try.
+  step('editor: the org-mode preview');
+  {
+    const probe = await page.evaluate(() => ({
+      tag:     orgRender('<img src=x onerror="alert(1)">'),
+      script:  orgRender('<script>alert(1)<\/script>'),
+      js:      orgRender('[[javascript:alert(1)][click]]'),
+      entity:  orgRender('[[&#106;avascript:alert(1)][click]]'),
+      bare:    orgRender('[[javascript:alert(1)]]'),
+      head:    orgRender('* Title'),
+      deep:    orgRender('*** Third level'),
+      src:     orgRender('#+BEGIN_SRC racket\n*not bold* /not italic/\n#+END_SRC'),
+      example: orgRender('#+BEGIN_EXAMPLE\n| not | a | table |\n#+END_EXAMPLE'),
+      include: orgRender('#+INCLUDE: "/etc/passwd"'),
+      em:      orgRender('a *bold* and /italic/ and _under_ and =verb= and ~code~ here'),
+      url:     orgRender('see https://example.test/a/b/c now'),
+      link:    orgRender('[[https://example.test/x][docs]]'),
+      internal:orgRender('[[Some Other Note][see this]]'),
+      title:   orgRender('#+TITLE: My notes'),
+      filetags:orgRender('#+FILETAGS: :levee:q3:'),
+      htags:   orgRender('* Inspection :work:urgent:'),
+      table:   orgRender('| a | b |\n|---+---|\n| 1 | 2 |'),
+      list:    orgRender('- one\n- two'),
+      ordered: orgRender('1. first\n2. second'),
+      outside: orgRender(':PROPERTIES:\n:ID: 42\n:END:')
+    }));
+    // the four that matter, and they are the same four the Markdown block asks
+    ok('org: an img tag is escaped, not rendered',
+      !/<img/i.test(probe.tag) && probe.tag.includes('&lt;img'), probe.tag);
+    ok('org: a script tag is escaped, not rendered',
+      !/<script/i.test(probe.script), probe.script);
+    ok('org: a javascript: link target is refused',
+      !/href="javascript/i.test(probe.js) && probe.js.includes('org-link'), probe.js);
+    ok('…and an entity-encoded one cannot survive the escape',
+      !/href="&#106;avascript/i.test(probe.entity) && !/href="javascript/i.test(probe.entity),
+      probe.entity);
+    ok('…and a BARE javascript: target is refused too',
+      !/<a /i.test(probe.bare), probe.bare);
+    // ORG-4's subset, construct by construct
+    ok('org: a headline renders', probe.head.includes('<h1>Title</h1>'), probe.head);
+    ok('org: three stars is an h3', probe.deep.includes('<h3>Third level</h3>'), probe.deep);
+    ok('org: a source block keeps its markers literal',
+      probe.src.includes('*not bold*') && probe.src.includes('/not italic/')
+        && !probe.src.includes('<strong>') && !probe.src.includes('<em>'), probe.src);
+    ok('org: an example block is not read as a table',
+      probe.example.includes('| not | a | table |') && !probe.example.includes('<table>'),
+      probe.example);
+    // ORG-5 — refused BY NAME and visibly, and it does not echo the path it was
+    // asked to read: the refusal is about the directive, not about a file.
+    ok('org: #+INCLUDE: is refused visibly',
+      probe.include.includes('org-refused') && /INCLUDE/.test(probe.include)
+        && !probe.include.includes('/etc/passwd'), probe.include);
+    ok('org: the five emphasis markers render',
+      probe.em.includes('<strong>bold</strong>') && probe.em.includes('<em>italic</em>')
+        && probe.em.includes('<u>under</u>') && (probe.em.match(/<code>/g) || []).length === 2,
+      probe.em);
+    // THE ONE THAT JUSTIFIES ORG'S BORDER RULES rather than a naive
+    // `/\/(.+?)\//`: a URL in a paragraph is a real body, not a corner case.
+    ok('org: a URL in a paragraph is not read as italics',
+      !probe.url.includes('<em>') && probe.url.includes('example.test/a/b/c'), probe.url);
+    ok('org: an external link renders with rel=noopener',
+      probe.link.includes('href="https://example.test/x"') && probe.link.includes('rel="noopener'),
+      probe.link);
+    // ORG-6 in this slice: an internal target is a MARKED span and not an
+    // anchor, because nothing resolves a note id yet and a link that goes
+    // nowhere is worse than a marker that says what it is.
+    ok('org: an internal link is a marker, not a dead anchor',
+      probe.internal.includes('org-link') && probe.internal.includes('see this')
+        && !/<a /i.test(probe.internal), probe.internal);
+    ok('org: #+TITLE: renders as the heading', probe.title.includes('My notes'), probe.title);
+    ok('org: #+FILETAGS: renders as badges',
+      probe.filetags.includes('levee') && probe.filetags.includes('q3')
+        && (probe.filetags.match(/badge/g) || []).length === 2, probe.filetags);
+    ok('org: a headline’s trailing :tags: render and leave the text alone',
+      probe.htags.includes('Inspection') && !probe.htags.includes(':work:')
+        && probe.htags.includes('work') && probe.htags.includes('urgent'), probe.htags);
+    ok('org: a table renders', probe.table.includes('<table>') && probe.table.includes('<td>1</td>'),
+      probe.table);
+    ok('org: a list renders', probe.list.includes('<li>one</li>'), probe.list);
+    ok('org: an ordered list renders', probe.ordered.includes('<ol>'), probe.ordered);
+    // ORG-4's honest failure: anything outside the subset renders as its own
+    // text rather than disappearing.
+    ok('org: a property drawer renders as its own text',
+      probe.outside.includes(':PROPERTIES:') && probe.outside.includes(':ID: 42'), probe.outside);
+  }
+
+  // The format is a declared property of the NOTE, so the switch has to reach
+  // the preview AND the write. Driven through the real control.
+  step('editor: the body format reaches the preview and the write');
+  await goTab(page, 'notes', '#nb');
+  // THE PREVIEW GOES ON FIRST, and the order is load-bearing for a reason worth
+  // knowing: `edToggle` calls `renderTab()`, which rebuilds the form's plain
+  // inputs from the template — so a title typed before it is discarded. That is
+  // pre-existing and belongs to the whole Notes form (title, tags and
+  // visibility are all plain inputs); what this block is about is that the
+  // FORMAT switch does not do the same thing.
+  await page.evaluate(() => edToggle('note', 'preview', 'side'));
+  await page.waitForSelector('#edprev_note', { timeout: 5000 });
+  await page.fill('#nt', 'Org note');
+  await page.fill('#nb', '* A headline\n\nwith *bold* text');
+  ok('the Markdown preview reads the stars as a bullet',
+    (await page.innerHTML('#edprev_note')).includes('<li>'),
+    await page.innerHTML('#edprev_note'));
+  await page.selectOption('#edfmt_note', 'org');
+  await page.waitForSelector('#edprev_note h1', { timeout: 5000 });
+  ok('…and switching to org reads them as a headline',
+    (await page.innerHTML('#edprev_note')).includes('<h1>A headline</h1>'),
+    await page.innerHTML('#edprev_note'));
+  ok('the format control kept its choice', (await page.inputValue('#edfmt_note')) === 'org');
+  // THE ASSERTION THIS BLOCK EXISTS FOR, and the gate is what found it needed:
+  // the first version of `edSetFormat` called `renderTab()`, which rebuilds the
+  // form's plain inputs from the template — so switching the format silently
+  // discarded the title and the note was created under the template's own
+  // placeholder. The export label follows the format in the same breath.
+  ok('…and the title somebody typed survived the switch',
+    (await page.inputValue('#nt')) === 'Org note', await page.inputValue('#nt'));
+  ok('…and the export label follows the format',
+    /\.org/.test(await page.textContent('#edexp_note')), await page.textContent('#edexp_note'));
+  await page.evaluate(() => window.doCreateNote());
+  await page.waitForTimeout(600);
+  {
+    const got = await page.evaluate(async () => {
+      const r = await fetch('/api/notes', { headers: { Authorization: 'Bearer ' + S.token } });
+      const j = await r.json();
+      const n = j.notes.filter(x => x.title === 'Org note')[0];
+      return n ? { format: n.format, body: n.body } : null;
+    });
+    ok('an org note is stored as org', got && got.format === 'org', JSON.stringify(got));
+    ok('…and its body is stored verbatim', got && got.body.indexOf('* A headline') === 0,
+      got ? got.body : 'no note');
+  }
+  await page.evaluate(() => { edToggle('note', 'preview', 'off'); noteEditCancel(); });
+
   // The toolbar, the preview pane and the export, driven through the UI.
   step('editor: the toolbar and the export');
   await goTab(page, 'notes', '#nb');

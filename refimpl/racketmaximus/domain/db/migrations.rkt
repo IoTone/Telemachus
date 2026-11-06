@@ -2461,6 +2461,31 @@
       (exec* conn (string-append "CREATE INDEX IF NOT EXISTS idx_research_stale "
                                  "ON research_sources (team_id, fetched_epoch)")))))
 
+(define m-0073-note-format
+  (migration "0073-note-format"
+    (lambda (conn)
+      ;; ORG-1 — THE FORMAT IS A DECLARED PROPERTY OF THE NOTE, AND MARKDOWN
+      ;; STAYS THE DEFAULT. #246 asks for org-mode notes; what it does not ask
+      ;; for, and what this column is the alternative to, is AUTO-DETECTION —
+      ;; which is the tempting version and is wrong on its first line. A body
+      ;; beginning `* something` is a valid Markdown bullet AND a valid org
+      ;; headline, and the two render completely differently, so a detector
+      ;; would silently change what somebody's note looks like, and change it
+      ;; again the next time they edited that line.
+      ;;
+      ;; DEFAULT 'markdown', which is this tree's standing rule rather than a
+      ;; preference (ENVN-1, DEL-9, PULL-15a, MAIL-26): every note that exists
+      ;; is Markdown and `mdRender` is the only renderer the e2e gate's §3c
+      ;; sanitiser case covers, so an upgrade must leave every existing note
+      ;; rendering exactly as it did.
+      ;;
+      ;; A COLUMN AND NOT A `note_formats` TABLE, because the vocabulary is
+      ;; closed and lives in `notes.rkt` (`NOTE-FORMATS`): a row per format
+      ;; would be a second copy of a decision the code already makes, free to
+      ;; disagree with it — `polling`'s and `archived`'s rule (RG-23).
+      (exec* conn
+       "ALTER TABLE notes ADD COLUMN format TEXT NOT NULL DEFAULT 'markdown'"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2471,4 +2496,4 @@
                              m-0066-job-finished-age m-0067-model-request-job
                              m-0068-note-tags m-0069-email
                              m-0070-token-purpose m-0071-research-sources
-                             m-0072-mail-verify-tls))
+                             m-0072-mail-verify-tls m-0073-note-format))

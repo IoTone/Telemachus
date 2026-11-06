@@ -13,7 +13,40 @@
 (provide notes-create notes-list notes-get notes-update notes-delete notes-share
          ;; tags (#245) — exported for the tool, the endpoint and their tests
          notes-set-tags! notes-tag-list note-tags notes-require-write!
-         tag-normalize tag-problem tags-clean MAX-TAGS MAX-TAG-CHARS)
+         tag-normalize tag-problem tags-clean MAX-TAGS MAX-TAG-CHARS
+         ;; org-mode (#246 slice 1) — the closed vocabulary and its one check,
+         ;; exported FOR the endpoint and the gate that pins the set as a whole
+         NOTE-FORMATS format-problem)
+
+;; ---- the body's format (#246, ORG-1) ----------------------------------------
+;;
+;; A CLOSED VOCABULARY, in the shape `READ-DOORS`, `WORKER-STATES`,
+;; `EXTRACT-REASONS` and `REVIEW-VERDICTS` already have: the console switches on
+;; it and the renderer is picked from it, so a value invented in passing would
+;; arrive as a note nothing can draw. `test/note-format-tests.rkt` pins the SET
+;; as a literal rather than re-deriving it — a test built from this list would
+;; agree with any change to it, and adding a format is a decision somebody makes
+;; on purpose.
+;;
+;; `markdown` is FIRST because it is the default, and that order is read: the
+;; column's default and this list's head must agree, or a note created with no
+;; format would carry one the vocabulary leads with somewhere else.
+(define NOTE-FORMATS '("markdown" "org"))
+
+;; Refused BY NAME, never coerced to the default. A format silently substituted
+;; is a note that renders as something other than what its author asked for, and
+;; the author has no way to find out but to look — the call an unknown theme
+;; token, an unknown classifier backend and an unknown retention field all make.
+(define (format-problem fmt)
+  (cond [(not (string? fmt)) "format must be a string"]
+        [(member fmt NOTE-FORMATS) #f]
+        [else (format "format must be one of ~a; got ~s"
+                      (string-join NOTE-FORMATS ", ") fmt)]))
+
+(define (format-clean fmt)
+  (define problem (format-problem fmt))
+  (when problem (raise-user-error 'notes problem))
+  fmt)
 
 ;; ---- tags (#245) ------------------------------------------------------------
 ;;
@@ -106,12 +139,18 @@
 (define (with-tags conn n) (hash-set n 'tags (note-tags conn (hash-ref n 'id))))
 
 (define SELECT
-  "SELECT id, team_id, owner_user_id, visibility, title, body, created_at, updated_at FROM notes")
+  (string-append "SELECT id, team_id, owner_user_id, visibility, title, body, "
+                 "created_at, updated_at, format FROM notes"))
 
 (define (row->note r)
   (hasheq 'id (vector-ref r 0) 'team_id (vector-ref r 1) 'owner_user_id (vector-ref r 2)
           'visibility (vector-ref r 3) 'title (vector-ref r 4) 'body (vector-ref r 5)
-          'created_at (vector-ref r 6) 'updated_at (vector-ref r 7)))
+          'created_at (vector-ref r 6) 'updated_at (vector-ref r 7)
+          ;; ORG-1 — on EVERY read, so a reader never has to assume which
+          ;; renderer a note wants. RED-20's shape: the field is reported rather
+          ;; than inferred, which is also what makes a default of 'markdown'
+          ;; honest rather than quiet.
+          'format (vector-ref r 8)))
 
 (define (note->resource n)
   (hasheq 'resource_type "notes" 'resource_id (hash-ref n 'id)
@@ -121,16 +160,20 @@
 (define (get-row conn id) (query-maybe-row conn (string-append SELECT " WHERE id = ?") id))
 
 (define (notes-create conn p #:title [title ""] #:body [body ""] #:visibility [vis "team"]
-                      #:tags [tags '()])
+                      #:tags [tags '()] #:format [fmt "markdown"])
   (require-perm conn p "notes:write")                       ; team-level create
   ;; cleaned BEFORE the note exists, so a malformed tag refuses the whole create
   ;; rather than leaving a note somebody has to notice is untagged (VEC-21's
-  ;; order, where every validation runs before anything is written)
+  ;; order, where every validation runs before anything is written). The format
+  ;; joins it for the same reason: a note stored with a format nothing can draw
+  ;; is worse than a create that was refused.
   (define clean (tags-clean tags))
+  (define fmt* (format-clean fmt))
   (define id (new-id))
   (query-exec conn
-    "INSERT INTO notes (id, team_id, owner_user_id, visibility, title, body) VALUES (?, ?, ?, ?, ?, ?)"
-    id (principal-team-id p) (principal-user-id p) vis title body)
+    (string-append "INSERT INTO notes (id, team_id, owner_user_id, visibility, title, body, format) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?)")
+    id (principal-team-id p) (principal-user-id p) vis title body fmt*)
   (write-tags! conn id (principal-team-id p) clean)
   (with-tags conn (row->note (get-row conn id))))
 
@@ -182,16 +225,24 @@
 ;; their own `#f`-is-absent rule, so the endpoint must map a missing JSON key to
 ;; #f and a `[]` to the empty list deliberately.
 (define (notes-update conn p id #:title [title #f] #:body [body #f] #:visibility [vis #f]
-                      #:tags [tags #f])
+                      #:tags [tags #f] #:format [fmt #f])
   (define r (get-row conn id))
   (and r (let ([n (row->note r)])
            (require-perm conn p "notes:write" #:resource (note->resource n))
            ;; cleaned before anything is written, so a malformed tag leaves the
            ;; note — and its previous tag set — exactly as it was
            (define clean (and tags (tags-clean tags)))
+           ;; ORG-2 — CONVERTING A NOTE IS A DECLARATION, NEVER A REWRITE. This
+           ;; changes how the body is RENDERED and does not touch the body.
+           ;; Running the org renderer over Markdown source produces a readable
+           ;; mess rather than an error, which is honest and REVERSIBLE — where
+           ;; a conversion is neither, and a conversion that got one construct
+           ;; wrong would have eaten the only copy.
+           (define fmt* (and fmt (format-clean fmt)))
            (when title (query-exec conn "UPDATE notes SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" title id))
            (when body  (query-exec conn "UPDATE notes SET body = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" body id))
            (when vis   (query-exec conn "UPDATE notes SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" vis id))
+           (when fmt*  (query-exec conn "UPDATE notes SET format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" fmt* id))
            (when clean
              (call-with-transaction conn
                (lambda ()

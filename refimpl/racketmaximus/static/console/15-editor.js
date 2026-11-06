@@ -23,6 +23,24 @@
 // requires "headings, lists, pipe tables, fenced code" and nothing more,
 // because pandoc has to render the same book in two editions.
 
+// ---- escaping and sentinel hygiene, shared by both renderers ----------------
+// ED-4's order lives here: a body is escaped BEFORE any rule sees it, which is
+// what makes both renderers sanitisers by construction rather than by a
+// sanitiser they could get wrong.
+//
+// It also drops NUL, and that is not cosmetic. Both renderers lift fenced
+// blocks out of the text and put them back at the end through a `\u0000X<n>\u0000`
+// sentinel, so a body that CONTAINED one of those sequences could make the
+// restore swap in a different block of the same note. In `mdRender` that is a
+// rendering oddity and nothing more, because what goes back is already-escaped
+// text from the same body; `orgRender` restores an `<a href>` built from a
+// validated URL, so the sentinel is load-bearing there. A NUL is not legitimate
+// note text in either case, so it is removed once, here, rather than reasoned
+// about twice.
+function escBody(src){
+  return esc(String(src == null ? '' : src)).replace(/\u0000/g, '').replace(/\r\n?/g, '\n');
+}
+
 // ---- the Markdown subset ----------------------------------------------------
 // WHAT MAKES THIS SAFE IS THE ORDER: everything is HTML-escaped FIRST, and the
 // rules below then run over already-escaped text and emit a closed set of tags.
@@ -49,7 +67,7 @@ function mdInline(t){
       mdSafeUrl(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${txt}</a>` : m);
 }
 function mdRender(src){
-  let s = esc(String(src == null ? '' : src)).replace(/\r\n?/g, '\n');
+  let s = escBody(src);
   // Fenced code comes out first and goes back last, so no inline rule runs
   // inside it — `**bold**` in a code block is not bold, which is the whole
   // point of a code block.
@@ -104,6 +122,183 @@ function mdRender(src){
   return out.join('\n').replace(/\u0000C(\d+)\u0000/g, (m, n) => `<pre class="md-code"><code>${code[+n]}</code></pre>`);
 }
 
+// ---- the org-mode subset (#246, ORG-3…ORG-6) --------------------------------
+// A SECOND RENDERER, NOT A REPLACEMENT. ORG-1: `notes.format` is 'markdown' by
+// default and 'org' opt in, declared per note and never auto-detected — a body
+// beginning `* something` is a valid Markdown bullet AND a valid org headline,
+// and they render completely differently, so a detector would silently change
+// what somebody's note looks like.
+//
+// IT SHARES `escBody` AND `mdSafeUrl` WITH `mdRender`, deliberately. A second
+// copy of the URL scheme allowlist is the drift this tree has paid for
+// repeatedly (`executor-can-run?`, `LIVE-IN`, `escape-like`), and it is the one
+// piece of this renderer where a divergence is a stored XSS rather than an ugly
+// paragraph. There is no `ORG_SCHEMES`.
+//
+// THE SUBSET IS STATED (ORG-4). In: headlines `*`…`******`; lists `-`/`+`/`1.`;
+// `#+BEGIN_SRC`/`#+BEGIN_EXAMPLE`; `*bold*` `/italic/` `_underline_`
+// `=verbatim=` `~code~`; `[[target][description]]` and `[[target]]`; tables
+// with a `|---|` separator; `#+TITLE:` and `#+FILETAGS:`; `:tag:tag:` trailing a
+// headline. Out: babel of any kind, `#+INCLUDE:` (ORG-5), property drawers and
+// TODO keywords (the outliner model, declined with the owner), footnotes, LaTeX
+// fragments, and timestamps as a data type rather than as text. Each of those
+// renders as its own text, which is the honest failure for a preview.
+
+// Org's own emphasis border rules, which is why this is not simply
+// `/\*([^*]+)\*/`. A marker only opens after one of these characters and only
+// closes before one of those, and the content may not begin or end with
+// whitespace — that is what stops `/` in `https://example.test/a/b` from
+// becoming italics, and it is a real body rather than a corner case.
+//
+// THE CLASSES NAME WHAT IS IN THE ESCAPED TEXT, NOT WHAT THE AUTHOR TYPED. By
+// the time these run, a source `"` is `&quot;` and a source `&` is `&amp;`, so
+// the character actually preceding a marker after a quoted phrase is `;`. It is
+// in the pre-class for that reason and for no other.
+const ORG_PRE  = "\\s\\-–—('\"{;&";
+const ORG_POST = "\\s\\-–—.,:!?;'\"){}\\[";
+function orgEm(t, marker, tag){
+  const m = marker.replace(/[*+\/]/g, '\\$&');
+  const re = new RegExp('(^|[' + ORG_PRE + '])' + m
+    + '([^\\s' + m + '](?:[^\\n]*?[^\\s' + m + '])?)' + m
+    + '(?=$|[' + ORG_POST + '])', 'g');
+  return t.replace(re, (all, pre, body) => pre + '<' + tag + '>' + body + '</' + tag + '>');
+}
+
+// `=verbatim=`, `~code~` and links come out before emphasis runs and go back
+// after it, for `mdRender`'s own reason: `*not bold*` inside `~code~` is not
+// bold, and a target like `[[https://x/a_b_c][d]]` must not have its
+// underscores read as emphasis. Everything restored here was built from
+// already-escaped text, or from a URL `mdSafeUrl` admitted.
+function orgInline(t){
+  const held = [];
+  const hold = (html) => { held.push(html); return '\u0000V' + (held.length - 1) + '\u0000'; };
+  // verbatim and code first — they are the two constructs that suppress
+  // everything inside them
+  t = t.replace(/=([^\s=][^=\n]*?)=(?=$|[\s\-.,:!?;'")}\]])/g, (m, body) => hold('<code>' + body + '</code>'));
+  t = t.replace(/~([^\s~][^~\n]*?)~(?=$|[\s\-.,:!?;'")}\]])/g, (m, body) => hold('<code>' + body + '</code>'));
+  // ORG-6 — a link's target is either an external URL or a note. An
+  // `http(s)`/`mailto:` target becomes an anchor through the SHARED allowlist,
+  // so `[[javascript:alert(1)][click]]` and its entity-encoded form are both
+  // refused by exactly the rule that refuses them in Markdown.
+  //
+  // AN INTERNAL TARGET IS NOT AN ANCHOR IN THIS SLICE, and that is deliberate
+  // rather than unfinished: nothing resolves a note id or a title yet (ORG-7's
+  // `note_links` is slice 2) and the console's router has no note route, so an
+  // `<a>` here would be a link that goes nowhere — which is worse than a marker
+  // that says what it is. It renders as its description with the raw target in
+  // the title attribute, and slice 2 is what makes it navigable.
+  const link = (target, desc) => {
+    const text = desc && desc.trim() ? desc : target;
+    return mdSafeUrl(target)
+      ? hold('<a href="' + target + '" target="_blank" rel="noopener noreferrer">' + text + '</a>')
+      : hold('<span class="org-link" title="' + target + '">' + text + '</span>');
+  };
+  t = t.replace(/\[\[([^\]\[]+)\]\[([^\]\[]*)\]\]/g, (m, target, desc) => link(target.trim(), desc));
+  t = t.replace(/\[\[([^\]\[]+)\]\]/g, (m, target) => link(target.trim(), ''));
+  t = orgEm(t, '*', 'strong');
+  t = orgEm(t, '/', 'em');
+  t = orgEm(t, '_', 'u');
+  return t.replace(/\u0000V(\d+)\u0000/g, (m, n) => held[+n]);
+}
+
+// `:tag:tag:` trailing a headline is RENDERED and never stored (ORG-12): a
+// headline is not a note, so storing them would make a note's tag set depend on
+// a tree this build deliberately does not model.
+function orgHeadline(text){
+  const m = text.match(/^(.*?)\s+(:(?:[^\s:]+:)+)\s*$/);
+  if (!m) return orgInline(text.trim());
+  const tags = m[2].split(':').filter(x => x.length);
+  return orgInline(m[1].trim())
+    + tags.map(x => ' <span class="badge">' + x + '</span>').join('');
+}
+
+function orgRender(src){
+  let s = escBody(src);
+  // The blocks come out first and go back last, so no inline rule runs inside
+  // one — the asterisks in a `#+BEGIN_SRC` block stay literal, which is the
+  // whole point of a source block.
+  const code = [];
+  s = s.replace(/^[ \t]*#\+BEGIN_(SRC|EXAMPLE)\b[^\n]*\n([\s\S]*?)^[ \t]*#\+END_\1[ \t]*$/gim,
+    (m, kind, body) => {
+      code.push(body.replace(/\n$/, ''));
+      return '\u0000C' + (code.length - 1) + '\u0000';
+    });
+  const lines = s.split('\n');
+  const out = [];
+  let i = 0;
+  const isTableSep = (l) => /^\s*\|[\s:+|-]*-[\s:+|-]*\|?\s*$/.test(l);
+  const isTableRow = (l) => /^\s*\|/.test(l);
+  const cells = (l) => l.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map(c => c.trim());
+  while (i < lines.length) {
+    const l = lines[i];
+    if (/^\u0000C\d+\u0000$/.test(l.trim())) { out.push(l.trim()); i++; continue; }
+    if (!l.trim()) { i++; continue; }
+    let m;
+    // ORG-5 — `#+INCLUDE:` IS REFUSED BY NAME AND VISIBLY. In real org it reads
+    // a file from the filesystem, which is an LFI with the author's own note as
+    // the weapon; rendering it as plain text would be safe and would leave an
+    // operator wondering why the content never appears. Same call as an unknown
+    // theme token and an unknown classifier backend: a directive that silently
+    // does nothing is the hardest thing on a surface to diagnose.
+    if (/^[ \t]*#\+INCLUDE:/i.test(l)) {
+      out.push('<p class="org-refused">' + esc(t('orgnoinclude')) + '</p>'); i++; continue;
+    }
+    if ((m = l.match(/^[ \t]*#\+TITLE:[ \t]*(.*)$/i))) {
+      out.push('<h1 class="org-title">' + orgInline(m[1].trim()) + '</h1>'); i++; continue;
+    }
+    if ((m = l.match(/^[ \t]*#\+FILETAGS:[ \t]*(.*)$/i))) {
+      const tags = m[1].split(':').map(x => x.trim()).filter(x => x.length);
+      out.push('<p class="org-filetags">'
+        + tags.map(x => '<span class="badge">' + x + '</span>').join(' ') + '</p>');
+      i++; continue;
+    }
+    // A headline needs a SPACE after its stars, which is what separates
+    // `** Heading` from a paragraph opening with `**emphasis**`.
+    if ((m = l.match(/^(\*{1,6})[ \t]+(.*)$/))) {
+      const n = m[1].length;
+      out.push('<h' + n + '>' + orgHeadline(m[2]) + '</h' + n + '>'); i++; continue;
+    }
+    if (isTableRow(l) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      const head = cells(l); i += 2;
+      const body = [];
+      while (i < lines.length && isTableRow(lines[i]) && !isTableSep(lines[i])) { body.push(cells(lines[i])); i++; }
+      out.push('<table><thead><tr>' + head.map(c => '<th>' + orgInline(c) + '</th>').join('') + '</tr></thead>'
+        + '<tbody>' + body.map(r => '<tr>' + r.map(c => '<td>' + orgInline(c) + '</td>').join('') + '</tr>').join('')
+        + '</tbody></table>');
+      continue;
+    }
+    if (/^\s*([-+]|\d+[.)])\s+/.test(l)) {
+      const ordered = /^\s*\d+[.)]/.test(l);
+      const items = [];
+      while (i < lines.length && /^\s*([-+]|\d+[.)])\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*([-+]|\d+[.)])\s+/, '')); i++;
+      }
+      const tag = ordered ? 'ol' : 'ul';
+      out.push('<' + tag + '>' + items.map(x => '<li>' + orgInline(x) + '</li>').join('') + '</' + tag + '>');
+      continue;
+    }
+    // Everything else is a paragraph, which is where every construct outside
+    // ORG-4's subset lands: a property drawer, a TODO keyword, a footnote
+    // reference and a `#+OPTIONS:` line all render as their own text.
+    const buf = [];
+    while (i < lines.length && lines[i].trim()
+           && !/^(\*{1,6}[ \t]|\s*([-+]|\d+[.)])\s|[ \t]*#\+(TITLE|FILETAGS|INCLUDE):)/i.test(lines[i])
+           && !isTableRow(lines[i])
+           && !/^\u0000C\d+\u0000$/.test(lines[i].trim())) { buf.push(lines[i]); i++; }
+    if (buf.length) out.push('<p>' + orgInline(buf.join('\n')) + '</p>');
+    else i++;
+  }
+  return out.join('\n').replace(/\u0000C(\d+)\u0000/g,
+    (m, n) => '<pre class="md-code"><code>' + code[+n] + '</code></pre>');
+}
+
+// ONE place picks the renderer, so no caller has to switch on a format and no
+// caller can forget to. An unknown or absent format is Markdown — the column's
+// default, and what every note written before #246 carries.
+function bodyRender(src, format){
+  return format === 'org' ? orgRender(src) : mdRender(src);
+}
+
 // ---- the editor ------------------------------------------------------------
 // The four view preferences are per-VIEWER conveniences, so they live in
 // localStorage and every read and write is wrapped: the accessor throws in a
@@ -123,9 +318,10 @@ function edPrefs(){
   S.edPrefs = p; return p;
 }
 function edSavePrefs(){ try { localStorage.setItem('tmx_ed', JSON.stringify(S.edPrefs)); } catch (e) {} }
-function edState(key, initial){
+function edState(key, initial, format){
   S.ed = S.ed || {};
-  if (!S.ed[key]) S.ed[key] = { value: initial == null ? '' : String(initial), zen: false, el: 'ed_' + key };
+  if (!S.ed[key]) S.ed[key] = { value: initial == null ? '' : String(initial), zen: false,
+                                el: 'ed_' + key, fmt: format || 'markdown' };
   return S.ed[key];
 }
 // THE TEXTAREA KEEPS THE ID THE FIELD IT REPLACED HAD (`nb`, `dc`), because
@@ -143,9 +339,47 @@ function edRead(key){
 }
 function edSet(key, v){ edState(key).value = v; }
 function edGet(key){ return (S.ed && S.ed[key]) ? S.ed[key].value : ''; }
-function edReset(key, v, id){
+function edReset(key, v, id, format){
   S.ed = S.ed || {};
-  S.ed[key] = { value: v == null ? '' : String(v), zen: false, el: id || ('ed_' + key) };
+  S.ed[key] = { value: v == null ? '' : String(v), zen: false, el: id || ('ed_' + key),
+                fmt: format || 'markdown' };
+}
+// The format is per-EDITOR state and not a view preference, which is the line
+// `edPrefs` draws: preview/wrap/mono/nums are what this VIEWER likes and live in
+// localStorage, while the format is a property of the note being edited and is
+// stored on it (ORG-1). Putting it in localStorage would make somebody's last
+// note decide how their next one renders.
+function edFormat(key){ return (S.ed && S.ed[key] && S.ed[key].fmt) || 'markdown'; }
+// IT DOES NOT CALL `renderTab()`, AND THE E2E GATE IS WHAT ESTABLISHED THAT IT
+// MUST NOT. A tab render rebuilds the form's plain inputs from the template, so
+// a switch that re-rendered discarded the TITLE somebody had just typed and the
+// note was created under the template's own placeholder. The editor's text
+// survives a render because it lives in S (#180); a plain `<input>` does not.
+//
+// So the two things the format actually decides are repainted in place, which is
+// CARD-2's rule one level down: a partial update is not a render pass. It is
+// also cheaper than the render it replaces.
+//
+// WHAT IS NOT FIXED HERE, stated rather than left to be discovered: `edToggle`
+// and `edZen` still call `renderTab()`, so the toolbar's view buttons lose a
+// typed title in exactly the same way. That is pre-existing and it is the whole
+// Notes form's question (title, tags and visibility are all plain inputs), not
+// the format control's.
+function edSetFormat(key, fmt){
+  edState(key).fmt = fmt;
+  // the preview, under the new renderer — `edInput` is the one place that
+  // repaints it, so there is no second copy of "which renderer does this pane
+  // want"
+  const el = document.getElementById(edId(key));
+  if (el) edInput(key, el);
+  // …and the export label, which follows the format because `edExport` writes
+  // `.org` for an org note
+  const x = document.getElementById('edexp_' + key);
+  if (x) {
+    const org = fmt === 'org';
+    x.textContent = t(org ? 'edexportorg' : 'edexport');
+    x.title = t(org ? 'edexportorghint' : 'edexporthint');
+  }
 }
 function edCount(v){
   const chars = v.length;
@@ -193,7 +427,7 @@ function edInput(key, el){
   if (c) c.textContent = edCount(v);
   if (p.preview !== 'off') {
     const pv = document.getElementById('edprev_' + key);
-    if (pv) pv.innerHTML = mdRender(v);
+    if (pv) pv.innerHTML = bodyRender(v, edFormat(key));
   }
 }
 function edKey(key, ev){
@@ -206,11 +440,17 @@ function edKey(key, ev){
 // error, which is how every other CSP claim in this console was established.
 function edExport(key, name){
   const v = edRead(key);
+  // An org note downloads as `.org`, because a `.md` holding org markup is a
+  // file whose name is wrong about its contents. `text/org` is not a registered
+  // media type (ORG-11 records the same thing for the server's own download), so
+  // the body goes out as plain text and the EXTENSION is what carries the
+  // format — which is what every org editor keys on anyway.
+  const org = edFormat(key) === 'org';
   try {
-    const blob = new Blob([v], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([v], { type: (org ? 'text/plain' : 'text/markdown') + ';charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = (name || 'note') + '.md';
+    a.href = url; a.download = (name || 'note') + (org ? '.org' : '.md');
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
   } catch (e) { toast(t('edexportfail')); }
@@ -230,8 +470,13 @@ async function edToRepo(key, titleId){
 // screen cannot collide.
 function editorHTML(key, opts){
   opts = opts || {};
-  const st = edState(key, opts.value);
+  const st = edState(key, opts.value, opts.format);
   if (opts.id) st.el = opts.id;
+  // `opts.format` SEEDS a fresh state and never overrides a live one, exactly as
+  // `opts.value` does. Re-asserting it on every render would make the format
+  // control unusable: `edSetFormat` re-renders, and the next render would put
+  // the note's stored format straight back. Opening a note is what sets it, and
+  // that is `edReset`'s job.
   const p = edPrefs();
   const v = st.value;
   const wrap = edWrap(key);
@@ -239,11 +484,20 @@ function editorHTML(key, opts){
       data-h-click="${H(() => edToggle(key, 'preview', val))}">${esc(label)}</button>`;
   const tog = (what, label) => `<button class="btn sm ${p[what] ? '' : 'ghost'}"
       data-h-click="${H(() => edToggle(key, what))}">${esc(label)}</button>`;
+  // ORG-1 — the format is OFFERED only where the surface stores one. Documents
+  // are repository objects with a content type and no `format` column, so the
+  // control would be a switch with nowhere to save to.
+  const fmtSel = opts.formats
+    ? `<span class="ed-seg"><select class="ed-fmt" id="edfmt_${key}" aria-label="${esc(t('orgformat'))}"
+        data-h-change="${H((el) => edSetFormat(key, el.value))}">${
+        opts.formats.map(f => `<option value="${esc(f)}"${f === st.fmt ? ' selected' : ''}>${esc(t('fmt' + f))}</option>`).join('')
+      }</select></span>` : '';
   const bar = `<div class="ed-bar">
     <span class="ed-seg">${seg('off', t('edwrite'))}${seg('side', t('edsplit'))}${seg('only', t('edpreview'))}</span>
     <span class="ed-seg">${tog('nums', t('ednums'))}${
       p.nums ? `<button class="btn sm ghost" disabled title="${esc(t('edwraphint'))}">${esc(t('edwrap'))}</button>`
              : tog('wrap', t('edwrap'))}${tog('mono', t('edmono'))}</span>
+    ${fmtSel}
     <span class="sp" style="flex:1"></span>
     <span class="muted" id="edcount_${key}" style="font-size:12px">${esc(edCount(v))}</span>
     <button class="btn sm ghost" data-h-click="${H(() => edZen(key, !st.zen))}"
@@ -255,7 +509,7 @@ function editorHTML(key, opts){
       data-h-input="${H((el) => edInput(key, el))}"
       data-h-keydown="${H((el, ev) => edKey(key, ev))}">${esc(v)}</textarea>`;
   const prev = p.preview === 'off' ? ''
-    : `<div class="ed-prev md" id="edprev_${key}">${mdRender(v)}</div>`;
+    : `<div class="ed-prev md" id="edprev_${key}">${bodyRender(v, edFormat(key))}</div>`;
   return `<div class="ed${st.zen ? ' zen' : ''}${p.preview === 'side' ? ' split' : ''}${p.preview === 'only' ? ' prevonly' : ''}">
     ${bar}
     <div class="ed-panes">
