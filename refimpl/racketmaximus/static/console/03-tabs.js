@@ -169,9 +169,9 @@ async function notesView(){
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteShow((n.id)))}">${t('view')}</button></div>
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags),(n.format)))}">${t('edit')}</button></div>
-        <div><button class="btn sm ghost"${S.autoTagging===n.id?' disabled':''}
+        <div><button class="btn sm ghost"${(S.autoTagging===n.id||n.format==='org')?' disabled':''}
           data-h-click="${H((el,ev)=>doAutoTag((n.id)))}"
-          title="${esc(t('autotaghint'))}">${S.autoTagging===n.id?esc(t('autotagging')):t('autotag')}</button></div>
+          title="${esc(n.format==='org'?t('autotagorg'):t('autotaghint'))}">${S.autoTagging===n.id?esc(t('autotagging')):t('autotag')}</button></div>
         <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${t('del')}</button></div>
       </div></div>`).join('') || `<p class="muted">—</p>`;
   const card = viewing
@@ -180,8 +180,7 @@ async function notesView(){
     ? `<div class="card"><h3>${t('editnote')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
       <label>${t('title')}</label><input id="nt" value="${esc(editing.title||'')}">
       <label>${t('body')}</label>${editorHTML('note', {id:'nb', formats:NOTE_FORMATS})}
-      <label>${t('tags')}</label><input id="ntags" value="${esc((editing.tags||[]).join(', '))}" placeholder="${esc(t('tagsph'))}">
-      <div class="muted" style="font-size:12px;margin:-6px 0 8px">${esc(t('tagshint'))}</div>
+      ${tagsField(editing.tags)}
       <label>${t('visibility')}</label><select id="nv">${
         ['team','private','shared'].map(x=>`<option${x===editing.visibility?' selected':''}>${x}</option>`).join('')}</select>
       <button class="btn" data-h-click="${H((el,ev)=>doSaveNote())}">${t('save')}</button>
@@ -190,12 +189,11 @@ async function notesView(){
     : `<div class="card"><h3>${t('newnote')}</h3>
       <label>${t('title')}</label><input id="nt" value="Secret plan">
       <label>${t('body')}</label>${editorHTML('note', {id:'nb', value:'only for me', formats:NOTE_FORMATS})}
-      <label>${t('tags')}</label><input id="ntags" value="" placeholder="${esc(t('tagsph'))}">
-      <div class="muted" style="font-size:12px;margin:-6px 0 8px">${esc(t('tagshint'))}</div>
+      ${tagsField([])}
       <label>${t('visibility')}</label><select id="nv"><option>team</option><option>private</option><option>shared</option></select>
       <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${t('create')}</button>
       ${noteTools('note','nt')}</div>`;
-  return `<h2>${t('notes')}</h2>${card}${filter}${list}`;
+  return `<h2>${t('notes')}</h2>${card}${orgImportStrip()}${filter}${list}`;
 }
 
 // The tag list the server DERIVED, as a filter. Each chip toggles; several chips
@@ -244,7 +242,49 @@ function noteTagClear(){ S.noteTags=[]; renderTab(); }
 // server — the console never decides what a tag may be, or there would be two
 // vocabularies and the one a person sees would be the wrong one.
 function readTags(){
-  return val('ntags').split(',').map(x=>x.trim()).filter(x=>x.length);
+  // TOLERANT OF THE FIELD BEING ABSENT, because ORG-12 removes it: an org note's
+  // tags come from its own `#+FILETAGS:` line, so there is no input to read and
+  // `val()` would throw on the missing element.
+  const el = document.getElementById('ntags');
+  return el ? el.value.split(',').map(x=>x.trim()).filter(x=>x.length) : [];
+}
+// ORG-12 on the console's side. The server refuses a `tags` field against an org
+// note BY NAME, which is right for an API caller and would be a poor way for a
+// person to find out — so the field is not offered, and the line that IS
+// authoritative is named where the field used to be. The author can see it; that
+// is the whole argument for the body winning.
+function tagsFieldInner(tags){
+  if(edFormat('note') === 'org'){
+    return `<label>${t('tags')}</label>
+      <div class="muted" style="font-size:12px;margin:-2px 0 10px">${esc(t('orgtagshint'))}</div>
+      ${(tags&&tags.length)?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin:-4px 0 10px">${
+        tags.map(x=>`<span class="badge">${esc(x)}</span>`).join('')}</div>`:''}`;
+  }
+  return `<label>${t('tags')}</label><input id="ntags" value="${esc((tags||[]).join(', '))}" placeholder="${esc(t('tagsph'))}">
+      <div class="muted" style="font-size:12px;margin:-6px 0 8px">${esc(t('tagshint'))}</div>`;
+}
+// WRAPPED IN AN ID, so the format switch can swap it in place. `edSetFormat` is a
+// partial update by design (slice 1: a render pass discards a typed title), which
+// means anything the format decides has to be repainted rather than re-rendered.
+// The markup registers no delegated handler, so there is nothing to bracket.
+function tagsField(tags){
+  S.noteFormTags = tags || [];
+  return `<div id="ntagswrap">${tagsFieldInner(tags)}</div>`;
+}
+// The editor's announcement, hooked by name (`01-base.js`'s `paletteKey` seam).
+function edFormatChanged(key){
+  if(key !== 'note') return;
+  const w = document.getElementById('ntagswrap');
+  if(w) w.innerHTML = tagsFieldInner(S.noteFormTags || []);
+}
+// The body a note write sends. `tags` is OMITTED for an org note rather than
+// sent empty: the server refuses the field's presence, and sending `[]` would
+// also be a request to clear tags the body may well be asserting.
+function noteWriteBody(){
+  const b = { title: val('nt'), body: edRead('note'), visibility: val('nv'),
+              format: edFormat('note') };
+  if (b.format !== 'org') b.tags = readTags();
+  return b;
 }
 // Export and "save to the repository" are the issue's fourth ask and they are
 // the same two buttons on both surfaces, so they are composed once here rather
@@ -331,8 +371,58 @@ function noteViewCard(n, edges){
       <div style="flex:0 0 auto"><button class="btn sm"
         data-h-click="${H(()=>noteEdit(n.id, n.body, n.title, n.visibility, n.tags, n.format))}">${t('edit')}</button></div>
       <div style="flex:0 0 auto"><button class="btn sm ghost"
+        data-h-click="${H(()=>noteDownloadOrg(n.id))}"
+        title="${esc(t('orgdownloadhint'))}">${t('orgdownload')}</button></div>
+      <div style="flex:0 0 auto"><button class="btn sm ghost"
         data-h-click="${H(()=>noteViewClose())}">${t('close')}</button></div>
     </div></div>`;
+}
+// ORG-11 — DOWNLOADING THE SAVED NOTE, which is a different thing from the
+// editor's own export and is named differently for that reason. `edExport`
+// writes what is in the BOX, draft and all, and composes no keywords; this asks
+// the SERVER for the note as a file, so what lands on disk is what
+// `POST /api/notes/import` round-trips byte for byte.
+//
+// IT IS A FETCH AND A BLOB RATHER THAN A NAVIGATION, because a browser
+// navigation carries no bearer and this JSON API deliberately has no session
+// cookie (#27, #43's ticket exists for exactly that gap). The filename comes
+// from the server's own `Content-Disposition`, so the two cannot disagree about
+// what the file is called.
+async function noteDownloadOrg(id){
+  const r = await fetch('/api/notes/' + encodeURIComponent(id) + '?as=org',
+                        { headers: { Authorization: 'Bearer ' + S.token } });
+  if(!r.ok){ toast(t('error')||'error'); return; }
+  const text = await r.text();
+  const cd = r.headers.get('content-disposition') || '';
+  const m = /filename="([^"]+)"/.exec(cd);
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = m ? m[1] : 'note.org';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  } catch (e) { toast(t('edexportfail')); }
+}
+// …and the other direction. The route's body IS the file, so this posts the text
+// with no JSON wrapper — which is also why it reads the file with `.text()`
+// rather than handing the browser's File straight to fetch: a stated encoding
+// beats whatever a filesystem offered.
+async function doImportOrg(el){
+  const f = el.files && el.files[0];
+  if(!f) return;
+  el.value = '';                                    // so picking the same file twice works
+  const text = await f.text();
+  const r = await api('/api/notes/import?visibility=team',
+                      { method: 'POST', raw: text, contentType: 'text/plain; charset=utf-8' });
+  if(r.ok){ toast(t('orgimported') + ' ' + (r.json.title || ''), true); renderTab(); }
+  else toast((r.json && r.json.error) || 'error');
+}
+function orgImportStrip(){
+  return `<div class="row" style="margin-top:10px;gap:8px;align-items:center">
+    <div style="flex:0 0 auto"><label class="btn sm ghost" style="margin:0;cursor:pointer">
+      ${esc(t('orgimport'))}<input type="file" accept=".org,text/plain" style="display:none"
+        data-h-change="${H((el)=>doImportOrg(el))}"></label></div>
+    <div class="muted" style="font-size:12px">${esc(t('orgimporthint'))}</div></div>`;
 }
 function noteShow(id){ S.noteShow=id; S.noteEdit=null; edReset('note','', 'nb', 'markdown'); renderTab(); }
 function noteViewClose(){ S.noteShow=null; renderTab(); }
@@ -342,14 +432,11 @@ function noteViewClose(){ S.noteShow=null; renderTab(); }
 function noteEdit(id, body, title, vis, tags, format){ S.noteEdit=id; S.noteShow=null; edReset('note', body, 'nb', format); renderTab(); }
 function noteEditCancel(){ S.noteEdit=null; edReset('note', '', 'nb', 'markdown'); renderTab(); }
 async function doSaveNote(){
-  const r=await api('/api/notes/'+S.noteEdit,{method:'PUT',
-    body:{title:val('nt'), body:edRead('note'), visibility:val('nv'), tags:readTags(),
-          format:edFormat('note')}});
+  const r=await api('/api/notes/'+S.noteEdit,{method:'PUT', body:noteWriteBody()});
   if(r.ok){ S.noteEdit=null; edReset('note','', 'nb'); toast(t('saved'),true); renderTab(); }
   else toast((r.json&&r.json.error)||'error');
 }
-async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',
-  body:{title:val('nt'),body:edRead('note'),visibility:val('nv'),tags:readTags(),format:edFormat('note')}});
+async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',body:noteWriteBody()});
   if(r.ok){ edReset('note','', 'nb'); toast('created',true); renderTab(); } else toast(r.json.error||'error'); }
 // ONE send, #174's shape: the flag IS the guard and the pending state, there is
 // no `await` between the check and the set, and it is cleared in a `finally` or

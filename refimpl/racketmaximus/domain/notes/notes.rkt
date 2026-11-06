@@ -9,6 +9,7 @@
 (require db-kit/portable racket/list racket/string
          "../db/id.rkt"
          "org-links.rkt"
+         "org-file.rkt"
          "../authz/authz.rkt")
 
 (provide notes-create notes-list notes-get notes-update notes-delete notes-share
@@ -19,7 +20,10 @@
          ;; exported FOR the endpoint and the gate that pins the set as a whole
          NOTE-FORMATS format-problem
          ;; links (#246 slice 2) — exported for the endpoint and its tests
-         note-links-of note-backlinks-of)
+         note-links-of note-backlinks-of
+         ;; the `.org` interchange (#246 slice 3) — the endpoint composes and
+         ;; parses through these, and ORG-12's refusal has one spelling
+         notes-import org-text-of ORG-TAGS-REFUSAL notes-tags-writable!)
 
 ;; ---- the body's format (#246, ORG-1) ----------------------------------------
 ;;
@@ -163,18 +167,96 @@
           'team_id (hash-ref n 'team_id) 'owner_user_id (hash-ref n 'owner_user_id)
           'visibility (hash-ref n 'visibility)))
 
+;; ---- ORG-12: for an org note the BODY is the source of truth for tags -------
+;;
+;; `#+FILETAGS:` is authoritative, and a `tags` field in a request against an org
+;; note is REFUSED BY NAME rather than stored or silently ignored. Two homes for
+;; one fact is the drift this tree names everywhere, and the home that must win
+;; is the one the author can SEE — the body they are editing. A hand-edited
+;; `#+FILETAGS:` line that did nothing would be worse than a refusal, and a
+;; `tags` write that the next body save quietly undid would be worse still.
+;;
+;; THE COST IS REAL AND IS STATED RATHER THAN DISCOVERED: #245's `note_autotag`
+;; cannot work on an org note, because its write path is `notes-set-tags!`. It
+;; refuses here, in the one place both the tool and the endpoint reach, and the
+;; message carries the remedy. A tool that rewrote the body's keyword line is the
+;; obvious next decision and is not this slice's.
+(define ORG-TAGS-REFUSAL
+  (string-append "this note is org, so its tags come from its own #+FILETAGS: line; "
+                 "edit that line in the body, or set format to markdown first"))
+
+(define (refuse-org-tags!) (raise-user-error 'notes ORG-TAGS-REFUSAL))
+
+;; "May this caller write this note's tags DIRECTLY?", asked on its own so a
+;; caller can find out BEFORE doing something expensive. `notes-set-tags!` asks
+;; the same question at the write — this is not a second copy of the rule, it is
+;; the same refusal reachable one step earlier, which is exactly what
+;; `notes-require-write!` exists for and for the same reason: #245's auto-tagger
+;; puts a MODEL CALL between the read and the write, and without this an org note
+;; spends the team's AI budget and is only then refused, with a message about
+;; its format rather than about what it was asked to do.
+(define (notes-tags-writable! conn id)
+  (define r (get-row conn id))
+  (when (and r (string=? (vector-ref r 8) "org")) (refuse-org-tags!))
+  #t)
+
+;; The tags a body ASSERTS, or #f when it asserts nothing. The absent/present
+;; split is `org-file.rkt`'s and it is what stops a conversion from eating a tag
+;; set: a body with no keyword line is not a body saying "no tags".
+;;
+;; `tags-clean` is TAG-4's one home, so an imported or hand-typed `#+FILETAGS:`
+;; normalizes exactly as a tag typed into the console does — and a malformed one
+;; refuses the write, with the keyword named so the author knows which line to
+;; look at.
+;; `fmt`, NOT `format`: this function formats its own refusal, and a parameter
+;; called `format` shadows the procedure — which fails as "application: not a
+;; procedure; given: \"org\"" on the one path that composes a message, i.e. only
+;; when something is already wrong.
+(define (clean-filetags raws)
+  (with-handlers ([exn:fail? (lambda (e)
+                               (raise-user-error 'notes
+                                 (format "#+FILETAGS:: ~a" (exn-message e))))])
+    (tags-clean raws)))
+
+(define (body-tags body fmt)
+  (and (string=? fmt "org")
+       (let-values ([(_t tags _b) (org-parse body)])
+         (and tags (clean-filetags tags)))))
+
 (define (get-row conn id) (query-maybe-row conn (string-append SELECT " WHERE id = ?") id))
 
+;; `#:filetags` IS NOT A SECOND HOME FOR TAGS AND THAT IS THE WHOLE POINT. ORG-12
+;; refuses `#:tags` against an org note because the body is the truth; an IMPORT
+;; read a real `#+FILETAGS:` line and is handing over exactly what that line
+;; said, so it is the same home reached from a file rather than from the stored
+;; body. It has to exist because `notes-import` STRIPS the keyword block to keep
+;; ORG-11's byte-identical body — so by the time the create runs, the line that
+;; carried the tags is no longer in the body for `body-tags` to find.
+;;
+;; `#f` means the file asserted nothing, which is what leaves an imported note
+;; untagged rather than clearing anything.
+;;
+;; THE E2E GATE IS WHAT FOUND THIS, and the unit test had passed for the wrong
+;; reason: its fixture's body still carried a `#+FILETAGS:` line of its own, so
+;; the composed one being dropped went unnoticed while `body-tags` re-read the
+;; author's. A fixture whose body has no keyword line is what makes the case real.
 (define (notes-create conn p #:title [title ""] #:body [body ""] #:visibility [vis "team"]
-                      #:tags [tags '()] #:format [fmt "markdown"])
+                      #:tags [tags '()] #:format [fmt "markdown"] #:filetags [filetags #f])
   (require-perm conn p "notes:write")                       ; team-level create
   ;; cleaned BEFORE the note exists, so a malformed tag refuses the whole create
   ;; rather than leaving a note somebody has to notice is untagged (VEC-21's
   ;; order, where every validation runs before anything is written). The format
   ;; joins it for the same reason: a note stored with a format nothing can draw
   ;; is worse than a create that was refused.
-  (define clean (tags-clean tags))
   (define fmt* (format-clean fmt))
+  ;; ORG-12 — refused BEFORE anything is validated or written. An empty list asks
+  ;; for nothing, so there is nothing to refuse: `#:tags` defaults to `'()` and
+  ;; the endpoint maps an absent key to it, which means a caller who said nothing
+  ;; about tags is indistinguishable from one who sent `[]` on this path.
+  (when (and (string=? fmt* "org") (pair? tags)) (refuse-org-tags!))
+  (define clean (or (and filetags (clean-filetags filetags))
+                    (body-tags body fmt*)
+                    (tags-clean tags)))
   (define id (new-id))
   ;; ORG-7 — the edges are rewritten in the same transaction as the BODY, or a
   ;; note could exist with a body nothing had read the links out of. The row
@@ -244,6 +326,10 @@
            (require-perm conn p "notes:write" #:resource (note->resource n))
            ;; cleaned before anything is written, so a malformed tag leaves the
            ;; note — and its previous tag set — exactly as it was
+           ;; the EFFECTIVE format decides, so a request that converts to org and
+           ;; sends tags in the same breath is refused rather than half-honoured
+           (define effective-fmt (or fmt (hash-ref n 'format)))
+           (when (and tags (string=? effective-fmt "org")) (refuse-org-tags!))
            (define clean (and tags (tags-clean tags)))
            ;; ORG-2 — CONVERTING A NOTE IS A DECLARATION, NEVER A REWRITE. This
            ;; changes how the body is RENDERED and does not touch the body.
@@ -269,9 +355,18 @@
                (lambda ()
                  (when body (query-exec conn "UPDATE notes SET body = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" body id))
                  (when fmt* (query-exec conn "UPDATE notes SET format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" fmt* id))
-                 (write-links! conn id (hash-ref n 'team_id)
-                               (or body (hash-ref n 'body))
-                               (or fmt* (hash-ref n 'format))))))
+                 (define b* (or body (hash-ref n 'body)))
+                 (define f* (or fmt* (hash-ref n 'format)))
+                 (write-links! conn id (hash-ref n 'team_id) b* f*)
+                 ;; ORG-12 — the body's own keyword line is authoritative on
+                 ;; EVERY write, in the same transaction as the body, or a
+                 ;; refused tag would leave a body claiming tags nothing stored.
+                 ;; `#f` means the body asserted nothing, which is what leaves a
+                 ;; converted note's existing tags alone.
+                 (let ([bt (body-tags b* f*)])
+                   (when bt
+                     (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
+                     (write-tags! conn id (hash-ref n 'team_id) bt))))))
            (when clean
              (call-with-transaction conn
                (lambda ()
@@ -343,8 +438,13 @@
 ;; The ONE write path for a note's edges, inside the caller's transaction. Rows
 ;; are replaced wholesale rather than diffed: the body is the truth about which
 ;; links it contains, and a diff is a second way to be wrong about that.
-(define (write-links! conn id team body format)
-  (define targets (if (string=? format "org") (org-link-targets body) '()))
+;; `fmt` for `body-tags`' reason, and this one had already shipped: the cap's
+;; refusal formats a message, so with the parameter called `format` it raised a
+;; contract error instead — which slice 2's own test caught only as
+;; `exn:fail?`, i.e. it passed for the wrong reason. Its assertion names the
+;; message now.
+(define (write-links! conn id team body fmt)
+  (define targets (if (string=? fmt "org") (org-link-targets body) '()))
   (when (> (length targets) MAX-NOTE-LINKS)
     (raise-user-error 'notes
       (format "a note carries at most ~a distinct links; ~a given"
@@ -444,6 +544,66 @@
               [else (hasheq 'note_id (hash-ref src 'id) 'title (hash-ref src 'title)
                             'label (vector-ref row 1) 'target (vector-ref row 2))]))))))
 
+;; ---- ORG-11: the `.org` interchange ---------------------------------------
+;;
+;; THE KEYWORDS ARE THE NOTE'S METADATA IN BOTH DIRECTIONS, and the pair has to
+;; be read together: `org-compose` writes `#+TITLE:` and `#+FILETAGS:` in front
+;; of the body with one blank line between, and `org-parse` consumes exactly
+;; that. **The round trip is byte-identical for the BODY**, which is the only
+;; property a user of this cares about — asserted over eight body shapes
+;; including one that starts with a blank line and one with no trailing newline.
+
+;; The note AS A FILE. Answers `(values filename text)`, or `(values #f #f)` for
+;; a note that is not there — so the endpoint can tell a miss from an empty file.
+;;
+;; EVERY FORMAT IS EXPORTABLE, deliberately: a Markdown note composed with these
+;; two keywords is a perfectly good `.org` file whose body happens to be
+;; Markdown, and refusing would make "get this note as a file" depend on a
+;; declaration that says nothing about whether somebody wants one. The caller
+;; asked for org; what they get is the note, in the org envelope.
+(define (org-text-of conn p id)
+  (define r (get-row conn id))
+  (if (not r)
+      (values #f #f)
+      (let ([n (row->note r)])
+        (require-perm conn p "notes:read" #:resource (note->resource n))
+        (values (org-filename (hash-ref n 'title) (hash-ref n 'id))
+                (org-compose (hash-ref n 'title) (note-tags conn id) (hash-ref n 'body))))))
+
+;; A FILENAME IS A HEADER VALUE, so it is built from an allowlist rather than
+;; escaped: a title is somebody's own words and may carry a quote, a newline or a
+;; semicolon, every one of which would break out of
+;; `Content-Disposition: attachment; filename="…"`. `safe-key-part`'s rule
+;; (FEED-16, RG-21) at another asker — and the id is appended so two notes with
+;; one title do not download over each other.
+(define (org-filename title id)
+  (define slug
+    (let* ([f (fold-key title)]
+           [kept (regexp-replace* #px"[^a-z0-9]+" f "-")]
+           [trimmed (string-trim (regexp-replace* #px"-+" kept "-") "-")])
+      (if (string=? trimmed "") "note" (substring trimmed 0 (min 48 (string-length trimmed))))))
+  (format "~a-~a.org" slug (substring id 0 (min 8 (string-length id)))))
+
+;; An org file in. The TAGS COME FROM THE FILE'S OWN `#+FILETAGS:` LINE and go in
+;; through `#:filetags`, which is the same home ORG-12 names and not a second
+;; one — see the note at `notes-create`. They still pass through `tags-clean`, so
+;; an imported tag normalizes exactly as a typed one does (TAG-4).
+;;
+;; A FILE WITH NO `#+TITLE:` IMPORTS UNTITLED, exactly as `POST /api/notes` with
+;; no title does, rather than this inventing one out of the first headline. The
+;; cost is worth stating: ORG-6 resolves a link by TITLE, so an untitled import
+;; is reachable by id and not by name until somebody names it.
+(define (notes-import conn p text #:visibility [vis "team"])
+  (define bytes-in (bytes-length (string->bytes/utf-8 (format "~a" text))))
+  (when (> bytes-in MAX-ORG-IMPORT-BYTES)
+    (raise-user-error 'notes
+      (format (string-append "an org file imported here is at most ~a bytes; ~a given. "
+                             "A larger document belongs in the repository, which is built to move one.")
+              MAX-ORG-IMPORT-BYTES bytes-in)))
+  (define-values (title tags body) (org-parse text))
+  (notes-create conn p #:title (or title "") #:body body #:visibility vis #:format "org"
+                #:filetags tags))
+
 ;; "May this caller write this note?", asked on its own so a caller can find out
 ;; BEFORE doing something expensive. `notes-set-tags!` asks it too — this is not
 ;; a second copy of the rule, it is the same `require-perm` on the same resource,
@@ -468,6 +628,11 @@
            ;; permission before validation: a caller who may not write this note
            ;; should not be told whether their tag was well formed
            (require-perm conn p "notes:write" #:resource (note->resource n))
+           ;; ORG-12 — THE ONE PLACE BOTH THE ENDPOINT AND #245's TOOL REACH, so
+           ;; the refusal is here rather than at each caller. `note_autotag`'s
+           ;; write path is this function, which is why it cannot work on an org
+           ;; note; the message says what to edit instead.
+           (when (string=? (hash-ref n 'format) "org") (refuse-org-tags!))
            (define clean (tags-clean tags))
            ;; the cap is on the RESULT, not on the argument, or 'add could walk a
            ;; note past MAX-TAGS one proposal at a time

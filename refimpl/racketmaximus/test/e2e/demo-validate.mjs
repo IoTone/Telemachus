@@ -488,6 +488,68 @@ try {
   // repeated lesson, and #239's e2e block paid it again. Close the card.
   await page.evaluate(() => noteViewClose());
 
+  // ── 3c4. a note as a `.org` file (#246 slice 3, ORG-11/ORG-12) ─────────────
+  step('notes: the .org round trip, and the tags an org body owns');
+  // THE IMPORT FIRST, because it is the half a person reaches for when they
+  // already have files. The input is inside a label and display:none, which
+  // `setInputFiles` drives perfectly well.
+  await goTab(page, 'notes', '#nb');
+  let importedId = null;
+  await page.setInputFiles('input[type=file]', {
+    name: 'imported.org',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('#+TITLE: Imported survey\n#+FILETAGS: :levee 7:q3:\n\n* Findings\n\nsee [[Levee hub]]\n')
+  });
+  await page.waitForTimeout(900);
+  {
+    const got = await page.evaluate(async () => {
+      const r = await fetch('/api/notes', { headers: { Authorization: 'Bearer ' + S.token } });
+      const j = await r.json();
+      const n = j.notes.filter(x => x.title === 'Imported survey')[0];
+      return n ? { id: n.id, format: n.format, tags: n.tags, body: n.body } : null;
+    });
+    ok('an .org file imports as an org note', got && got.format === 'org', JSON.stringify(got));
+    ok('…with #+FILETAGS: as its tags, normalized',
+      got && got.tags.join(',') === 'levee 7,q3', got ? got.tags.join(',') : 'none');
+    ok('…and the rest as the body, verbatim',
+      got && got.body === '* Findings\n\nsee [[Levee hub]]\n', got ? JSON.stringify(got.body) : 'none');
+    importedId = got && got.id;
+
+    // ORG-12 on screen: an org note is not OFFERED a tags field, because the
+    // server refuses one by name and that is a poor way for a person to find
+    // out. The line that is authoritative is named where the field used to be.
+    await page.evaluate((id) => noteEdit(id, '* Findings\n', 'Imported survey', 'team', [], 'org'),
+                        got.id);
+    await page.waitForSelector('#edfmt_note', { timeout: 5000 });
+    ok('an org note is offered no tags input',
+      (await page.locator('#ntags').count()) === 0);
+    ok('…and the #+FILETAGS: line is named instead',
+      (await page.innerHTML('#app')).includes('#+FILETAGS:'));
+    // …and a MARKDOWN note still has the field, or this would have removed #245
+    await page.evaluate(() => edSetFormat('note', 'markdown'));
+    await page.waitForTimeout(300);
+    ok('a markdown note still has one', (await page.locator('#ntags').count()) === 1);
+    await page.evaluate(() => noteEditCancel());
+  }
+
+  // The download. A fetch and a Blob rather than a navigation, because a
+  // navigation carries no bearer — so the only question worth asking is whether
+  // the policy refuses it and whether a download really started.
+  await page.evaluate((id) => noteShow(id), importedId);
+  await page.waitForSelector('ul.org-edges', { timeout: 5000 });
+  {
+    const before = pageErrors.length;
+    const dl = page.waitForEvent('download', { timeout: 8000 }).catch(() => null);
+    await page.evaluate((id) => noteDownloadOrg(id), importedId);
+    const got = await dl;
+    ok('downloading .org is not refused by the CSP', pageErrors.length === before,
+      pageErrors.slice(before).join(' | '));
+    ok('…and the file is named by the SERVER, with a .org extension',
+      !!got && /\.org$/.test(got.suggestedFilename()),
+      got ? got.suggestedFilename() : 'no download event');
+  }
+  await page.evaluate(() => noteViewClose());
+
   // The toolbar, the preview pane and the export, driven through the UI.
   step('editor: the toolbar and the export');
   await goTab(page, 'notes', '#nb');

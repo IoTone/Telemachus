@@ -136,6 +136,13 @@
          ;; the same assertion against one passes against a server that checks
          ;; nothing at all.
          (notes-require-write! conn p id)
+         ;; …AND SO IS ORG-12's REFUSAL, for exactly the reason above. An org
+         ;; note's tags come from its own `#+FILETAGS:` line, so this tool cannot
+         ;; write them — and finding that out after the model call would charge
+         ;; the team for an answer nothing could store. The remedy is in the
+         ;; message; a tool that rewrote the keyword line is the obvious next
+         ;; decision and is not this slice's.
+         (notes-tags-writable! conn id)
          ;; the model is shown the tags THIS CALLER can see (TAG-1/PATH-6), never
          ;; the whole team's: a proposal must not be steered by a word that only
          ;; exists on a colleague's private note

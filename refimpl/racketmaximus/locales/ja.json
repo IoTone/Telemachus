@@ -1565,8 +1565,12 @@
       "hash": "b5df8a5d44edf2b632a49a17a9577d34fd1f81d7"
     },
     "doc.route.get.api.notes.id": {
-      "text": "1件のノート。",
-      "hash": "6abde483f234c866cac4d76f42dcdbf4cd86bfd4"
+      "text": "1件のノート。`?as=org` を付けると org ファイルとして返します — 本文の前に `#+TITLE:` と `#+FILETAGS:` を組み立て、添付として送ります。本文は `POST /api/notes/import` を通して バイト単位で往復します。形式を問わずエクスポートできます: Markdown のノートを org の封筒に 入れたものも読めるファイルであり、拒否すると「このノートをファイルとして渡してほしい」が、ファイルが欲しいかどうかとは無関係な宣言に左右されることになります。",
+      "hash": "f1daece95fe2b3c12cb3f5616c4c936ed407a151"
+    },
+    "doc.route.post.api.notes.import": {
+      "text": "org ファイルをノートとしてインポートします（#246）。リクエストの BODY が org のテキスト自身で JSON ではないため、`curl --data-binary @note.org` がそのすべてです。`?visibility=` でノートの 可視性を指定します。`#+TITLE:` が見出し、`#+FILETAGS:` がタグになり、入力されたタグと同じ 正規化を通ります。それ以外はそのまま本文になります。`#+TITLE:` のないファイルは見出しなしで インポートされ、リンクは見出しで解決するため、その場合は ID でのみ到達できます。コントロール プレーン自身のボディ上限より十分小さい上限が設けられています。より大きな文書はリポジトリに 置いてください。",
+      "hash": "de0212801c62ee16f528a3212d561288ffaa0e51"
     },
     "doc.route.get.api.notes.id.links": {
       "text": "このノートがリンクしている先と、このノートにリンクしている元（#246）。`links` は本文に現れる順の発リンク、`backlinks` は同じテーブルを逆向きに読んだものです。存在しないノートへのリンクはリンク切れとして報告され、記述されたままのターゲットと理由（`missing`、または同じ見出しのノートが 2 件ある場合は `ambiguous`）が付きます。呼び出し元が読めないノートが相手側にあるリンクは、単に存在しません — 伏せたことを伝えると、他人のプライベートなノートの存在を示すことになるため、報告されません。",
@@ -4055,6 +4059,34 @@
     "ui.orgambiguous": {
       "text": "同じ見出しのノートが 2 件あるため、どちらにもリンクできません",
       "hash": "92f9108848b1b227089b95719481e13e9ebd1ace"
+    },
+    "ui.orgtagshint": {
+      "text": "org ノートのタグは本文の #+FILETAGS: 行から取得されます — 本文のその行を編集してください",
+      "hash": "f4eb17ac6c7806978a251bd527cb102d4421d12c"
+    },
+    "ui.autotagorg": {
+      "text": "org ノートのタグは #+FILETAGS: 行から取得されるため、ここからは書き込めません",
+      "hash": "2c80238f24016ca86dda4bbec395ae8eba7fa558"
+    },
+    "ui.orgdownload": {
+      "text": ".org でダウンロード",
+      "hash": "4081c27038af0b3f08894b8c010ff3a3cd75c666"
+    },
+    "ui.orgdownloadhint": {
+      "text": "保存済みのノートを org ファイルとして取得します。そのままインポートし直せます",
+      "hash": "58c3582c9d43c97188b2735ff84e8478302569d7"
+    },
+    "ui.orgimport": {
+      "text": ".org をインポート…",
+      "hash": "66aac63702c0551eab3303516b3b20b07b3f728b"
+    },
+    "ui.orgimporthint": {
+      "text": "#+TITLE: が見出し、#+FILETAGS: がタグになり、残りが本文になります",
+      "hash": "ce7baff5e2bc818d954274f27bda9eb832251539"
+    },
+    "ui.orgimported": {
+      "text": "インポートしました",
+      "hash": "a671a412ad5a5208f0c3501753914eea14efc15f"
     },
     "ui.edtorepo": {
       "text": "リポジトリに保存",
