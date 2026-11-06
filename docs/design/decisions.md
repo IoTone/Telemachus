@@ -6279,16 +6279,20 @@ none: the field is on the read and `PUT /api/email-transport` already sets it.
 
 
 
-## ORG — org-mode notes and a graph of what they link to (issues #246 and #247) — SLICES 1 AND 2 BUILT
+## ORG — org-mode notes and a graph of what they link to (issues #246 and #247) — #246 COMPLETE; #247 IS SLICE 4
 
-Design: `docs/design/org-notes-and-note-graph.md`. **ORG‑1…ORG‑10 and ORG‑15 are
-built** (migrations `0073-note-format` and `0074-note-links`, `orgRender` in
-`static/console/15-editor.js`, `domain/notes/org-links.rkt`,
-`GET /api/notes/:id/links`) — **so #247 has its edge set.** ORG‑11…ORG‑14 and
-ORG‑16 are designed and not built: ORG‑11/‑12 are the interchange (slice 3) and
-ORG‑13/‑14/‑16 are the drawing (slice 4). **Read ORG‑14 before anybody draws an
-authored edge beside a derived mention**, and read ORG‑8 before anybody adds a
-`dst_note_id` column — the decision is kept and that column deliberately is not.
+Design: `docs/design/org-notes-and-note-graph.md`. **ORG‑1…ORG‑12 and ORG‑15 are
+built**, which is the whole of **#246**: migrations `0073-note-format` and
+`0074-note-links`, `orgRender` in `static/console/15-editor.js`,
+`domain/notes/org-links.rkt` and `org-file.rkt`, `GET /api/notes/:id/links`,
+`GET /api/notes/:id?as=org` and `POST /api/notes/import`. **#247 has its edge
+set.**
+
+What is left is **ORG‑13, ORG‑14 and ORG‑16 — the drawing, which is #247 and is
+slice 4.** **Read ORG‑14 before anybody draws an authored edge beside a derived
+mention**; read ORG‑8 before anybody adds a `dst_note_id` column, because the
+decision is kept and that column deliberately is not; and read ORG‑12's
+absent-vs-empty `#+FILETAGS:` split before touching an org note's tags.
 
 Two things decide the shape before any decision below. **Nothing in this build
 links a note to a note** — `notes` is id/team/owner/visibility/title/body/two

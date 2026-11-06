@@ -9,15 +9,19 @@
 (provide ep-notes-create ep-notes-list ep-documents-create ep-documents-list
          ep-documents-get ep-documents-update ep-documents-delete
          ep-notes-get ep-notes-update ep-notes-delete ep-notes-share
-         ep-note-tags ep-notes-autotag ep-note-links
+         ep-note-tags ep-notes-autotag ep-note-links ep-notes-import
          ep-search ep-kg-entities ep-kg-entity ep-kg-extract)
 
 (require racket/string
          web-kit
+         ;; `response/output`, `make-header` and `request-post-data/raw` — the
+         ;; attachment the `.org` download is and the raw body the import takes
+         web-server/http
          (only-in "../../config.rkt" content-encryption-enabled?)
          (only-in "../../domain/notes/notes.rkt"
                   notes-create notes-delete notes-get notes-list notes-share notes-update
-                  notes-tag-list note-links-of note-backlinks-of)
+                  notes-tag-list note-links-of note-backlinks-of
+                  notes-import org-text-of)
          (only-in "../../domain/notes/note-tools.rkt" note-autotag!)
          (only-in "../../domain/tools/faults.rkt" exn:fail:misconfigured?)
          (only-in "../../domain/documents/documents.rkt" documents-create documents-delete documents-get documents-list documents-update)
@@ -99,8 +103,51 @@
 
 (define (ep-notes-get req id)
   (with-auth req (lambda (p)
-    (define n (notes-get db-conn p id))
-    (if n (json-response n) (err "not found" 404)))))
+    ;; ORG-11 — `?as=org` answers the note as a FILE. `text/org` is NOT a
+    ;; registered media type, so the bytes go out as plain text and the
+    ;; EXTENSION is what carries the format — which is what every org editor
+    ;; keys on anyway. `attachment` plus `nosniff` is the download path's own
+    ;; posture, for the download path's own reason.
+    (cond
+      [(string=? (query-param req 'as "") "org")
+       (define-values (name text) (org-text-of db-conn p id))
+       (if name
+           (response/output
+            #:mime-type #"text/plain; charset=utf-8"
+            #:headers (list (make-header #"X-Content-Type-Options" #"nosniff")
+                            (make-header #"Content-Disposition"
+                                         (string->bytes/utf-8
+                                          (format "attachment; filename=\"~a\"" name))))
+            (lambda (out) (write-string text out)))
+           (err "not found" 404))]
+      [else
+       (define n (notes-get db-conn p id))
+       (if n (json-response n) (err "not found" 404))]))))
+
+;; THE BODY IS THE ORG TEXT ITSELF, not JSON, and that is the one place in this
+;; plane that takes a raw body on purpose: an importer runs
+;; `curl --data-binary @note.org`, and making them JSON-escape a whole file to
+;; reach a route whose entire input is that file would be a surface nobody uses.
+;; `?visibility=` carries the only other thing a create needs.
+;;
+;; ONE FILE PER CALL. A bulk form would have to decide what a partial failure
+;; means — half a directory imported, with no way to say which half — and a
+;; caller looping is both simpler and resumable.
+(define (ep-notes-import req)
+  (with-auth req (lambda (p)
+    (define raw (request-post-data/raw req))
+    (define text (if raw
+                     (with-handlers ([exn:fail? (lambda (_) #f)]) (bytes->string/utf-8 raw))
+                     #f))
+    (cond
+      ;; an empty body is a caller mistake worth naming: it would otherwise
+      ;; import as an untitled, empty note that looks like a successful no-op
+      [(or (not text) (string=? (string-trim text) ""))
+       (err "the request body is the org text to import, and it is empty" 400)]
+      [else
+       (json-response (notes-import db-conn p text
+                                    #:visibility (query-param req 'visibility "team"))
+                      #:code 201)]))))
 
 ;; ORG-15 — ITS OWN ROUTE AND NOT A FIELD ON `GET /api/notes/:id`, which is the
 ;; shape `/api/repo-obj/:id/annotations`, `/processing`, `/derivations` and

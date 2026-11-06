@@ -193,6 +193,26 @@ home, so an imported tag normalizes exactly as a typed one does), and the rest a
 the body. **The round trip is asserted byte-identical for the body**, which is
 the only property a user of this cares about.
 
+**Built, with four things decided in the building:**
+
+- **The import's body IS the file**, not a JSON field. An importer runs
+  `curl --data-binary @note.org`, and making them escape a whole file to reach a
+  route whose entire input is that file would be a surface nobody uses.
+  `?visibility=` carries the only other thing a create needs. **One file per
+  call**: a bulk form would have to decide what a partial failure means.
+- **Only a LEADING run of the two keywords this understands is consumed.** A
+  file whose first line is `#+OPTIONS:` keeps every line it has — eating a
+  foreign file's keywords silently would be worse than leaving its title in the
+  body, where `orgRender` draws it as the heading anyway.
+- **Tags split on org's own `:`**, which round-trips a tag org's own grammar
+  would not have allowed (org tags carry no spaces; a #245 tag may be
+  `levee 7`). A colon-free value is split on whitespace, because that is the form
+  files written elsewhere use — and this platform's export always writes the
+  colons, so the ambiguity cannot arise from a round trip.
+- **Any format is exportable.** A Markdown note in an org envelope is still a
+  readable file, and refusing would make "give me this note as a file" depend on
+  a declaration that says nothing about whether somebody wants one.
+
 ### ORG‑12 — For an org note the BODY is the source of truth for tags, and `tags` on a write is refused
 
 `#+FILETAGS:` is authoritative on every write, and `PUT /api/notes/:id
@@ -209,6 +229,24 @@ on a tree this build deliberately does not model.
 cannot work on an org note, because its write path is `notes-set-tags!`. It
 refuses by name and says the remedy is `#+FILETAGS:`. A tool that rewrote the
 body's keyword line is the obvious next decision and is not this slice's.
+
+🔑 **Built, and two things about it were only settled by building it.**
+
+**An ABSENT `#+FILETAGS:` line is not a line saying "no tags".** A line that is
+there is authoritative, including when it is empty — that is how a body clears
+them. A line that is NOT there says nothing and leaves the stored set alone. The
+split is `#:tags #f` vs `'()` exactly, and without it ORG‑2's own rule would
+destroy data: a conversion never rewrites the body, so a converted note has no
+keyword line, and "absent means none" would have silently dropped the whole tag
+set the first time somebody saved it.
+
+**An import is the one other reader of that same home, and it needs its own
+keyword.** `POST /api/notes/import` strips the leading keyword block to keep the
+body byte-identical, so by the time the create runs the line that carried the
+tags is gone — the import therefore hands them over as `#:filetags`, which is
+ORG‑12's home reached from a file rather than a second home. The e2e gate found
+this: the unit test had passed because its fixture's body happened to carry a
+`#+FILETAGS:` line of its own.
 
 ### ORG‑13 — #247's drawing: a seeded, fixed-iteration force layout, computed once, as inline SVG
 
@@ -296,8 +334,13 @@ cannot find text that is on the screen.
    directions, the panel on the note detail, and the ORG‑8/ORG‑9 asymmetry with a
    positive control for each (`test/note-links-tests.rkt`, 19 cases, ten
    controls). **#247 now has its edge set.**
-3. **The interchange** — `?as=org` and `POST /api/notes/import`, ORG‑11's
-   byte-identical round trip. Independent of 2 and of 4.
+3. **The interchange** — **BUILT** (6 Nov 2026). `?as=org` and
+   `POST /api/notes/import` (whose body IS the file),
+   `domain/notes/org-file.rkt`, ORG‑11's byte-identical round trip asserted over
+   eight body shapes and over the STORED bytes, and ORG‑12 in full — the
+   `#+FILETAGS:` authority, the refusal of a `tags` field, and `note_autotag`
+   declining an org note before it calls the model.
+   `test/org-interchange-tests.rkt`, 19 cases, nine controls.
 4. **The graph** — #247. ORG‑13's layout, ORG‑16's bound and neighbourhood
    default, the e2e assertion that pins a node.
 

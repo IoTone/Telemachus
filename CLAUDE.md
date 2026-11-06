@@ -9049,6 +9049,130 @@ bash test/e2e/validate.sh                                        # §3c3 — the
   not navigable either — the router has no note route, so that lands with the
   graph.
 
+## A note as a `.org` file, and whose tags win (ORG‑11/ORG‑12, issue #246 slice 3)
+
+Built 6 Nov 2026, **which completes #246** — what is left of the design is #247's
+drawing. `domain/notes/org-file.rkt` (the compose and the parse, no
+dependencies); `GET /api/notes/:id?as=org` and `POST /api/notes/import`;
+ORG‑12's authority and its refusals in `notes.rkt`. **No migration, no new
+permission, no feature switch.**
+
+```sh
+raco test test/org-interchange-tests.rkt                              # 19 cases, nine controls
+DATABASE_URL="postgres://…" raco test test/org-interchange-tests.rkt  # both dialects
+bash test/server-smoke.sh                                             # the "#246 slice 3" block, 21 assertions
+bash test/e2e/validate.sh                                             # §3c4 — import, the field, the download
+```
+
+- 🔑 **AN ABSENT `#+FILETAGS:` LINE IS NOT A LINE SAYING "NO TAGS", AND THAT
+  SPLIT IS WHAT STOPS A CONVERSION DESTROYING DATA.** A line that is there is
+  authoritative, including when it is EMPTY — that is how a body clears them. A
+  line that is not there says nothing and leaves the stored set alone. It is
+  `#:tags #f` vs `'()` exactly (TAG‑4). Without it, ORG‑2's own rule bites: a
+  conversion never rewrites the body, so a converted note has no keyword line,
+  and "absent means none" would silently drop the whole tag set the first time
+  somebody saved. It has its own test, in the unit suite and over HTTP.
+- 🔑 **THE IMPORT NEEDED `#:filetags`, AND THE E2E GATE IS WHAT FOUND IT.** The
+  import STRIPS the leading keyword block to keep ORG‑11's byte-identical body —
+  so by the time `notes-create` runs, the line that carried the tags is gone and
+  `body-tags` finds nothing. **It is not a second home**: it is ORG‑12's home
+  reached from a file rather than from the stored body, and it still goes through
+  `clean-filetags` → `tags-clean`. **And the unit test had passed for the wrong
+  reason**: its fixture's body carried a `#+FILETAGS:` line of its own, so the
+  composed one being dropped went unnoticed. The fixture now sets its tags the
+  way a PERSON would and converts, so only the export can carry them across.
+- **ORG‑12's REFUSAL HAS ONE SPELLING AND THREE ASKERS.** `notes-update` (on the
+  EFFECTIVE format, so a request that converts to org and sends tags in one
+  breath is refused rather than half-honoured), `notes-create` (a NON-EMPTY list
+  only — `#:tags` defaults to `'()` and the endpoint maps an absent key to it, so
+  a caller who said nothing is indistinguishable from one who sent `[]`), and
+  `notes-set-tags!`, which is the one place both the endpoint and #245's tool
+  reach. **An explicit `{"tags":[]}` is refused too**: it is still `tags` in the
+  request, and honouring it would put a second home behind the body.
+- **`notes-tags-writable!` IS THE SAME REFUSAL REACHABLE ONE STEP EARLIER**, and
+  that is `notes-require-write!`'s own argument: #245's auto-tagger puts a MODEL
+  CALL between the read and the write, so finding out at the write would charge
+  the team for an answer nothing can store. The test's control is the chat seam
+  itself — if it is reached, the case fails — plus the ledger being empty.
+- **THE IMPORT'S BODY IS THE FILE, not a JSON field**, and it is the one route in
+  this plane shaped that way: an importer runs `curl --data-binary @note.org`,
+  and making them escape a whole file to reach a route whose entire input is that
+  file would be a surface nobody uses. `api()` grew a `raw` option so the console
+  still goes through it and keeps the idle clock (#38) and the bearer. **One file
+  per call** — a bulk form would have to decide what a partial failure means.
+- **THE IMPORT IS CAPPED AT 512 KiB AND THE REASON IS THE CONTROL PLANE'S OWN
+  TRAP.** `serve/servlet`'s default maximum body is 1 MiB and it enforces it by
+  **dropping the connection with no response at all**, so the refusal sits well
+  under it and names the remedy (the repository, which runs on `web-kit/http1`).
+  **`POST /api/notes` is deliberately NOT capped by it**: it never has been, and
+  adding one would start refusing bodies that work today.
+- **ONLY A LEADING RUN OF THE TWO KEYWORDS THIS UNDERSTANDS IS CONSUMED.** A file
+  whose first line is `#+OPTIONS:` keeps every line it has, and its title stays
+  in the body — where `orgRender` draws it as the heading anyway, so nothing is
+  lost on screen. Eating a foreign file's keywords silently would be worse.
+- **TAGS SPLIT ON ORG'S OWN `:`**, which round-trips a tag org's own grammar
+  would not have allowed: org tags are `[A-Za-z0-9_@#%]+` with no spaces and a
+  #245 tag may be `levee 7`. A colon-free value is split on WHITESPACE instead,
+  because that is the form files written elsewhere use — and this platform's
+  export always writes the colons, so the ambiguity cannot arise from a round
+  trip.
+- **ANY FORMAT IS EXPORTABLE.** A Markdown note in an org envelope is still a
+  readable file, and refusing would make "give me this note as a file" depend on
+  a declaration that says nothing about whether somebody wants one.
+- **A FILENAME IS BUILT FROM AN ALLOWLIST, NOT ESCAPED.** A title is somebody's
+  own words and may carry a quote, a newline or a semicolon, each of which would
+  break out of `Content-Disposition: attachment; filename="…"`. `safe-key-part`'s
+  rule (FEED‑16, RG‑21) at another asker, with the id appended so two notes with
+  one title do not download over each other.
+- **`text/org` IS NOT A REGISTERED MEDIA TYPE**, so the bytes go out as
+  `text/plain` and the EXTENSION carries the format — which is what every org
+  editor keys on anyway. `attachment` plus `nosniff`, the download path's posture.
+- 🔑 **A BYTE-IDENTICAL ASSERTION CANNOT BE ROUTED THROUGH `$( )`.** Command
+  substitution STRIPS TRAILING NEWLINES, so downloading into a shell variable and
+  posting it back loses the body's last `\n` — which the smoke's equality check
+  reported as a product defect on its first run, and which `assert`, being a
+  grep, would never have noticed at all. The download goes to a FILE and curl
+  posts `--data-binary @file`, which is also how an importer would do it.
+- **`assert` IS A GREP, SO EQUALITY NEEDS A HELPER.** `differ()` answers the
+  opposite question and a prefix would satisfy it, so `test/org-roundtrip.py`
+  compares the two stored bodies and nothing else. **And `$B` in that suite
+  carries no scheme** (`127.0.0.1:8835`) — curl tolerates it, `urllib` raises
+  "unknown url type", so the helper adds it rather than the caller.
+- **THE CONSOLE DOES NOT OFFER AN ORG NOTE A TAGS FIELD.** The server refuses one
+  by name, which is right for an API caller and a poor way for a person to find
+  out, so the field is replaced by the line that IS authoritative — the author
+  can see it, which is the whole argument for the body winning. The autotag
+  button is disabled with ORG‑12's cost in its title, and `noteWriteBody` OMITS
+  the key rather than sending `[]` (the server refuses its presence, and `[]`
+  would also be a request to clear what the body may be asserting).
+- 🔑 **AND THE FIELD HAD TO LEARN TO FOLLOW THE SWITCH, WHICH IS SLICE 1's OWN
+  FIX BITING BACK.** `edSetFormat` is a PARTIAL update precisely so a render pass
+  cannot discard a typed title — which also meant the tags field never
+  repainted. The editor ANNOUNCES the change (`edFormatChanged`, looked up by
+  name, which is `01-base.js`'s own `paletteKey` seam) and the tab repaints its
+  own field. Found by the e2e gate, pinned in `console-tests.rkt`.
+- **DOWNLOADING IS A FETCH AND A BLOB, NOT A NAVIGATION**, because a navigation
+  carries no bearer and this JSON API deliberately has no session cookie (#27;
+  #43's ticket exists for exactly that gap). The filename comes from the server's
+  own `Content-Disposition`, so the two cannot disagree about what the file is
+  called. It is NAMED differently from `edExport`, which writes what is in the
+  BOX, draft and all, and composes no keywords.
+- **A CONTROL THAT DID NOT BITE FOUND A MISSING CASE.** The separator test is
+  `string=?` on `""` rather than on a trimmed line, and against this platform's
+  own export the two are indistinguishable — the separator it writes is always
+  exactly `""` and always first. They differ only on a FOREIGN file, where a line
+  of spaces is content and a trimmed test eats it. That file is now a case.
+- **STALE BYTECODE, THE DOCUMENTED TRAP, AGAIN.** Adding `#:filetags` changed
+  `notes-create`'s signature, and `samples.rkt`'s `.zo` still linked the old one —
+  so the e2e gate died with `reference to a variable that is not exported` from a
+  module nothing in the slice had touched. `raco make server/main.rkt
+  test/*-tests.rkt` after changing an export, not just the module.
+- **Not built, deliberately**: a tool that REWRITES an org body's `#+FILETAGS:`
+  line, which is what would give #245's auto-tagger an org path and is its own
+  decision; a bulk import; and ORG‑11 does not promise that the ORG‑4 subset
+  covers an org user's real files — it is a subset, it is stated, and the first
+  import of somebody's actual notes is what will say which construct is missing.
+
 ## A workflow tool is not a conversational tool (`#:agent?`, reported from outside)
 
 The agent is offered the tools the team has ENABLED that fit the window, and for
