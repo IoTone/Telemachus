@@ -169,7 +169,17 @@ function orgEm(t, marker, tag){
 // bold, and a target like `[[https://x/a_b_c][d]]` must not have its
 // underscores read as emphasis. Everything restored here was built from
 // already-escaped text, or from a URL `mdSafeUrl` admitted.
-function orgInline(t){
+// `resolved` is OPTIONAL and the default is slice 1's behaviour exactly: with no
+// map every internal target is drawn as a plain marker, which is what the §3c2
+// probes call it with. With one, ORG-8's "the renderer draws it visibly broken"
+// becomes literal.
+//
+// ITS KEYS ARE THE ESCAPED FORM OF THE TARGET, and that is forced rather than
+// sloppy: by the time any rule here runs, a source `&` is `&amp;`, so a map
+// keyed on what the SERVER stored would miss every target containing one.
+// `linkResolution` in `03-tabs.js` is the one place that builds it and it
+// escapes each key once — there is no second spelling of this.
+function orgInline(t, resolved){
   const held = [];
   const hold = (html) => { held.push(html); return '\u0000V' + (held.length - 1) + '\u0000'; };
   // verbatim and code first — they are the two constructs that suppress
@@ -189,9 +199,16 @@ function orgInline(t){
   // the title attribute, and slice 2 is what makes it navigable.
   const link = (target, desc) => {
     const text = desc && desc.trim() ? desc : target;
-    return mdSafeUrl(target)
-      ? hold('<a href="' + target + '" target="_blank" rel="noopener noreferrer">' + text + '</a>')
-      : hold('<span class="org-link" title="' + target + '">' + text + '</span>');
+    if (mdSafeUrl(target)) {
+      return hold('<a href="' + target + '" target="_blank" rel="noopener noreferrer">' + text + '</a>');
+    }
+    // ORG-8 — a link to a note that is not there is drawn VISIBLY BROKEN. A link
+    // that silently became plain text is how a reader concludes the editor ate
+    // their markup. `undefined` is "nobody has resolved this", which is the
+    // preview while you type, and it draws as the plain marker.
+    const state = resolved ? resolved[target] : undefined;
+    const cls = state === undefined ? 'org-link' : (state ? 'org-link ok' : 'org-link broken');
+    return hold('<span class="' + cls + '" title="' + target + '">' + text + '</span>');
   };
   t = t.replace(/\[\[([^\]\[]+)\]\[([^\]\[]*)\]\]/g, (m, target, desc) => link(target.trim(), desc));
   t = t.replace(/\[\[([^\]\[]+)\]\]/g, (m, target) => link(target.trim(), ''));
@@ -204,15 +221,15 @@ function orgInline(t){
 // `:tag:tag:` trailing a headline is RENDERED and never stored (ORG-12): a
 // headline is not a note, so storing them would make a note's tag set depend on
 // a tree this build deliberately does not model.
-function orgHeadline(text){
+function orgHeadline(text, resolved){
   const m = text.match(/^(.*?)\s+(:(?:[^\s:]+:)+)\s*$/);
-  if (!m) return orgInline(text.trim());
+  if (!m) return orgInline(text.trim(), resolved);
   const tags = m[2].split(':').filter(x => x.length);
-  return orgInline(m[1].trim())
+  return orgInline(m[1].trim(), resolved)
     + tags.map(x => ' <span class="badge">' + x + '</span>').join('');
 }
 
-function orgRender(src){
+function orgRender(src, resolved){
   let s = escBody(src);
   // The blocks come out first and go back last, so no inline rule runs inside
   // one — the asterisks in a `#+BEGIN_SRC` block stay literal, which is the
@@ -244,7 +261,7 @@ function orgRender(src){
       out.push('<p class="org-refused">' + esc(t('orgnoinclude')) + '</p>'); i++; continue;
     }
     if ((m = l.match(/^[ \t]*#\+TITLE:[ \t]*(.*)$/i))) {
-      out.push('<h1 class="org-title">' + orgInline(m[1].trim()) + '</h1>'); i++; continue;
+      out.push('<h1 class="org-title">' + orgInline(m[1].trim(), resolved) + '</h1>'); i++; continue;
     }
     if ((m = l.match(/^[ \t]*#\+FILETAGS:[ \t]*(.*)$/i))) {
       const tags = m[1].split(':').map(x => x.trim()).filter(x => x.length);
@@ -256,14 +273,14 @@ function orgRender(src){
     // `** Heading` from a paragraph opening with `**emphasis**`.
     if ((m = l.match(/^(\*{1,6})[ \t]+(.*)$/))) {
       const n = m[1].length;
-      out.push('<h' + n + '>' + orgHeadline(m[2]) + '</h' + n + '>'); i++; continue;
+      out.push('<h' + n + '>' + orgHeadline(m[2], resolved) + '</h' + n + '>'); i++; continue;
     }
     if (isTableRow(l) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
       const head = cells(l); i += 2;
       const body = [];
       while (i < lines.length && isTableRow(lines[i]) && !isTableSep(lines[i])) { body.push(cells(lines[i])); i++; }
-      out.push('<table><thead><tr>' + head.map(c => '<th>' + orgInline(c) + '</th>').join('') + '</tr></thead>'
-        + '<tbody>' + body.map(r => '<tr>' + r.map(c => '<td>' + orgInline(c) + '</td>').join('') + '</tr>').join('')
+      out.push('<table><thead><tr>' + head.map(c => '<th>' + orgInline(c, resolved) + '</th>').join('') + '</tr></thead>'
+        + '<tbody>' + body.map(r => '<tr>' + r.map(c => '<td>' + orgInline(c, resolved) + '</td>').join('') + '</tr>').join('')
         + '</tbody></table>');
       continue;
     }
@@ -274,7 +291,7 @@ function orgRender(src){
         items.push(lines[i].replace(/^\s*([-+]|\d+[.)])\s+/, '')); i++;
       }
       const tag = ordered ? 'ol' : 'ul';
-      out.push('<' + tag + '>' + items.map(x => '<li>' + orgInline(x) + '</li>').join('') + '</' + tag + '>');
+      out.push('<' + tag + '>' + items.map(x => '<li>' + orgInline(x, resolved) + '</li>').join('') + '</' + tag + '>');
       continue;
     }
     // Everything else is a paragraph, which is where every construct outside
@@ -285,7 +302,7 @@ function orgRender(src){
            && !/^(\*{1,6}[ \t]|\s*([-+]|\d+[.)])\s|[ \t]*#\+(TITLE|FILETAGS|INCLUDE):)/i.test(lines[i])
            && !isTableRow(lines[i])
            && !/^\u0000C\d+\u0000$/.test(lines[i].trim())) { buf.push(lines[i]); i++; }
-    if (buf.length) out.push('<p>' + orgInline(buf.join('\n')) + '</p>');
+    if (buf.length) out.push('<p>' + orgInline(buf.join('\n'), resolved) + '</p>');
     else i++;
   }
   return out.join('\n').replace(/\u0000C(\d+)\u0000/g,
@@ -295,8 +312,8 @@ function orgRender(src){
 // ONE place picks the renderer, so no caller has to switch on a format and no
 // caller can forget to. An unknown or absent format is Markdown — the column's
 // default, and what every note written before #246 carries.
-function bodyRender(src, format){
-  return format === 'org' ? orgRender(src) : mdRender(src);
+function bodyRender(src, format, resolved){
+  return format === 'org' ? orgRender(src, resolved) : mdRender(src);
 }
 
 // ---- the editor ------------------------------------------------------------

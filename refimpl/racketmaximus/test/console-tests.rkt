@@ -499,6 +499,41 @@
   (check-true (string-contains? html "mdSafeUrl(url)") "…Markdown's link rule consults it")
   (check-true (string-contains? html "mdSafeUrl(target)") "…and org's does too"))
 
+(test-case "the links panel reports a broken edge and says nothing about a withheld one"
+  ;; 🔑 ORG-8 vs ORG-9, on the console's side of the wire. A broken link is drawn
+  ;; with its target and a reason; an edge whose far end the reader may not see
+  ;; was never in the response, so there is nothing to draw — and the console
+  ;; must not invent a figure for it, because "there is a note here you may not
+  ;; read" is an existence oracle on a colleague's private note.
+  (define tabs (console-code "03-tabs.js"))
+  (check-true (string-contains? tabs "function noteEdgeList") "there is a panel")
+  (check-true (string-contains? tabs "orgambiguous") "an ambiguous link says which")
+  (check-true (string-contains? tabs "orgmissing") "…and a missing one says which")
+  ;; the two reasons are a CLOSED pair on this side too — anything else would
+  ;; render a bare key
+  (for ([k '("orglinks" "orgbacklinks" "orgbroken" "orgmissing" "orgambiguous")])
+    (check-true (string-contains? ui-strings (string-append "\"ui." k "\""))
+                (format "ui.~a is in the catalog" k)))
+  ;; Nothing counts or names what was withheld — asked of the PANEL's own body
+  ;; rather than of the file, because `03-tabs.js` also carries the agent's
+  ;; unrelated `tools_withheld` event and a file-wide grep matched that. A text
+  ;; scan must look at the construct it is about, which is this file's own
+  ;; repeated lesson.
+  (check-equal? (length (regexp-match* #px"(?i:withheld|hidden)" (fn-body "noteEdgeList"))) 0
+                "the console invents no figure for an edge ORG-9 dropped")
+  ;; THE TWO COLUMNS ARE GATED DIFFERENTLY, and the e2e gate is what established
+  ;; it: outgoing links exist only for an org note (a Markdown body has no link
+  ;; syntax in this build), while BACKLINKS exist for any note — a Markdown note
+  ;; is linked to by an org one just as readily. Gating the whole panel on the
+  ;; note's own format hid every backlink on every Markdown target, which is most
+  ;; of a team's notes.
+  (check-true (string-contains? tabs "noteEdgeList(edges, n.format)"))
+  (define panel (fn-body "noteEdgeList"))
+  (check-true (string-contains? panel "if(!org && !back.length) return '';")
+              "no panel at all for a Markdown note nothing points at")
+  (check-true (string-contains? panel "${org?col(t('orglinks'), out):''}")
+              "…and no outgoing column where the syntax does not apply"))
+
 (test-case "the console's note formats are the SERVER's, in both directions"
   ;; ORG-1's vocabulary is closed and it lives in `notes.rkt`: a console offering
   ;; a third option would produce a refusal naming a format whose origin nobody
@@ -530,8 +565,19 @@
   (check-equal? (length (regexp-match* #px"mdRender\\(n[.]body" html)) 0
                 "no note view renders a body without consulting its format")
   (define tabs (console-code "03-tabs.js"))
-  (check-equal? (length (regexp-match* #px"bodyRender\\(n[.]body, n[.]format[)]" tabs)) 2
+  ;; BOTH call sites consult the format, and the VIEW card also hands over the
+  ;; resolution (#246 slice 2) — the listing deliberately does not, because
+  ;; ORG-9 asks `can?` per edge and an N-note read must not pay that.
+  (check-equal? (length (regexp-match* #px"bodyRender\\(n[.]body, n[.]format" tabs)) 2
                 "both the list and the view card render through it")
+  (check-true (string-contains? tabs "bodyRender(n.body, n.format, linkResolution(edges))")
+              "the view card draws a broken link as broken (ORG-8)")
+  ;; …and the map is keyed on the ESCAPED target in exactly one place, because by
+  ;; the time the renderer's rules run a source `&` is `&amp;` — a map keyed on
+  ;; what the server stored would miss every target containing one.
+  (check-equal? (length (regexp-match* #px"function linkResolution" html)) 1)
+  (check-true (string-contains? (fn-body "linkResolution") "esc(l.target)")
+              "the keys are escaped once, where the map is built")
   ;; the writes carry it, or a note created as org is stored as Markdown
   (for ([f '("doCreateNote" "doSaveNote")])
     (check-true (string-contains? (fn-body f) "format:edFormat('note')")

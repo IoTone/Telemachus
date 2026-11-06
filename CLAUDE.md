@@ -8917,6 +8917,138 @@ bash test/e2e/validate.sh                                         # §3c2 — th
   why this slice asserts that **tags and the format do not interact** — saying so
   is what makes the next slice's change visible as a change.
 
+## What a note links to (ORG‑7…ORG‑10, ORG‑15, issue #246 slice 2)
+
+Built 5 Nov 2026, which gives **#247 its edge set**. Migration `0074-note-links`;
+`domain/notes/org-links.rkt` (the syntax and the fold, no dependencies); the
+extraction and the two reads in `notes.rkt`; `GET /api/notes/:id/links`. **No new
+permission and no feature switch.**
+
+```sh
+raco test test/note-links-tests.rkt                              # 19 cases, ten controls
+DATABASE_URL="postgres://…" raco test test/note-links-tests.rkt  # the fold half, both dialects
+bash test/server-smoke.sh                                        # the "#246 slice 2" block, 24 assertions
+bash test/e2e/validate.sh                                        # §3c3 — the panel and the broken marker
+```
+
+- 🔑 **THERE IS NO `dst_note_id` COLUMN, AND ORG‑8 NAMED ONE.** The decision is
+  kept exactly — a broken link is stored as broken, with its raw target, and
+  reported — and the column is not what keeps it, because a stored resolution is
+  a copy of a decision the NOTES change underneath it. Two things decided it:
+  deleting the target leaves every stored id a lie until something nulls it, and
+  **somebody writes `[[Levee 7 survey]]` BEFORE creating that note**, which is
+  exactly how org-roam is used — a stored NULL never heals, so the link would
+  stay broken for ever while the note it names sat in the same team. Healing it
+  means re-resolving on create, on rename AND on delete; that is RG‑23's,
+  TAG‑1's, PATH‑1's and `missing`/`stale`'s shape. **The forward-link case has
+  its own test and it is the one that decided the migration.**
+- **ORG‑7 IS SATISFIED IN FULL BY THE SPLIT, and what PERF‑5 measured is the
+  thing to re-read.** The expensive half — parsing a body — happens on WRITE;
+  PERF‑5's measurement was a **leading-wildcard `LIKE` over bodies**, not a
+  lookup, so resolving a stored target by an indexed equality at read time is not
+  what it ruled out. `target_fold` is deliberately not the drift shape it
+  resembles: it is a pure function of `raw_target`, written beside it in the same
+  INSERT, and neither is ever rewritten — so they cannot come apart. A resolution
+  can, which is why it is the one thing not stored.
+- 🔑 **ORG‑8 IS REPORTED AND ORG‑9 IS SILENT, AND THEY LOOK DIFFERENT ON
+  PURPOSE.** A broken link comes back with its target as written and a reason
+  (`missing`, or `ambiguous`); an edge whose far end the caller may not read is
+  **dropped with no count, no placeholder and no field**. "There is a note here
+  you may not read, and this one links to it" is an existence oracle on a
+  colleague's private note. So there is deliberately **no `withheld` figure**,
+  where CLS‑27 and VEC‑29 both report one — that is the difference between a
+  bound somebody should know about and a fact about somebody else's note. Both
+  directions are controlled, and the test asserts the private note's title
+  appears NOWHERE in the answer, which is stronger than a count.
+- **ASSERTED AS A PLAIN MEMBER, not as the operator**, who passes everything
+  team-tier — so the same assertion against `$OP` would pass against a server
+  that checks nothing. HELP‑7's lesson, now in its fifth place. And the OWNER's
+  own read is asserted to carry the edge, or the member's silence would pass for
+  an edge that was never extracted.
+- **ORG‑10 IS TRUE BY CONSTRUCTION RATHER THAN BY A CHECK.** `notes.id` is
+  instance-global, so a resolution written in SQL without the team clause would
+  resolve another team's note. `team-note-index` holds this team's notes and
+  nothing else, so a cross-team id simply does not match and comes back
+  `missing` — the reader learns their own link does not work and learns nothing
+  about whether an id elsewhere in the instance exists (`repo-get`'s collapse).
+  Controlled by widening the index's `WHERE`.
+- **AN AMBIGUOUS TITLE IS A BROKEN LINK THAT SAYS SO** (ORG‑6), never one of the
+  candidates: titles are not unique, so picking one would make a link mean a
+  different note depending on which was created first. It is also why org-roam
+  links by id. **And the BACKLINK by title goes with it** — such a link resolves
+  to neither note, so reporting it would put a backlink on a note the link does
+  not reach. An ID backlink still counts, which is what separates the two
+  spellings.
+- **ONLY AN ORG NOTE HAS EDGES**, so converting org → markdown is what clears the
+  rows and markdown → org is what fills them, with **no second mechanism for
+  either**. `[[target][description]]` is org syntax and Markdown wiki-links were
+  declined as a product question (RG‑5's parked note, which #246 answered for org
+  and not for Markdown). Extraction therefore runs whenever the BODY **or** the
+  FORMAT moves; the TITLE is deliberately outside it, because a title changes
+  what OTHER notes resolve to and that is read-time.
+- **ONE ROW PER DISTINCT TARGET, deduped by fold, keeping the FIRST label.** An
+  edge is a relation between two notes and two mentions of it are one relation —
+  which is also what bounds a note's row count by its distinct targets rather
+  than by how often somebody repeated themselves. What is given up is stated:
+  "how many times does this note mention that one" is not a question this table
+  can answer, and nobody has asked it.
+- **`MAX-NOTE-LINKS` IS 500 AND IS REFUSED BY NAME**, `tags-clean`'s call at a
+  second asker — a silent drop is an edge that never appears in a graph with
+  nothing saying why. The refusal is inside the body's transaction, so a note
+  with too many links leaves nothing behind (controlled by removing the
+  transaction). **Slice 3's import of somebody's real org files is the thing most
+  likely to meet it.**
+- **`fold-key` IS ONE RULE WITH TWO ASKERS and it lives in the module that may
+  not require the other.** A #245 tag and a link target are the same question — a
+  human-typed string matched case- and whitespace-insensitively, which is TAG‑3's
+  own argument — so `tag-normalize` delegates to `org-links.rkt`, which has no
+  dependencies. The behaviour is byte-identical, and `note-tags-tests.rkt`'s
+  pinned outputs are what say so from the other side.
+- **TWO PARSERS FOR ONE SYNTAX, AND THERE HAVE TO BE.** `orgRender` draws the
+  link in JavaScript and this reads the edge out of the body in Racket, so they
+  cannot share an implementation — `repo-readable?`'s situation. What must agree
+  is the **external-scheme set**: `EXTERNAL-TARGET` carries the pointer to
+  `MD_SCHEMES` and the unit test pins the same inputs the e2e gate's §3c2 block
+  hands the renderer. A `javascript:` target is deliberately NOT in that set — it
+  becomes an ordinary internal target that resolves to nothing, which is honest,
+  since the renderer already refuses to make it an anchor and a third category
+  would be a rule with one member.
+- **ITS OWN ROUTE, NOT A FIELD ON `GET /api/notes/:id`**, which is the shape
+  `/api/repo-obj/:id/annotations`, `/processing`, `/derivations` and `/spans` all
+  take. The note GET is the LISTING's own shape, and ORG‑9 asks `can?` per edge —
+  folding this in would make an N-note read O(N × edges) on a path that already
+  does per-row `can?`. It rides the Notes tab's existing `Promise.all` round, so
+  it costs no extra latency there. **Above `/api/notes/:id` in `routes.rkt`**, or
+  that pattern swallows it (`/api/reviews/stats`' lesson).
+- 🔑 **THE TWO COLUMNS OF THE PANEL ARE GATED DIFFERENTLY, AND THE E2E GATE IS
+  WHAT ESTABLISHED THAT.** Outgoing links exist only for an org body; **backlinks
+  exist for ANY note**, because a Markdown note is linked to by an org one just
+  as readily. Gating the whole panel on the note's own format hid every backlink
+  on every Markdown target — which is most of a team's notes. With neither there
+  is no panel at all, rather than an empty heading about a feature that does not
+  apply.
+- **THE RESOLUTION MAP'S KEYS ARE THE ESCAPED TARGETS, in one place.** By the
+  time `orgRender`'s rules run a source `&` is `&amp;`, so a map keyed on what
+  the server stored would miss every target containing one. `linkResolution` in
+  `03-tabs.js` escapes each key once; the renderer's second argument is OPTIONAL
+  and its absence is slice 1's behaviour exactly, which is what the §3c2 probes
+  depend on. Both halves have a browser case, including the ampersand.
+- **THE TEAM'S NOTE INDEX IS THE BOUND, and it is stated rather than hidden.**
+  One links read is one indexed scan of five small columns over the team's notes,
+  plus one or two indexed `note_links` queries. The alternative — a
+  `lower(title)` join in SQL — is deliberately not taken, because the two
+  dialects do not fold non-ASCII the same way and this console ships `ja`.
+  ORG‑16 caps the graph at a few dozen nodes anyway.
+- **A TEXT SCAN MUST LOOK AT THE CONSTRUCT IT IS ABOUT — fifth appearance.** A
+  console assertion that nothing reports a withheld edge grepped the whole file
+  and matched the agent's unrelated `tools_withheld` event. It asks the panel's
+  own function body now.
+- **Not built at this slice**: ORG‑11/‑12's `.org` interchange (slice 3, and
+  ORG‑12's `#+FILETAGS:` authority is what makes `note_autotag` refuse an org
+  note), and ORG‑13/‑14/‑16's drawing (slice 4). The console's inline markers are
+  not navigable either — the router has no note route, so that lands with the
+  graph.
+
 ## A workflow tool is not a conversational tool (`#:agent?`, reported from outside)
 
 The agent is offered the tools the team has ENABLED that fit the window, and for

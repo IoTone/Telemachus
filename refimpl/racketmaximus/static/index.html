@@ -176,6 +176,14 @@
      clickable and is not. `.org-refused` is ORG-5's visible refusal of
      `#+INCLUDE:`, which must read as a refusal and not as a paragraph. */
   .md .org-link{border-bottom:1px dashed var(--accent2);cursor:help}
+  /* ORG-8 — a link whose target is not there is drawn VISIBLY broken, because a
+     link that silently became plain text is how a reader concludes the editor
+     ate their markup. `.ok` is a target that resolved; a marker with neither
+     class is one nobody has resolved yet, which is the preview while you type. */
+  .md .org-link.ok{border-bottom-style:solid;border-bottom-color:var(--ok)}
+  .md .org-link.broken{border-bottom-color:var(--bad);color:var(--bad);text-decoration:line-through}
+  ul.org-edges{list-style:none;margin:.3em 0;padding:0}
+  ul.org-edges li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:2px 0}
   .md .org-refused{border-left:3px solid var(--bad);padding:.2em 0 .2em .8em;color:var(--muted)}
   .md h1.org-title{margin-top:0}
   .md p.org-filetags{display:flex;flex-wrap:wrap;gap:6px}

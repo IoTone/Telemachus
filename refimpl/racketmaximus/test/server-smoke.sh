@@ -2875,6 +2875,108 @@ assert "format: a viewer still cannot" \
   "$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $VERA" \
       -d '{"title":"nope","format":"org"}')" 'Forbidden: notes:write'
 
+echo "== what a note links to (#246 slice 2) ====================================="
+# ORG-7 — the edges are extracted on WRITE and resolved on READ, so nothing here
+# has to be kept in step with anything. A Markdown note has no link syntax in
+# this build, so it has no edges at all.
+MDL=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"md with brackets","body":"see [[Hub note]]"}')
+MDLID=$(printf '%s' "$MDL" | grep -oP '"id":\s*"\K[^"]+')
+assert "links: a markdown note has no edges" \
+  "$(curl -s $B/api/notes/$MDLID/links -H "Authorization: Bearer $OP")" '"links":[]'
+
+# the target, then a note linking to it by TITLE and by ID (ORG-6 admits both)
+HUB=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" -d '{"title":"Hub note","body":"x"}')
+HUBID=$(printf '%s' "$HUB" | grep -oP '"id":\s*"\K[^"]+')
+SRC=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" -d "$(printf '{"title":"org src","format":"org","body":"[[hub   NOTE][by title]] and [[%s][by id]] and [[Nothing here]] and [[https://example.test/x][ext]]"}' "$HUBID")")
+SRCID=$(printf '%s' "$SRC" | grep -oP '"id":\s*"\K[^"]+')
+SRCL=$(curl -s $B/api/notes/$SRCID/links -H "Authorization: Bearer $OP")
+assert "links: a folded title resolves"        "$SRCL" '"title":"Hub note"'
+assert "links: …and so does a note id"         "$SRCL" '"by id"'
+assert "links: the target comes back as written" "$SRCL" 'hub   NOTE'
+# ORG-8 — a broken link is REPORTED, with its raw target and why. A link that
+# silently became plain text is how a reader concludes the editor ate the markup.
+assert "links: a broken link is reported"      "$SRCL" '"broken":true'
+assert "links: …and it says why"               "$SRCL" '"reason":"missing"'
+assert "links: …keeping the target as written" "$SRCL" 'Nothing here'
+# ORG-6 — an EXTERNAL target creates no edge: the graph is the team's own notes,
+# and a URL already has a home that archives it (a bookmark, #191 slice 1).
+refute "links: an external target is not an edge" "$SRCL" 'example.test'
+
+# ORG-15 — the same table read in REVERSE, which is the half people actually use
+assert "links: backlinks find it by title and by id" \
+  "$(curl -s $B/api/notes/$HUBID/links -H "Authorization: Bearer $OP")" '"backlinks":[{'
+BL=$(curl -s $B/api/notes/$HUBID/links -H "Authorization: Bearer $OP")
+assert "links: …naming the source note"        "$BL" '"title":"org src"'
+assert "links: …twice, once per spelling"      "$(printf '%s' "$BL" | grep -o 'org src' | wc -l | tr -d ' ')" '2'
+
+# ORG-6 — an AMBIGUOUS title is a broken link that SAYS it is ambiguous, rather
+# than one of the candidates: titles are not unique, so picking one would make a
+# link mean a different note depending on which was created first.
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" -d '{"title":"HUB NOTE","body":"a twin"}' >/dev/null
+assert "links: a shared title breaks the link" \
+  "$(curl -s $B/api/notes/$SRCID/links -H "Authorization: Bearer $OP")" '"reason":"ambiguous"'
+# …and the inbound TITLE link goes with it, because it now resolves to NEITHER
+# note — reporting it here would put a backlink on a note the link does not
+# reach. The ID link still counts, which is what separates the two spellings.
+assert "links: …and the backlink by title goes with it, leaving the one by id" \
+  "$(curl -s $B/api/notes/$HUBID/links -H "Authorization: Bearer $OP" | grep -o 'org src' | wc -l | tr -d ' ')" '1'
+
+# 🔑 ORG-9 — AN EDGE THE CALLER MAY NOT READ AT THE FAR END IS ABSENT, AND
+# NOTHING SAYS SO. "There is a note here you may not read, and this one links to
+# it" is an existence oracle on a colleague's private note, so a broken link is
+# reported and an unreadable one is simply not there. Asserted as CAROL, a plain
+# member — the operator passes everything team-tier, so the same assertion
+# against $OP would pass against a server that checks nothing (HELP-7's lesson).
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"Sealed orders","body":"x","visibility":"private"}' >/dev/null
+CSRC=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $CAROL" \
+  -d '{"title":"carol src","format":"org","body":"[[Sealed orders]] and [[Hub note]]"}')
+CSRCID=$(printf '%s' "$CSRC" | grep -oP '"id":\s*"\K[^"]+')
+CL=$(curl -s $B/api/notes/$CSRCID/links -H "Authorization: Bearer $CAROL")
+refute "links: a private far end is absent from a member's answer" "$CL" 'Sealed orders'
+refute "links: …and nothing is reported as withheld"               "$CL" 'withheld'
+# …and the OWNER sees it, which is what says the edge was really there rather
+# than never having been extracted
+assert "links: the owner's own answer carries it" \
+  "$(curl -s $B/api/notes/$CSRCID/links -H "Authorization: Bearer $OP")" 'Sealed orders'
+
+# deleting the target reports the link broken rather than losing it — the
+# commonest failure this feature will have, and why nothing stores a resolution
+DOOM=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" -d '{"title":"Doomed target","body":"x"}')
+DOOMID=$(printf '%s' "$DOOM" | grep -oP '"id":\s*"\K[^"]+')
+DSRC=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"doom src","format":"org","body":"[[Doomed target][see it]]"}')
+DSRCID=$(printf '%s' "$DSRC" | grep -oP '"id":\s*"\K[^"]+')
+assert "links: it resolves while the target is there" \
+  "$(curl -s $B/api/notes/$DSRCID/links -H "Authorization: Bearer $OP")" '"broken":false'
+curl -s -X DELETE $B/api/notes/$DOOMID -H "Authorization: Bearer $OP" >/dev/null
+DL=$(curl -s $B/api/notes/$DSRCID/links -H "Authorization: Bearer $OP")
+assert "links: …and is reported broken once it is gone" "$DL" '"broken":true'
+assert "links: …with the label still readable"          "$DL" 'see it'
+
+# A LINK WRITTEN BEFORE ITS TARGET EXISTS HEALS, which is the case that decided
+# there is no stored `dst_note_id`: linking forward is how org-roam is used, and
+# a stored NULL would never heal.
+FWD=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"forward src","format":"org","body":"[[Not yet written]]"}')
+FWDID=$(printf '%s' "$FWD" | grep -oP '"id":\s*"\K[^"]+')
+assert "links: a forward link starts broken" \
+  "$(curl -s $B/api/notes/$FWDID/links -H "Authorization: Bearer $OP")" '"reason":"missing"'
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" -d '{"title":"Not yet written","body":"here now"}' >/dev/null
+assert "links: …and resolves once the note exists, with nothing rewritten" \
+  "$(curl -s $B/api/notes/$FWDID/links -H "Authorization: Bearer $OP")" '"broken":false'
+
+# converting org -> markdown CLEARS the edges, with no second mechanism
+curl -s -X PUT $B/api/notes/$FWDID -H "Authorization: Bearer $OP" -d '{"format":"markdown"}' >/dev/null
+assert "links: converting away from org clears them" \
+  "$(curl -s $B/api/notes/$FWDID/links -H "Authorization: Bearer $OP")" '"links":[]'
+
+assert "links: an unknown note is 404" \
+  "$(curl -s $B/api/notes/no-such-note/links -H "Authorization: Bearer $OP")" 'not found'
+assert "links: a viewer may read them" \
+  "$(curl -s $B/api/notes/$SRCID/links -H "Authorization: Bearer $VERA")" '"links"'
+
 # ---- email delivery and notifications --------------------------------------------
 # THE BLOCK IS LAST, and this file's own notes are why: a fixture that changes
 # GLOBAL state breaks a distant block, and this one configures an INSTANCE-wide

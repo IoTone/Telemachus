@@ -158,6 +158,7 @@
   "doc.route.get.api.note-tags": "Every tag in use in the team, with how many notes the caller can read carry it. The list is DERIVED from the tags on those notes (#245) — nothing stores which tags exist, so a tag cannot be empty and stops existing when its last note drops it. ?scope=org spans the company.",
   "doc.route.get.api.notes": "List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones).",
   "doc.route.get.api.notes.id": "One note.",
+  "doc.route.get.api.notes.id.links": "What this note links to, and what links to it (#246). `links` is outgoing in the order they appear in the body; `backlinks` is the same table read in reverse. A link to a note that is not there is reported broken, with the target as written and a reason (`missing`, or `ambiguous` when two notes share that title). A link whose other end the caller may not read is simply absent — it is never reported, because saying one was withheld would be an existence oracle on somebody's private note.",
   "doc.route.get.api.oop": "Connected sandboxed (out-of-process) plugins and the capabilities they may ask for.",
   "doc.route.get.api.org": "The caller's own company.",
   "doc.route.get.api.org.audit": "The company's audit trail.",

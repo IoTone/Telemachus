@@ -427,6 +427,67 @@ try {
   }
   await page.evaluate(() => { edToggle('note', 'preview', 'off'); noteEditCancel(); });
 
+  // ── 3c3. the edges a note declares (#246 slice 2, ORG-8/ORG-9/ORG-15) ──────
+  // The renderer half first, as a pure function on the real page: the
+  // resolution map is OPTIONAL and its absence must be slice 1's behaviour
+  // exactly, which is what the §3c2 probes above depend on.
+  step('notes: a link drawn resolved, broken, and unresolved');
+  {
+    const probe = await page.evaluate(() => ({
+      none:    orgRender('[[Some Note][see]]'),
+      okmark:  orgRender('[[Some Note][see]]', { 'Some Note': true }),
+      broken:  orgRender('[[Some Note][see]]', { 'Some Note': false }),
+      // THE CASE THE ESCAPED KEY EXISTS FOR: by the time the rules run a source
+      // `&` is `&amp;`, so a map keyed on what the server stored would miss it.
+      amp:     orgRender('[[A &  B][x]]', { 'A &amp;  B': false }),
+      ext:     orgRender('[[https://example.test/x][e]]', { 'https://example.test/x': false })
+    }));
+    ok('an unresolved marker is slice 1’s plain one',
+      /class="org-link"/.test(probe.none), probe.none);
+    ok('a resolved link is marked resolved',
+      /class="org-link ok"/.test(probe.okmark), probe.okmark);
+    ok('a broken link is drawn visibly broken',
+      /class="org-link broken"/.test(probe.broken), probe.broken);
+    ok('…and a target carrying an ampersand is matched too',
+      /class="org-link broken"/.test(probe.amp), probe.amp);
+    ok('an external link is still an anchor, whatever the map says',
+      /<a href="https:\/\/example\.test\/x"/.test(probe.ext), probe.ext);
+  }
+
+  // Now the panel, through the real view card and the real route.
+  step('notes: the links panel, and what it does not say');
+  const linkIds = await page.evaluate(async () => {
+    const mk = (b) => fetch('/api/notes', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(b)
+    }).then(r => r.json());
+    const hub = await mk({ title: 'Levee hub', body: 'the hub' });
+    const src = await mk({ title: 'Levee notes', format: 'org',
+                           body: '* Survey\n\nsee [[Levee hub][the hub]] and [[Gone missing]]\n' });
+    return { hub: hub.id, src: src.id };
+  });
+  await page.evaluate((id) => noteShow(id), linkIds.src);
+  await page.waitForSelector('ul.org-edges', { timeout: 5000 });
+  {
+    const card = await page.innerHTML('#app');
+    ok('the resolved link is offered as the note it reaches',
+      card.includes('Levee hub'), 'no destination title');
+    ok('the broken one is reported with its target and a reason',
+      card.includes('Gone missing') && /org-link broken/.test(card), 'no broken marker');
+    // ORG-9 — there is nothing to say about an edge that was dropped, and the
+    // console must not invent a figure for one.
+    ok('nothing is reported as withheld', !/withheld/i.test(card));
+    // ORG-15 — the reverse read, on the note being pointed at
+    await page.evaluate((id) => noteShow(id), linkIds.hub);
+    await page.waitForSelector('ul.org-edges', { timeout: 5000 });
+    const back = await page.innerHTML('#app');
+    ok('…and the target shows what links to it', back.includes('Levee notes'), back.length + ' chars');
+  }
+  // A fixture that changes global state breaks a distant block — this file's own
+  // repeated lesson, and #239's e2e block paid it again. Close the card.
+  await page.evaluate(() => noteViewClose());
+
   // The toolbar, the preview pane and the export, driven through the UI.
   step('editor: the toolbar and the export');
   await goTab(page, 'notes', '#nb');

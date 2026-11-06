@@ -217,6 +217,9 @@
    (R "GET" "/api/note-tags" 'note-tags #:perm "notes:read" #:doc "Every tag in use in the team, with how many notes the caller can read carry it. The list is DERIVED from the tags on those notes (#245) — nothing stores which tags exist, so a tag cannot be empty and stops existing when its last note drops it. ?scope=org spans the company.")
    (R "POST" "/api/notes/:id/share" 'notes-share #:perm "notes:manage" #:scope 'resource #:doc "Share a note with a user (owner, or notes:manage). The permission granted must be a notes:* one.")
    (R "POST" "/api/notes/:id/autotag" 'notes-autotag #:perm "notes:write" #:scope 'resource #:doc "Ask the model for topic tags for one note, in the note's own language, and ADD them to it (#245). Existing tags are never removed. Answers `added` and, separately, `dropped` — a tag the model proposed that is not a usable tag. One model call, metered against the team.")
+   ;; ABOVE `/api/notes/:id`, because first match wins in list order and that
+   ;; pattern would otherwise swallow it — the lesson `/api/reviews/stats` paid.
+   (R "GET" "/api/notes/:id/links" 'note-links #:perm "notes:read" #:scope 'resource #:doc "What this note links to, and what links to it (#246). `links` is outgoing in the order they appear in the body; `backlinks` is the same table read in reverse. A link to a note that is not there is reported broken, with the target as written and a reason (`missing`, or `ambiguous` when two notes share that title). A link whose other end the caller may not read is simply absent — it is never reported, because saying one was withheld would be an existence oracle on somebody's private note.")
    (R "GET" "/api/notes/:id" 'notes-get #:perm "notes:read" #:scope 'resource #:doc "One note.")
    (R "PUT" "/api/notes/:id" 'notes-update #:perm "notes:write" #:scope 'resource #:doc "Update a note.")
    (R "DELETE" "/api/notes/:id" 'notes-delete #:perm "notes:delete" #:scope 'resource #:doc "Delete a note.")
