@@ -3089,6 +3089,54 @@ assert "org file: ?visibility= is honoured" \
 assert "org file: a markdown note exports too" \
   "$(curl -s "$B/api/notes/$MDLID?as=org" -H "Authorization: Bearer $OP")" '#+TITLE: md with brackets'
 
+echo "== the notes listing is a PAGE =============================================="
+# Reported from outside: "Notes should paginate and filter." The filter shipped
+# with #245; the listing returned every note the caller could read. This block
+# runs here rather than earlier because it CREATES notes, and the tag block 350
+# lines above counts them — a fixture that changes global state breaks a distant
+# block, which is this file's own most-repeated lesson.
+NP0="$(curl -s "$B/api/notes?limit=3" -H "Authorization: Bearer $OP")"
+assert "notes page: the answer carries its own window" "$NP0" '"limit":3'
+assert "notes page: …and the offset it was asked for"  "$NP0" '"offset":0'
+assert "notes page: …and the total behind it"          "$NP0" '"total":'
+# `total` is the WINDOW and not what the caller may read (CLS-27), so it can and
+# does exceed a page — which is the whole reason a pager needs it.
+NPN="$(printf '%s' "$NP0" | grep -o '"total":[0-9]*' | head -1 | cut -d: -f2)"
+if [ "${NPN:-0}" -gt 3 ]; then ok "notes page: the total exceeds the page, which is what a pager counts with"
+else bad "notes page: the fixture has too few notes to page ($NPN)"; fi
+# THE PAGES TILE. Two pages of 3 must share no id, which is the property an
+# unstable sort breaks — one note served twice and another never served.
+NPA="$(curl -s "$B/api/notes?limit=3&offset=0" -H "Authorization: Bearer $OP" | grep -o '"id":"[^"]*"' | sort | tr '\n' ' ')"
+NPB="$(curl -s "$B/api/notes?limit=3&offset=3" -H "Authorization: Bearer $OP" | grep -o '"id":"[^"]*"' | sort | tr '\n' ' ')"
+differ "notes page: page 2 is not page 1" "$NPA" "$NPB"
+NPSHARED="$(comm -12 <(printf '%s' "$NPA" | tr ' ' '\n' | sort -u | grep .) <(printf '%s' "$NPB" | tr ' ' '\n' | sort -u | grep .) | wc -l | tr -d ' ')"
+if [ "$NPSHARED" = 0 ]; then ok "notes page: …and the two pages share no note"
+else bad "notes page: $NPSHARED note(s) appear on both pages"; fi
+# A NONSENSE LIMIT FALLS BACK AND THE CAP BITES, rather than either being
+# honoured: `0` is a page that can never finish, and an unbounded one on a route
+# any member can call is the amplification shape `i18n/catalog` is still open on.
+assert "notes page: limit=0 falls back to the default" \
+  "$(curl -s "$B/api/notes?limit=0" -H "Authorization: Bearer $OP")" '"limit":50'
+assert "notes page: a nonsense limit falls back too" \
+  "$(curl -s "$B/api/notes?limit=lots" -H "Authorization: Bearer $OP")" '"limit":50'
+assert "notes page: the limit is capped" \
+  "$(curl -s "$B/api/notes?limit=9999" -H "Authorization: Bearer $OP")" '"limit":200'
+assert "notes page: a negative offset reads as 0" \
+  "$(curl -s "$B/api/notes?offset=-5" -H "Authorization: Bearer $OP")" '"offset":0'
+# THE FILTER AND THE PAGE COMPOSE, which is the half that made the tag test move
+# into SQL: the count is filtered too, so the pager offers the right range for a
+# tag search rather than the range of the whole team's notes.
+NPT="$(curl -s "$B/api/notes?tag=budget&limit=1" -H "Authorization: Bearer $OP")"
+assert "notes page: a tag search reports its own total" "$NPT" '"total":1'
+assert "notes page: …and still narrows"                 "$NPT" 'Budget review'
+# `next_offset` is deliberately ABSENT: `total` says the same thing, and two
+# spellings of one fact is what this tree calls drift. The documents listing
+# reports one because it has no count to offer.
+refute "notes page: no second spelling of how far there is to go" "$NP0" 'next_offset'
+# and the window is still the CALLER's: a viewer sees their own, paged
+assert "notes page: a viewer gets a page too" \
+  "$(curl -s "$B/api/notes?limit=2" -H "Authorization: Bearer $VERA")" '"limit":2'
+
 # ---- email delivery and notifications --------------------------------------------
 # THE BLOCK IS LAST, and this file's own notes are why: a fixture that changes
 # GLOBAL state breaks a distant block, and this one configures an INSTANCE-wide

@@ -12,7 +12,7 @@
          "org-file.rkt"
          "../authz/authz.rkt")
 
-(provide notes-create notes-list notes-get notes-update notes-delete notes-share
+(provide notes-create notes-list notes-count notes-get notes-update notes-delete notes-share
          ;; tags (#245) — exported for the tool, the endpoint and their tests
          notes-set-tags! notes-tag-list note-tags notes-require-write!
          tag-normalize tag-problem tags-clean MAX-TAGS MAX-TAG-CHARS
@@ -272,41 +272,105 @@
   (write-tags! conn id (principal-team-id p) clean)
   (with-tags conn (row->note (get-row conn id))))
 
+;; ---- the listing's window (#245's filter, and the page) ----------------------
+;;
+;; ONE HOME FOR THE WINDOW, asked by the listing AND by the count. Two spellings
+;; of "which notes are in scope" is LIVE-IN's drift in the one place where the
+;; symptom is a pager offering a page the listing can never fill, so
+;; `notes-window` composes the WHERE clause and its arguments once and each
+;; caller appends its own tail.
+;;
+;; THE TAG FILTER IS IN SQL NOW, AND TAG-5's RULE IS UNCHANGED BY THAT. That rule
+;; is that a filter may only narrow what the caller was already allowed to see,
+;; never widen it — and `can?` still runs on every row this window returns, so
+;; the result set is identical whichever order two NARROWING tests are applied
+;; in. What moving it buys is the only thing pagination needs: the window itself
+;; is filtered, so a page of a tag search comes back full rather than being
+;; whatever survived of twenty-five unfiltered rows. It is an indexed equality on
+;; `idx_note_tags_note`, which is not what PERF-5 measured and declined — that
+;; finding was a `LIKE` with a LEADING wildcard over bodies, which cannot use its
+;; index at all. Several tags are an AND, one EXISTS each.
+(define (notes-window teams wanted)
+  (values (string-append
+           "WHERE team_id IN (" (string-join (for/list ([_ teams]) "?") ",") ") "
+           (apply string-append
+                  (for/list ([_ wanted])
+                    (string-append
+                     "AND EXISTS (SELECT 1 FROM note_tags nt "
+                     "WHERE nt.note_id = notes.id AND nt.tag = ?) "))))
+          (append teams wanted)))
+
+(define (scope-teams conn p scope)
+  (if (eq? scope 'org)
+      (let ([org (or (principal-org-id p) (team-org conn (principal-team-id p)))])
+        (if org (org-teams-of conn org) (list (principal-team-id p))))
+      (list (principal-team-id p))))
+
 ;; #:scope 'org lists across every team in the caller's company (TEN-2h); each row
 ;; still passes can?, so an org reader sees team-visible notes and nobody's
 ;; private ones, and a plain member sees exactly what they saw before
-(define (notes-list conn p #:scope [scope 'team] #:tags [want '()])
+;;
+;; `#:limit #f` IS UNBOUNDED AND IS THE DEFAULT, which is more than
+;; compatibility here: `notes-tag-list` DERIVES the team's tag vocabulary by
+;; walking this listing (TAG-1), so a default page would silently shrink that
+;; vocabulary to whatever the first page happened to hold — a filter that offers
+;; fewer words the more notes a team has. `list_notes` and the out-of-process
+;; `notes.list` capability read it whole for the same reason. The ENDPOINT is
+;; what asks for a page.
+;;
+;; THE ORDER CARRIES A TIEBREAK NOW, AND PAGINATION IS WHAT MAKES IT
+;; LOAD-BEARING. `created_at` is TEXT `CURRENT_TIMESTAMP` at SECOND resolution
+;; and `id` is a random UUID, so notes written in the same second came back in an
+;; order unrelated to anything — harmless while every caller read the whole list,
+;; and fatal for an offset walk, where an unstable sort shows one note twice and
+;; never shows another at all. Issue #47's rule for the audit log (`at DESC,
+;; at_us DESC, id DESC`) arriving at the surface where it first becomes
+;; observable.
+;;
+;; AND IT IS ONE QUERY ACROSS THE TEAMS, NOT ONE PER TEAM APPENDED. The old shape
+;; ran an ordered query per team and `append*`ed the results, so `?scope=org`
+;; came back team-by-team rather than newest-first. That was true before this
+;; change and was merely untidy, because nothing paged; an OFFSET into a list
+;; that is not globally ordered names a different row on every request, so the
+;; ordering had to become real for the window to mean anything.
+(define (notes-list conn p #:scope [scope 'team] #:tags [want '()]
+                    #:limit [limit #f] #:offset [offset 0])
   ;; the team-level read first, like repo-list: a token scoped without notes:read
   ;; is refused here rather than handed an empty list that looks like "no notes"
   (require-perm conn p "notes:read")
-  (define teams
-    (if (eq? scope 'org)
-        (let ([org (or (principal-org-id p) (team-org conn (principal-team-id p)))])
-          (if org (org-teams-of conn org) (list (principal-team-id p))))
-        (list (principal-team-id p))))
+  (define teams (scope-teams conn p scope))
+  (define wanted (tags-clean want))
+  (define-values (where args) (notes-window teams wanted))
   (define rows
-    (append*
-     (for/list ([t (in-list teams)])
-       (query-rows conn (string-append SELECT " WHERE team_id = ? ORDER BY created_at DESC") t))))
+    (apply query-rows conn
+           (string-append SELECT " " where "ORDER BY created_at DESC, id DESC"
+                          (if limit " LIMIT ? OFFSET ?" ""))
+           (append args (if limit (list limit offset) '()))))
   ;; one tag read per team, merged — see team-tag-index
   (define idx
     (for/fold ([h (hash)]) ([t (in-list teams)])
       (for/fold ([h h]) ([(k v) (in-hash (team-tag-index conn t))]) (hash-set h k v))))
-  ;; TAG-5 — `?tag=` is repeatable and is applied AFTER the per-row `can?`, which
-  ;; is LAY-4's rule for `?attr=` exactly: a filter may only narrow what the
-  ;; caller was already allowed to see, never widen it. Several tags are an AND.
-  (define wanted (tags-clean want))
-  (define visible
-    (for/list ([r (in-list rows)]
-               #:when (can? conn p "notes:read" #:resource (note->resource (row->note r))))
-      (let ([n (row->note r)])
-        (hash-set n 'tags (hash-ref idx (hash-ref n 'id) '())))))
-  (if (null? wanted)
-      visible
-      (filter (lambda (n)
-                (for/and ([w (in-list wanted)])
-                  (and (member w (hash-ref n 'tags)) #t)))
-              visible)))
+  ;; CLS-27 — `can?` runs per row AFTER the window, so a PAGE may come back
+  ;; shorter than its limit with notes still behind it. That is why the count
+  ;; below is the pager's authority and the length of this list is not.
+  (for/list ([r (in-list rows)]
+             #:when (can? conn p "notes:read" #:resource (note->resource (row->note r))))
+    (let ([n (row->note r)])
+      (hash-set n 'tags (hash-ref idx (hash-ref n 'id) '())))))
+
+;; THE SAME WINDOW WITHOUT THE `can?` FILTER — `repo-count`'s precedent, and its
+;; stated limitation with it. It is a count and no identity, within the caller's
+;; own scope and behind the same permission, and it exists because CLS-27's rule
+;; means the LENGTH of a page cannot answer "how many pages are there": a page
+;; emptied by a colleague's private notes would read as the end of the list. So
+;; the total may exceed what the caller can ever see, and the last page may come
+;; back short or even empty — which is honest, since there really are rows there
+;; and they are not theirs, and it is what lets a numbered pager offer the right
+;; range at all.
+(define (notes-count conn p #:scope [scope 'team] #:tags [want '()])
+  (require-perm conn p "notes:read")
+  (define-values (where args) (notes-window (scope-teams conn p scope) (tags-clean want)))
+  (apply query-value conn (string-append "SELECT COUNT(*) FROM notes " where) args))
 
 (define (notes-get conn p id)
   (define r (get-row conn id))

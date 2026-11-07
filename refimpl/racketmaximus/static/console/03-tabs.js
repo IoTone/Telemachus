@@ -130,19 +130,52 @@ function artifactCard(a){
 // #245: the tag list and the notes go out TOGETHER. They are independent reads
 // and the sign-in slice measured a sequential await as 300ms a call, so the two
 // that do not depend on each other share a round.
+// ONE HOME FOR THE PAGE SIZE, `QPAGE`'s rule: `notesQuery` asks the server for
+// it and `pagerHTML` is handed the same number to compute the page count from.
+// Two literals would disagree the day one moved, and the symptom is a pager
+// offering a page the listing can never fill.
+const NPAGE = 25;
+function notesQuery(){
+  const qs = (S.noteTags||[]).map(x=>'tag='+encodeURIComponent(x));
+  qs.push('limit='+NPAGE); qs.push('offset='+(S.noteOffset||0));
+  return '?'+qs.join('&');
+}
+// A PAGE CHANGE SWAPS THE LIST, NOT THE TAB (CARD-1/2). `renderTab()` paints a
+// `…` placeholder over the whole screen before it awaits and re-fires all four
+// of this tab's requests — and the create form's title and visibility are plain
+// inputs, so going to page 2 would throw away a half-written note. That is
+// `edSetFormat`'s lesson from #246 slice 1, which stopped calling `renderTab()`
+// for exactly this reason.
+function nGo(page){
+  const pages = Math.max(1, Math.ceil((S.noteTotal||0)/NPAGE));
+  S.noteOffset = (Math.min(Math.max(1, page|0), pages) - 1) * NPAGE;
+  cardSwap('nlist', async () => {
+    const r = await api('/api/notes'+notesQuery());
+    return r.ok ? notesListHTML(r.json, S.noteMembers||'') : null;
+  });
+}
 async function notesView(){
-  const q = (S.noteTags||[]).map(x=>'tag='+encodeURIComponent(x)).join('&');
   // #246 slice 2 — the viewed note's edges ride in the SAME round. They are an
   // independent read, and the sign-in slice measured a sequential await as 300ms
   // a call; it is also why this is its own route rather than a field on every
   // note (ORG-9 asks `can?` per edge, which an N-note listing must not pay).
-  const [r, tg, mem, lk] = await Promise.all([
-    api('/api/notes'+(q?'?'+q:'')),
+  //
+  // AND THE NOTE IN FOCUS IS FETCHED BY ID, WHICH PAGINATION IS WHAT FORCES.
+  // The view and edit cards used to find their note in the loaded listing — fine
+  // while the listing was every note the caller could read, and wrong the moment
+  // it is a page: opening a note from page 3 and then paging away would close
+  // the card under the reader. Viewing and editing are the same state slot, so
+  // one fetch covers both.
+  const focus = S.noteShow || S.noteEdit;
+  const [r, tg, mem, lk, fo] = await Promise.all([
+    api('/api/notes'+notesQuery()),
     api('/api/note-tags'),
     api('/api/members'),
-    S.noteShow ? api('/api/notes/'+encodeURIComponent(S.noteShow)+'/links') : Promise.resolve(null)
+    S.noteShow ? api('/api/notes/'+encodeURIComponent(S.noteShow)+'/links') : Promise.resolve(null),
+    focus ? api('/api/notes/'+encodeURIComponent(focus)) : Promise.resolve(null)
   ]);
   const edges = (lk && lk.ok) ? lk.json : null;
+  const focused = (fo && fo.ok) ? fo.json : null;
   const notes=r.ok?r.json.notes:[];
   const allTags=tg.ok?tg.json.tags:[];
   const members=mem.ok?mem.json.members:[];
@@ -152,28 +185,14 @@ async function notesView(){
   // since the routes were written and the console called it nowhere — #113's
   // shape on this side of the wire. An editor for a field you can only fill in
   // once is worth very little, so the edit path lands with the editor.
-  const editing = S.noteEdit ? notes.filter(n=>n.id===S.noteEdit)[0] : null;
+  const editing = (S.noteEdit && focused && focused.id===S.noteEdit) ? focused : null;
   // Reported from outside: "the notes view should have a view button, not just
   // edit." The list has rendered each body since #180, so what was missing is a
   // place to READ one — a note alone, with the facts about it, and no editor
   // and no delete button under the cursor. Viewing and editing are the same
   // state slot, so opening one closes the other: two cards claiming the top of
   // the tab would be a layout somebody has to reason about.
-  const viewing = (S.noteShow && !editing) ? notes.filter(n=>n.id===S.noteShow)[0] : null;
-  const list=notes.map(n=>`<div class="note">
-      <h4>${esc(n.title)||'(untitled)'} <span class="badge">${esc(n.visibility)}</span> ${n.owner_user_id===S.me.user_id?'<span class="badge ok">mine</span>':''}</h4>
-      <div class="md">${bodyRender(n.body, n.format)}</div>
-      ${noteFormatBadge(n)}${noteTagChips(n)}
-      <div class="row" style="margin-top:8px">
-        <div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteShow((n.id)))}">${t('view')}</button></div>
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags),(n.format)))}">${t('edit')}</button></div>
-        <div><button class="btn sm ghost"${(S.autoTagging===n.id||n.format==='org')?' disabled':''}
-          data-h-click="${H((el,ev)=>doAutoTag((n.id)))}"
-          title="${esc(n.format==='org'?t('autotagorg'):t('autotaghint'))}">${S.autoTagging===n.id?esc(t('autotagging')):t('autotag')}</button></div>
-        <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${t('del')}</button></div>
-      </div></div>`).join('') || `<p class="muted">—</p>`;
+  const viewing = (S.noteShow && !editing && focused && focused.id===S.noteShow) ? focused : null;
   const card = viewing
     ? noteViewCard(viewing, edges)
     : editing
@@ -193,7 +212,36 @@ async function notesView(){
       <label>${t('visibility')}</label><select id="nv"><option>team</option><option>private</option><option>shared</option></select>
       <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${t('create')}</button>
       ${noteTools('note','nt')}</div>`;
+  // the swap needs the member options without re-reading /api/members, so the
+  // full render is what keeps them current — `S.qKinds`' rule exactly
+  S.noteMembers = opts;
+  const list = notesListHTML(r.ok?r.json:{notes:[],total:0,offset:0}, opts);
   return `<h2>${t('notes')}</h2>${card}${orgImportStrip()}${filter}${list}`;
+}
+
+// THE LIST AND ITS PAGER, as a function of the response — so `nGo` can rebuild
+// exactly this region and nothing else. `total` is the pager's authority and the
+// page's own length is not: every listing here applies `can?` per row after the
+// SQL window (CLS-27), so a page can come back short with notes still behind it.
+function notesListHTML(J, opts){
+  const notes = J.notes||[];
+  S.noteTotal = J.total||0;
+  const list=notes.map(n=>`<div class="note">
+      <h4>${esc(n.title)||'(untitled)'} <span class="badge">${esc(n.visibility)}</span> ${n.owner_user_id===S.me.user_id?'<span class="badge ok">mine</span>':''}</h4>
+      <div class="md">${bodyRender(n.body, n.format)}</div>
+      ${noteFormatBadge(n)}${noteTagChips(n)}
+      <div class="row" style="margin-top:8px">
+        <div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteShow((n.id)))}">${t('view')}</button></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags),(n.format)))}">${t('edit')}</button></div>
+        <div><button class="btn sm ghost"${(S.autoTagging===n.id||n.format==='org')?' disabled':''}
+          data-h-click="${H((el,ev)=>doAutoTag((n.id)))}"
+          title="${esc(n.format==='org'?t('autotagorg'):t('autotaghint'))}">${S.autoTagging===n.id?esc(t('autotagging')):t('autotag')}</button></div>
+        <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${t('del')}</button></div>
+      </div></div>`).join('') || `<p class="muted">—</p>`;
+  return `<div id="nlist">${list}${pagerHTML({ total: J.total||0, offset: J.offset||0,
+                                               size: NPAGE, shown: notes.length, go: nGo })}</div>`;
 }
 
 // The tag list the server DERIVED, as a filter. Each chip toggles; several chips
@@ -235,9 +283,12 @@ function noteTagToggle(tag){
   const on = (S.noteTags||[]).slice();
   const i = on.indexOf(tag);
   if(i>=0) on.splice(i,1); else on.push(tag);
-  S.noteTags = on; renderTab();
+  // A FILTER CHANGE RESETS THE OFFSET, or narrowing to two notes leaves the
+  // reader standing on page 7 of 1 — which the pager then clamps, so the symptom
+  // is a filter that appears to have matched nothing. `qSet`'s rule.
+  S.noteTags = on; S.noteOffset = 0; renderTab();
 }
-function noteTagClear(){ S.noteTags=[]; renderTab(); }
+function noteTagClear(){ S.noteTags=[]; S.noteOffset=0; renderTab(); }
 // A tags field is typed, so it is split on commas HERE and normalized by the
 // server — the console never decides what a tag may be, or there would be two
 // vocabularies and the one a person sees would be the wrong one.

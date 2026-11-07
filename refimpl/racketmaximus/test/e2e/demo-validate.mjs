@@ -607,6 +607,102 @@ try {
   }, edited);
   ok('the edit was stored through PUT', after === 'second body, edited in place', after);
 
+  // ── 3c5. the notes listing is a PAGE ───────────────────────────────────────
+  // Reported from outside: "Notes should paginate and filter." What only a
+  // browser can say is that the pager is BOUND, that a page change does not
+  // re-render the tab (the property the queue's own report was about), and that
+  // the note in focus survives paging away from it — which pagination is what
+  // forces, since the view card used to find its note in the loaded listing.
+  step('notes: the pager, and what a page change must not disturb');
+  await goTab(page, 'notes', '#nlist');
+  // ENOUGH NOTES TO PAGE, over the API: the point is the pager, and clicking
+  // Create twenty-six times would be testing the form.
+  const pageIds = await page.evaluate(async (n) => {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const r = await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + S.token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'paged ' + i, body: 'b' + i, visibility: 'team' })
+      });
+      out.push((await r.json()).id);
+    }
+    return out;
+  }, 30);
+  ok('the fixture has enough notes to page', pageIds.length === 30);
+  await page.evaluate(() => renderTab());
+  await page.waitForSelector('#nlist', { timeout: 5000 });
+  const pagerUp = await page.evaluate(() => {
+    const el = document.querySelector('#nlist .qpager');
+    return el ? { bound: !!el.querySelector('[data-h-click]'), jump: !!el.querySelector('input[type=number]'),
+                  text: el.textContent.trim().slice(0, 60) } : null;
+  });
+  ok('a pager is drawn under the list and its controls are BOUND',
+    pagerUp && pagerUp.bound && pagerUp.jump, JSON.stringify(pagerUp));
+  // THE PAGE CHANGE MUST NOT RE-RENDER THE TAB. `renderTab()` paints a `…`
+  // placeholder over the whole screen and re-fires all four of this tab's
+  // requests — and the create form's title is a plain input, so paging would
+  // throw away a half-written note. Typing into it is what makes that visible.
+  await page.fill('#nt', 'half-written, must survive');
+  const nseq = await page.evaluate(() => renderSeq);
+  await page.evaluate(() => nGo(2));
+  await page.waitForTimeout(1200);
+  ok('the list is still there after the swap',
+    await page.evaluate(() => !!document.getElementById('nlist')));
+  ok('…and renderTab was never called', await page.evaluate(() => renderSeq) === nseq,
+    `renderSeq ${nseq} -> ${await page.evaluate(() => renderSeq)}`);
+  ok('…so a half-written note survived the page change',
+    await page.inputValue('#nt') === 'half-written, must survive');
+  ok('…and the offset really moved', await page.evaluate(() => S.noteOffset) === 25);
+  // THE PAGES TILE: page 2 holds none of page 1's notes. An unstable sort serves
+  // one note twice and never serves another, which is what the tiebreak is for —
+  // and what a unit test on 25 rows cannot falsify on either engine (see
+  // note-page-tests.rkt), so the property is pinned where a reader meets it.
+  const tiles = await page.evaluate(async () => {
+    const get = async off => {
+      const r = await fetch('/api/notes?limit=10&offset=' + off,
+        { headers: { 'Authorization': 'Bearer ' + S.token } });
+      return (await r.json()).notes.map(n => n.id);
+    };
+    const a = await get(0), b = await get(10);
+    return { a: a.length, b: b.length, shared: a.filter(x => b.includes(x)).length };
+  });
+  ok('two pages share no note', tiles.a === 10 && tiles.b === 10 && tiles.shared === 0,
+    JSON.stringify(tiles));
+  // THE NOTE IN FOCUS IS FETCHED BY ID, so opening one and paging away keeps the
+  // card open — it used to be found in the loaded listing, which is fine for the
+  // whole list and closes the card under the reader for a page.
+  await page.evaluate(() => { S.noteOffset = 0; });
+  await page.evaluate((id) => noteShow(id), pageIds[29]);
+  await page.waitForTimeout(800);
+  ok('a note opens from the page it is on',
+    (await page.innerHTML('#app')).includes('paged 29'));
+  await page.evaluate(() => nGo(2));
+  await page.waitForTimeout(1200);
+  // AND IT HAS TO SURVIVE A FULL RENDER FROM PAGE 2, which is what makes this
+  // assertion mean anything: `nGo` swaps only the list, so the card is never
+  // re-evaluated by a page change alone — the first version of this case passed
+  // against the old page-filtering code for exactly that reason. A save, a tag
+  // toggle or coming back to the tab is what re-runs `notesView`, and that is
+  // when a card looking for its note in the loaded page loses it.
+  await page.evaluate(() => renderTab());
+  await page.waitForTimeout(1500);
+  ok('…and the card survives a full render from page 2',
+    (await page.innerHTML('#app')).includes('paged 29'));
+  // A FIXTURE THAT CHANGES GLOBAL STATE BREAKS A DISTANT BLOCK — this file's own
+  // most-repeated lesson, and #239's block here paid it again. Put the tab back
+  // on page one with no card open, and take the thirty notes away: every later
+  // block that counts notes or reads the tag list would otherwise be reading
+  // this one's fixture.
+  await page.evaluate(() => { noteViewClose(); S.noteOffset = 0; });
+  await page.evaluate(async (ids) => {
+    for (const id of ids)
+      await fetch('/api/notes/' + id, { method: 'DELETE',
+        headers: { 'Authorization': 'Bearer ' + S.token } });
+  }, pageIds);
+  await page.evaluate(() => renderTab());
+  await page.waitForSelector('#nlist', { timeout: 5000 });
+
   // ── 3d. the command palette and the keyboard (issue #182) ───────────────────
   // Real key events through the real delegated listener: a source assertion can
   // say the hook is wired and only a browser can say the key arrives.

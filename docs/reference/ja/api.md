@@ -117,7 +117,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | DELETE | `/api/org/branding` | org-admin | `org:manage` | role | — | 会社のブランディングを取り下げる；そのユーザーには再びインスタンスのものが表示されます。 |
 | POST | `/api/org/branding/logo` | org-admin | `org:manage` | role | — | 会社のロゴをアップロードし（base64）、会社のマークにする。 |
 | POST | `/api/notes` | bearer | `notes:write` | role | — | 公開範囲を指定してノートを作成する。 |
-| GET | `/api/notes` | bearer | `notes:read` | role | — | 呼び出し元が読めるノートを一覧する；?scope=org は会社内のすべてのチームにわたります（org_reader にはチーム公開のノートだけが見え、非公開のものは見えません）。 |
+| GET | `/api/notes` | bearer | `notes:read` | role | — | 呼び出し元が読めるノートを新しい順に 1 ページ分一覧し、`total`、`limit`、`offset` を併せて返します。`?limit=` の既定値は 50 で、上限は 200、`?offset=` で先へ進みます。`?tag=` は繰り返し指定でき、複数指定した場合は AND になります。`?scope=org` は会社内のすべてのチームにわたります（org_reader にはチーム公開のノートだけが見え、非公開のものは見えません）。`total` はウィンドウの件数で、呼び出し元が読める件数ではないため、ページが短く返ることがあります。 |
 | POST | `/api/documents` | bearer | `files:write` | role | — | テキストドキュメントを作成する（content_type が text/markdown のrepositoryオブジェクト）。`key` はプロジェクトへの振り分けに使います（#239）。末尾が `/` のキーはフォルダとして扱われ、ファイル名はタイトルから作られます。完全なキーはそのまま使われ、未指定または空欄の場合は従来どおり `documents/<slug>-<id8>.md` を組み立てます。 |
 | GET | `/api/documents` | bearer | `files:read` | role | — | 文書をリスト表示します。対象はチーム内の派生でない `text/markdown` オブジェクトすべてで、`?prefix=` で 1 つのプロジェクトに絞り込めます。`folders` はそのプレフィックスの直下にあるパスを返します。実在するキーから導出され、呼び出し元が読めるものだけに絞られます。 |
 | GET | `/api/documents/:id` | bearer | `files:read` | resource | — | 一つのテキストドキュメントとその本文。 |

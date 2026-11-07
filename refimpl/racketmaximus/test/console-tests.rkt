@@ -1156,24 +1156,78 @@
   (check-true (and (regexp-match? #rx"qpager" css) #t)
               "the pager opts out, or its own gap is doubled"))
 
-(test-case "the queue pager is numbered, bounded and jumpable"
-  (define fl (file->string (build-path console-dir "05-fleet.js")))
-  (check-true (and (regexp-match? #rx"function qPager" fl) #t))
-  ;; ONE home for the page size: `queueQuery` asks the server for it and the
-  ;; pager computes the page count from it. Two literals would disagree the day
-  ;; one changed, and the symptom is a pager offering a page the listing never
-  ;; fills — LIVE-IN's shape.
+(test-case "the pager is numbered, bounded and jumpable — and there is ONE of it"
+  ;; COMMENT LINES ARE STRIPPED, and this assertion is why: `01-base.js`'s own
+  ;; header explains the inline-handler migration with a literal
+  ;; `data-h-click="${H((el,ev)=>…)}"` in it, so the "the ellipsis is not
+  ;; clickable" scan matched the prose describing the shape it looks for. Sixth
+  ;; appearance of that trap in these notes, and `console-code` is its remedy.
+  (define base (console-code "01-base.js"))
+  (define fl (console-code "05-fleet.js"))
+  (define tb (console-code "03-tabs.js"))
+  ;; THE ARITHMETIC HAS ONE HOME AND TWO ASKERS. The window, the two ellipses,
+  ;; the clamp and the jump box were written for the queue with `qGo`/`QPAGE`
+  ;; baked in; the notes listing wanted the same pager, and a second copy of a
+  ;; window computation — with a gate behind only one of them — is the drift this
+  ;; tree names everywhere. `pathNav` beside it takes its `go` the same way.
+  (check-true (and (regexp-match? #rx"function pagerHTML" base) #t))
+  (check-false (and (regexp-match? #rx"function pagerHTML" fl) #t))
+  (check-false (and (regexp-match? #rx"function pagerHTML" tb) #t))
+  ;; and neither surface keeps a copy of the window arithmetic
+  (for ([f (in-list (list fl tb))])
+    (check-false (and (regexp-match? #px"const win\\s*=\\s*2" f) #t)
+                 "the page window is computed in one place, not per surface"))
+  ;; ONE home for each surface's PAGE SIZE: the query asks the server for it and
+  ;; the pager is handed the same number to compute the page count from. Two
+  ;; literals would disagree the day one moved, and the symptom is a pager
+  ;; offering a page the listing can never fill — LIVE-IN's shape.
   (check-true (and (regexp-match? #rx"const QPAGE" fl) #t))
   (check-true (and (regexp-match? #px"limit='\\+QPAGE" fl) #t)
-              "the request uses the constant, not a second literal")
+              "the queue's request uses the constant, not a second literal")
   (check-false (and (regexp-match? #px"limit=25" fl) #t) "…and no literal 25 is left in the query")
-  ;; first and last are always reachable, and there is a jump box
-  (check-true (and (regexp-match? #rx"qJump" fl) #t))
+  (check-true (and (regexp-match? #rx"const NPAGE" tb) #t))
+  (check-true (and (regexp-match? #px"limit='\\+NPAGE" tb) #t)
+              "the notes request uses its constant too")
+  (check-true (and (regexp-match? #px"size: NPAGE" tb) #t)
+              "…and hands the SAME number to the pager")
+  ;; the jump box, and the clamp, now live with the arithmetic
+  (check-true (and (regexp-match? #rx"qjump" base) #t))
+  (check-true (and (regexp-match? #rx"Math.min\\(Math.max\\(1,n\\),pages\\)" base) #t)
+              "a page number out of range is clamped, not refused")
   (check-true (and (regexp-match? #rx"function qPages" fl) #t))
   ;; the ellipsis is NOT a control: a button whose destination a reader cannot
   ;; predict is worse than none
-  (check-false (and (regexp-match? #px"data-h-click=\"[$][{]H[(][^\"]*…" fl) #t)
+  (check-false (and (regexp-match? #px"data-h-click=\"[$][{]H[(][^\"]*…" base) #t)
                "the ellipsis must not be clickable"))
+
+;; Reported from outside: "Notes should paginate and filter." The filter was
+;; already there; the listing was not paged at all.
+(test-case "a notes page change swaps the list, not the tab"
+  (define tb (console-code "03-tabs.js"))
+  ;; `renderTab()` paints a `…` placeholder over the whole screen before it
+  ;; awaits AND re-fires all four of this tab's requests — and the create form's
+  ;; title and visibility are plain inputs, so paging would throw away a
+  ;; half-written note. That is `edSetFormat`'s lesson (#246 slice 1), which
+  ;; stopped calling `renderTab()` for the same reason.
+  ;; asked of nGo's OWN body, not of the file: `renderTab` appears all over this
+  ;; tab legitimately, and a whole-file grep would pass whatever nGo did. Fifth
+  ;; appearance of that shape in these notes.
+  (define ngo (car (regexp-match #px"function nGo\\(page\\)[{](?s:.*?)\n[}]" tb)))
+  (check-false (and (regexp-match? #rx"renderTab" ngo) #t)
+               "nGo must not re-render the tab")
+  (check-true (and (regexp-match? #rx"cardSwap\\('nlist'" tb) #t))
+  ;; A FILTER CHANGE RESETS THE OFFSET, or narrowing to two notes leaves the
+  ;; reader standing on page 7 of 1 — which the pager clamps, so the symptom is a
+  ;; filter that looks like it matched nothing. `qSet`'s rule.
+  (check-true (and (regexp-match? #px"S.noteTags = on; S.noteOffset = 0" tb) #t))
+  (check-true (and (regexp-match? #px"noteTagClear\\(\\)[{] S.noteTags=\\[\\]; S.noteOffset=0" tb) #t))
+  ;; THE NOTE IN FOCUS IS FETCHED BY ID, which pagination is what forces: the
+  ;; view and edit cards used to find their note in the loaded listing, which is
+  ;; fine for the whole list and wrong for a page — opening a note and paging
+  ;; away would close the card under the reader.
+  (check-false (and (regexp-match? #px"notes.filter\\(n=>n.id===S.note" tb) #t)
+               "neither card may look for its note in the page")
+  (check-true (and (regexp-match? #px"focus [?] api\\('/api/notes/'" tb) #t)))
 
 (test-case "the jobs timestamp comes from the EPOCH, never from the text column"
   ;; `created_at` is TEXT `CURRENT_TIMESTAMP` and its format differs by dialect;
