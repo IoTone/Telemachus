@@ -281,6 +281,58 @@ already carries better.
 Whether they ever meet is its own decision. The honest first version keeps them
 apart, and this is the recorded answer rather than another deferral.
 
+### 🔑 ORG‑9a — AN UNREADABLE FAR END ANSWERS AS A NONEXISTENT ONE (correction, 7 Nov 2026)
+
+**ORG‑9 as slice 2 shipped it did not hold, and the way it failed is worth more
+than the fix.** The rule was enforced by DROPPING an edge whose far end the
+caller may not read — no count, no placeholder, no field — which reads as the
+strongest possible answer and is an oracle, because **ORG‑8's report is the
+baseline**. Silence is itself a signal. Measured on a team where the owner has a
+private note titled "Secret plan" and a plain member has neither:
+
+| the member writes | slice 2 answered |
+|---|---|
+| `[[Secret plan]]` | `()` — nothing at all |
+| `[[No such thing]]` | `broken`, reason `missing` |
+
+So the member learns from the ABSENCE of a broken marker that a note with that
+title exists in their team and is not theirs. **And the second order needed no
+comparison with a baseline**: once the member created their own note of that
+title, two notes shared the fold and the link answered **`ambiguous`**, which
+states outright that there is another note of that title they cannot see.
+
+The fix is one line of placement, not a new rule: **`team-note-index` is the
+CALLER'S view of the team.** A target the caller may not read is then not in the
+index and resolves exactly as a nonexistent one does, and the caller's own note
+is the unique holder of its fold in the only view that matters. **ORG‑10 had
+already applied this exact rule inside `resolve-target` for a CROSS-TEAM
+target** — "treated exactly as a nonexistent one" — so what was missing was that
+rule reaching the case written next to it. `repo-get`'s collapse of a refusal
+and a miss.
+
+Three things this cost, all of them instructive:
+
+- **The slice-2 test asserted the defect.** "The private one is simply gone"
+  passed, and the case even checked that the private note's title appeared
+  nowhere in the answer — which it now does, as the RAW TARGET the author typed
+  themselves. The honest property is not "it is absent" but "the two answers are
+  indistinguishable", which is strictly stronger and is what is pinned now, in
+  the unit suite and over HTTP. The HTTP assertion normalizes the target out and
+  compares the two bodies, because a grep cannot say "these are the same".
+- **The guard moved and did not multiply.** With the index filtered, the branch
+  testing readability in `note-links-of` is #110 r1's redundant guard, and worse
+  than redundant: a reader would take it for the place the rule lives when the
+  two outcomes must be ONE answer. There is deliberately no branch for "exists
+  and is not yours".
+- **Ambiguity still works where it is REAL.** Two notes the caller CAN read
+  sharing a fold is a link that reaches neither (ORG‑6), and that had to survive
+  the oracle being closed; it has its own assertion.
+
+The cost is one `can?` per note in the team on a links read, stated rather than
+hidden: both readers already scanned the whole team's notes, and `notes-list`
+applies per-row `can?` over the same set on every listing. A SQL predicate would
+be faster and would be `can?`'s rule written a second time.
+
 ### ORG‑15 — Backlinks come free and are the half people actually use
 
 `note_links` read in reverse is "what links here", one query, same authorization

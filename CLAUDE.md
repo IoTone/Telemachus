@@ -9049,6 +9049,61 @@ bash test/e2e/validate.sh                                        # §3c3 — the
   not navigable either — the router has no note route, so that lands with the
   graph.
 
+## ORG‑9 did not hold: an unreadable link target was an oracle (ORG‑9a)
+
+Found 7 Nov 2026 by reading `resolve-target` before building #247's graph on it.
+`domain/notes/notes.rkt`. **No migration, no route change, no new permission.**
+
+```sh
+raco test test/note-links-tests.rkt   # 20 cases; the control bites in THREE
+bash test/server-smoke.sh             # the ORG-9 block, 7 assertions
+```
+
+- 🔑 **THE RULE WAS ENFORCED BY DROPPING THE EDGE, AND THAT IS THE ORACLE,
+  BECAUSE ORG‑8's REPORT IS THE BASELINE.** Silence is itself a signal. Measured,
+  on a team where the owner has a private note titled "Secret plan" and a plain
+  member has neither: `[[Secret plan]]` answered **`()`** and
+  `[[No such thing]]` answered **`broken`/`missing`** — so the member learns from
+  the ABSENCE of a marker that a note with that title exists in their team and is
+  not theirs.
+- 🔑 **AND THE SECOND ORDER NEEDED NO COMPARISON AT ALL.** Once the member
+  created their OWN note of that title, two notes shared the fold and the link
+  answered **`ambiguous`** — which states outright that there is another note of
+  that title they cannot see.
+- **THE FIX IS PLACEMENT, NOT A NEW RULE: `team-note-index` IS THE CALLER'S
+  VIEW.** An unreadable target is then not in the index and resolves exactly as a
+  nonexistent one does, and the caller's own note is the unique holder of its
+  fold in the only view that matters. **ORG‑10 had already applied this rule
+  inside `resolve-target` for a CROSS-TEAM target** ("treated exactly as a
+  nonexistent one"), so what was missing was that rule reaching the case written
+  beside it. `repo-get`'s collapse.
+- 🔑 **THE SLICE-2 TEST ASSERTED THE DEFECT, and it looked like a security
+  test.** "The private one is simply gone" passed, and it even checked that the
+  private note's title appeared nowhere in the answer — which it now does, as the
+  RAW TARGET the author typed themselves. **The honest property is not "it is
+  absent" but "the two answers are INDISTINGUISHABLE"**, which is strictly
+  stronger. The unit case links by **ID** so the raw target is a uuid the member
+  typed, making anything about the private note in the answer necessarily a
+  product of resolution; the HTTP case normalizes the target out and compares the
+  two bodies, because a grep cannot say "these are the same".
+- **THE GUARD MOVED AND DID NOT MULTIPLY.** With the index filtered, the
+  readability branch in `note-links-of` is #110 r1's redundant guard and worse
+  than redundant — a reader would take it for the place the rule lives when the
+  two outcomes must be ONE answer. There is deliberately no branch for "exists
+  and is not yours", and the same collapse removed the second test in
+  `note-backlinks-of`.
+- **AMBIGUITY STILL WORKS WHERE IT IS REAL** and has its own case: two notes the
+  caller CAN read sharing a fold is a link that reaches neither (ORG‑6), and that
+  had to survive the oracle being closed.
+- **The cost is one `can?` per note in the team on a links read**, stated rather
+  than hidden: both readers already scanned the whole team's notes and
+  `notes-list` applies per-row `can?` over the same set on every listing. A SQL
+  predicate would be faster and would be `can?`'s rule written a second time.
+- **WHY IT WAS FOUND NOW**: #247's graph draws a node for an unresolved target
+  (ORG‑8), so the same asymmetry would have become a hole in a picture — a second
+  surface for one oracle. Reading the resolution before building on it is what
+  turned it up, not a failing test.
+
 ## A note as a `.org` file, and whose tags win (ORG‑11/ORG‑12, issue #246 slice 3)
 
 Built 6 Nov 2026, **which completes #246** — what is left of the design is #247's

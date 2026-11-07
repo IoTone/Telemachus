@@ -215,36 +215,86 @@
                   "and the reason is a MISS, which says nothing about another team"))
   (close-db! c))
 
-;; ---- 🔑 ORG-9: the asymmetry that is a security property --------------------
-(test-case "an outgoing edge the caller may not read at the far end is ABSENT, and nothing says so"
-  ;; "There is a note here you may not read, and this one links to it" is an
-  ;; existence oracle on a colleague's private note. So a broken link is reported
-  ;; and an unreadable one is simply not there — no count, no placeholder, no
-  ;; field. There is deliberately no `withheld` figure, where CLS-27 and VEC-29
-  ;; both report one: that is the difference between a bound somebody should know
-  ;; about and a fact about somebody else's note.
-  ;;
+;; ---- 🔑 ORG-9: AN UNREADABLE TARGET AND A NONEXISTENT ONE ARE ONE ANSWER ----
+;;
+;; THIS CASE USED TO ASSERT THE DEFECT. Slice 2 enforced ORG-9 by DROPPING an
+;; edge whose far end the caller may not read — no count, no placeholder, no
+;; field — and this file asserted exactly that. It is an oracle, because ORG-8's
+;; report is the BASELINE: silence is itself a signal, so the ABSENCE of a broken
+;; marker told the author that a note with the title they typed exists in their
+;; team and is not theirs. The second order needed no comparison at all — once
+;; they created their own note of that title, the link answered `ambiguous`,
+;; which affirmatively states that there is another one they cannot see.
+;;
+;; The collapse is structural now: `team-note-index` is the CALLER'S view, so an
+;; unreadable target is not in it and resolves exactly as a nonexistent one does.
+;; What this case pins is that the two answers are INDISTINGUISHABLE, which is
+;; strictly stronger than the old "it is absent" and is what ORG-9 was after.
+(test-case "an unreadable far end answers exactly as a nonexistent one does"
   ;; READ AS A PLAIN MEMBER, not as the operator, who passes everything
   ;; team-tier — HELP-7's lesson, which the #245 smoke paid for with chat:use.
   (define-values (c p tid) (setup))
   (define mem (member-of c tid "mem"))
   (define secret (notes-create c p #:title "Secret plan" #:body "x" #:visibility "private"))
   (define open (notes-create c p #:title "Open plan" #:body "x"))
-  ;; the SOURCE is the member's own, so the route's own check passes and the only
-  ;; question left is the far end
+  ;; THE LINK IS BY ID, which is what makes the leak visible if there is one: the
+  ;; raw target is then a uuid the member typed themselves, so anything about the
+  ;; private note in the answer — its title above all — came from resolution.
+  (define byid (org c mem "by id" (format "[[~a]]" (hash-ref secret 'id))))
+  (define nope (org c mem "by nothing" "[[00000000-0000-0000-0000-000000000000]]"))
+  (define l1 (car (note-links-of c mem (hash-ref byid 'id))))
+  (define l2 (car (note-links-of c mem (hash-ref nope 'id))))
+  (check-true (hash-ref l1 'broken) "an unreadable target is broken, as a missing one is")
+  (check-equal? (hash-ref l1 'reason) "missing")
+  (check-equal? (hash-ref l1 'reason) (hash-ref l2 'reason))
+  (check-equal? (sort (map symbol->string (hash-keys l1)) string<?)
+                (sort (map symbol->string (hash-keys l2)) string<?)
+                "the same FIELDS, so a client cannot branch on which it got")
+  (check-false (hash-has-key? l1 'note_id) "no id of a note the caller may not read")
+  (check-false (hash-has-key? l1 'title)   "…and not its title either")
+  (check-false (regexp-match? #rx"Secret plan" (format "~s" l1)) (format "~s" l1))
+  (check-false (regexp-match? #rx"(?i:withheld|hidden|forbidden)" (format "~s" l1)))
+  ;; AND BY TITLE, which is the form a person actually types
   (define n (org c mem "src" "[[Open plan]] and [[Secret plan]] and [[No such note]]"))
   (define ls (note-links-of c mem (hash-ref n 'id)))
-  (check-equal? (length ls) 2
-                "the readable one and the broken one — the private one is simply gone")
-  (check-equal? (targets ls) '("No such note" "Open plan"))
-  ;; the whole answer must not mention it ANYWHERE, which is stronger than a
-  ;; count: no reason, no raw target, no id
-  (check-false (regexp-match? #rx"Secret plan" (format "~s" ls)) (format "~s" ls))
-  (check-false (regexp-match? #rx"(?i:withheld|hidden|forbidden)" (format "~s" ls)))
-  ;; …and the OWNER sees all three, which is what says the edge was really there
+  (check-equal? (length ls) 3)
+  (define by-target (for/hash ([l (in-list ls)]) (values (hash-ref l 'target) l)))
+  (check-false (hash-ref (hash-ref by-target "Open plan") 'broken) "the readable one resolves")
+  (check-equal? (hash-ref (hash-ref by-target "Secret plan") 'reason) "missing")
+  (check-equal? (hash-ref (hash-ref by-target "No such note") 'reason) "missing")
+  (check-equal? (hash-ref (hash-ref by-target "Secret plan") 'broken)
+                (hash-ref (hash-ref by-target "No such note") 'broken))
+  ;; …and the OWNER still sees the edge resolve, which is what says it was really
+  ;; there and that the member's answer was a refusal rather than a dead link
   (define owned (note-links-of c p (hash-ref n 'id)))
   (check-equal? (length owned) 3)
-  (check-equal? (length (filter (lambda (l) (hash-ref l 'broken)) owned)) 1)
+  (check-equal? (length (filter (lambda (l) (hash-ref l 'broken)) owned)) 1
+                "for the owner only `No such note` is broken")
+  (close-db! c))
+
+;; 🔑 THE SECOND-ORDER ORACLE, which needed no comparison with a baseline: it
+;; stated outright that there was another note of that title.
+(test-case "a colleague's private note does not make the caller's own title ambiguous"
+  (define-values (c p tid) (setup))
+  (define mem (member-of c tid "mem"))
+  (notes-create c p #:title "Secret plan" #:body "x" #:visibility "private")
+  (define n (org c mem "src" "[[Secret plan]]"))
+  ;; before the member has one of their own: a miss, exactly as for any title
+  (check-equal? (hash-ref (car (note-links-of c mem (hash-ref n 'id))) 'reason) "missing")
+  ;; now the member creates THEIR OWN note with that title. Against the whole
+  ;; team's index two notes shared the fold and the answer was `ambiguous` — a
+  ;; statement about a note they cannot see. Against their own view theirs is the
+  ;; unique holder, so the link simply works.
+  (define mine (notes-create c mem #:title "Secret plan" #:body "mine"))
+  (define l (car (note-links-of c mem (hash-ref n 'id))))
+  (check-false (hash-ref l 'broken) (format "~s" l))
+  (check-equal? (hash-ref l 'note_id) (hash-ref mine 'id)
+                "it resolves to the caller's own note, and says nothing about the other")
+  ;; AND AMBIGUITY STILL WORKS WHERE IT IS REAL: two notes the member CAN read
+  ;; sharing a fold is a link that reaches neither, which is ORG-6 and must not
+  ;; have been thrown away with the oracle.
+  (notes-create c mem #:title "SECRET  plan" #:body "also mine")
+  (check-equal? (hash-ref (car (note-links-of c mem (hash-ref n 'id))) 'reason) "ambiguous")
   (close-db! c))
 
 (test-case "a backlink FROM a note the caller may not read is absent too"
