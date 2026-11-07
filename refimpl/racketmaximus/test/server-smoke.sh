@@ -2922,24 +2922,43 @@ assert "links: a shared title breaks the link" \
 assert "links: …and the backlink by title goes with it, leaving the one by id" \
   "$(curl -s $B/api/notes/$HUBID/links -H "Authorization: Bearer $OP" | grep -o 'org src' | wc -l | tr -d ' ')" '1'
 
-# 🔑 ORG-9 — AN EDGE THE CALLER MAY NOT READ AT THE FAR END IS ABSENT, AND
-# NOTHING SAYS SO. "There is a note here you may not read, and this one links to
-# it" is an existence oracle on a colleague's private note, so a broken link is
-# reported and an unreadable one is simply not there. Asserted as CAROL, a plain
-# member — the operator passes everything team-tier, so the same assertion
-# against $OP would pass against a server that checks nothing (HELP-7's lesson).
+# 🔑 ORG-9 — AN UNREADABLE FAR END ANSWERS EXACTLY AS A NONEXISTENT ONE DOES.
+# This block used to assert that such an edge was ABSENT, which is what slice 2
+# shipped and is an oracle: ORG-8's broken report is the BASELINE, so silence is
+# itself a signal — the absence of a marker told the author that a note with the
+# title they typed exists in their team and is not theirs. The two answers are
+# byte-identical now, modulo the target the author typed themselves.
+# Asserted as CAROL, a plain member — the operator passes everything team-tier,
+# so the same assertion against $OP would pass against a server that checks
+# nothing (HELP-7's lesson).
 curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
   -d '{"title":"Sealed orders","body":"x","visibility":"private"}' >/dev/null
-CSRC=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $CAROL" \
-  -d '{"title":"carol src","format":"org","body":"[[Sealed orders]] and [[Hub note]]"}')
-CSRCID=$(printf '%s' "$CSRC" | grep -oP '"id":\s*"\K[^"]+')
-CL=$(curl -s $B/api/notes/$CSRCID/links -H "Authorization: Bearer $CAROL")
-refute "links: a private far end is absent from a member's answer" "$CL" 'Sealed orders'
-refute "links: …and nothing is reported as withheld"               "$CL" 'withheld'
-# …and the OWNER sees it, which is what says the edge was really there rather
-# than never having been extracted
+# one source per target, so each answer is ONE object a grep can be trusted on
+mk_src(){ curl -s -X POST $B/api/notes -H "Authorization: Bearer $CAROL" \
+  -d "{\"title\":\"$1\",\"format\":\"org\",\"body\":\"[[$2]]\"}" \
+  | grep -oP '"id":\s*"\K[^"]+'; }
+C_PRIV=$(mk_src "carol priv" "Sealed orders")
+C_NONE=$(mk_src "carol none" "Utterly Absent")
+CLP=$(curl -s $B/api/notes/$C_PRIV/links -H "Authorization: Bearer $CAROL")
+CLN=$(curl -s $B/api/notes/$C_NONE/links -H "Authorization: Bearer $CAROL")
+assert "links: an unreadable far end is broken, as a missing one is" "$CLP" '"reason":"missing"'
+assert "links: …and a genuinely absent one says the same"           "$CLN" '"reason":"missing"'
+refute "links: no id of a note the caller may not read"             "$CLP" '"note_id"'
+refute "links: …nor its title"                                      "$CLP" '"title"'
+refute "links: …and nothing is reported as withheld"                "$CLP" 'withheld'
+# THE COLLAPSE ITSELF: the two bodies must be the same once the target the author
+# typed is normalized out. A grep cannot say "these two are indistinguishable",
+# which is the property ORG-9 is actually about.
+NRM(){ printf '%s' "$1" | sed -e 's/Sealed orders/T/g' -e 's/Utterly Absent/T/g'; }
+if [ "$(NRM "$CLP")" = "$(NRM "$CLN")" ]; then
+  ok "links: the two answers are indistinguishable"
+else
+  bad "links: the answers differ — $(NRM "$CLP") vs $(NRM "$CLN")"
+fi
+# …and the OWNER sees it resolve, which is what says the edge was really there
+# rather than never having been extracted
 assert "links: the owner's own answer carries it" \
-  "$(curl -s $B/api/notes/$CSRCID/links -H "Authorization: Bearer $OP")" 'Sealed orders'
+  "$(curl -s $B/api/notes/$C_PRIV/links -H "Authorization: Bearer $OP")" '"broken":false'
 
 # deleting the target reports the link broken rather than losing it — the
 # commonest failure this feature will have, and why nothing stores a resolution
