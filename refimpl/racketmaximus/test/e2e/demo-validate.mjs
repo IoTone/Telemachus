@@ -475,8 +475,10 @@ try {
       card.includes('Levee hub'), 'no destination title');
     ok('the broken one is reported with its target and a reason',
       card.includes('Gone missing') && /org-link broken/.test(card), 'no broken marker');
-    // ORG-9 — there is nothing to say about an edge that was dropped, and the
-    // console must not invent a figure for one.
+    // ORG-9 — an unreadable far end answers exactly as a nonexistent one does,
+    // so there is nothing for the console to report about one and it must not
+    // invent a figure. (Slice 2 DROPPED such an edge, which was the oracle: a
+    // broken marker is the baseline, so silence was itself a signal.)
     ok('nothing is reported as withheld', !/withheld/i.test(card));
     // ORG-15 — the reverse read, on the note being pointed at
     await page.evaluate((id) => noteShow(id), linkIds.hub);

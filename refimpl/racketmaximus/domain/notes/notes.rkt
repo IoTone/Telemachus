@@ -460,7 +460,37 @@
 ;; graph at a few dozen nodes anyway, and the alternative — a `lower(title)` join
 ;; in SQL — is what this deliberately does not do, because the two dialects do
 ;; not fold non-ASCII the same way and this console ships `ja`.
-(define (team-note-index conn team)
+;; 🔑 THE INDEX IS THE CALLER'S OWN VIEW OF THE TEAM, AND THAT IS WHERE ORG-9 IS
+;; ENFORCED — not in a branch further down.
+;;
+;; It held every note in the TEAM, and resolution ran against all of them, which
+;; defeated ORG-9 through the one channel it had not been read against: ORG-8's
+;; report is the BASELINE, so SILENCE is itself a signal. Measured, on a team
+;; where root owns a private note titled "Secret Plan" and bob owns neither:
+;;
+;;   bob's `[[Secret Plan]]`   → ()                              — nothing at all
+;;   bob's `[[No Such Thing]]` → broken, reason "missing"
+;;
+;; So bob learns from the ABSENCE of a report that a note with that title exists
+;; in his team and is not his. And the second order is worse, because it does not
+;; even need the comparison: once bob creates his OWN note titled "Secret Plan",
+;; his link answers `ambiguous`, which affirmatively states that there is another
+;; note of that title he cannot see.
+;;
+;; Filtering HERE makes the collapse structural rather than asserted: a target
+;; the caller may not read is not in the index, so it resolves exactly as a
+;; nonexistent one does, and the caller's own note is the unique holder of its
+;; fold in the only view that matters. ORG-10 had already applied this exact rule
+;; inside `resolve-target` for a CROSS-TEAM target — "treated exactly as a
+;; nonexistent one" — so the fix is that rule reaching the case it was written
+;; next to. `repo-get`'s collapse of a refusal and a miss.
+;;
+;; THE COST IS ONE `can?` PER NOTE IN THE TEAM, stated rather than hidden: both
+;; readers already scanned the whole team's notes, and `notes-list` applies
+;; per-row `can?` over the same set on every listing, so this is not a new cost
+;; class here. A SQL predicate would be faster and would be `can?`'s rule written
+;; a second time, which is the drift `repo-readable?` exists to prevent.
+(define (team-note-index conn p team)
   (define by-fold (make-hash))
   (define by-id (make-hash))
   (for ([r (in-list (query-rows conn
@@ -469,8 +499,9 @@
     (define n (hasheq 'id (vector-ref r 0) 'team_id (vector-ref r 1)
                       'owner_user_id (vector-ref r 2) 'visibility (vector-ref r 3)
                       'title (vector-ref r 4)))
-    (hash-set! by-id (hash-ref n 'id) n)
-    (hash-update! by-fold (fold-key (hash-ref n 'title)) (lambda (xs) (cons n xs)) '()))
+    (when (readable-note? conn p n)
+      (hash-set! by-id (hash-ref n 'id) n)
+      (hash-update! by-fold (fold-key (hash-ref n 'title)) (lambda (xs) (cons n xs)) '())))
   (cons by-fold by-id))
 
 ;; ORG-6 — a target is a note ID (what a link picker inserts, and what survives a
@@ -545,7 +576,7 @@
        (let* ([n (row->note r)]
               [team (hash-ref n 'team_id)])
          (require-perm conn p "notes:read" #:resource (note->resource n))
-         (define idx (team-note-index conn team))
+         (define idx (team-note-index conn p team))
          (filter
           values
           (for/list ([row (in-list (query-rows conn
@@ -556,12 +587,14 @@
             (define label (vector-ref row 2))
             (define-values (dst reason) (resolve-target idx raw fold))
             (cond
-              ;; ORG-9: the far end is there and this caller may not read it, so
-              ;; there is nothing here at all
-              [(and dst (not (readable-note? conn p dst))) #f]
               [dst (hasheq 'target raw 'label label 'broken #f
                            'note_id (hash-ref dst 'id) 'title (hash-ref dst 'title))]
-              ;; ORG-8: broken, with the raw target kept and the reason named
+              ;; ORG-8: broken, with the raw target kept and the reason named —
+              ;; and ORG-9 arrives here too, because the index is the caller's own
+              ;; view. There is deliberately NO branch for "exists and is not
+              ;; yours": a second test would be #110 r1's redundant guard, and
+              ;; worse than redundant, because a reader would take it for the
+              ;; place the rule lives and the two outcomes must be ONE answer.
               [else (hasheq 'target raw 'label label 'broken #t 'reason reason)]))))))
 
 ;; ORG-15 — `note_links` READ IN REVERSE is "what links here", one query, the
@@ -582,7 +615,7 @@
               [team (hash-ref n 'team_id)]
               [title-fold (fold-key (hash-ref n 'title))])
          (require-perm conn p "notes:read" #:resource (note->resource n))
-         (define idx (team-note-index conn team))
+         (define idx (team-note-index conn p team))
          (define unique-title?
            (and (not (string=? title-fold ""))
                 (let ([hits (hash-ref (car idx) title-fold '())])
@@ -602,9 +635,10 @@
               ;; the source is gone, or it is a note this caller may not read —
               ;; and in BOTH cases there is nothing here, which is ORG-9 again:
               ;; a backlink from a colleague's private note is exactly the
-              ;; existence oracle that rule is about
+              ;; existence oracle that rule is about. ONE test, because the index
+              ;; is now the caller's view: an unreadable source is simply not in
+              ;; it, which is the same collapse the forward read makes.
               [(not src) #f]
-              [(not (readable-note? conn p src)) #f]
               [else (hasheq 'note_id (hash-ref src 'id) 'title (hash-ref src 'title)
                             'label (vector-ref row 1) 'target (vector-ref row 2))]))))))
 
