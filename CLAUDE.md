@@ -9330,6 +9330,133 @@ bash test/e2e/validate.sh                                       # §3c5 — the 
   a cursor in place of an offset, which is the answer at a scale this listing is
   nowhere near and would change the wire.
 
+## The note graph, drawn (ORG-13/14/16, issue #247)
+
+Built 7 Nov 2026, which **closes #247** and with it the whole of
+`docs/design/org-notes-and-note-graph.md`. `note-graph` in
+`domain/notes/notes.rkt`, `GET /api/notes/graph`, and
+`static/console/21-notegraph.js`. **No migration, no new permission, no new
+environment variable, no feature switch.**
+
+```sh
+raco test test/note-graph-tests.rkt                              # 11 cases, eight controls
+DATABASE_URL="postgres://…" raco test test/note-graph-tests.rkt  # whole file, both dialects
+raco test test/console-tests.rkt                                 # six cases, eight controls
+bash test/server-smoke.sh                                        # the "#247" block, 24 assertions
+bash test/e2e/validate.sh                                        # §3c6 — a node PINNED by name
+```
+
+- **A THIRD READER OF ONE EDGE SET, and it is in `notes.rkt` for the reason the
+  other two are.** `team-note-index` IS the caller's own view of the team's
+  notes (ORG-9a) and `resolve-target` is the one place a stored target becomes a
+  note; a graph assembled anywhere else would re-ask both questions, which is
+  `executor-can-run?`'s drift in the place it has already cost the most. The
+  picture is a PROJECTION of what the links panel answers, never a parallel
+  computation.
+- 🔑 **ORG-9a IS WHAT MADE THE DRAWING POSSIBLE HONESTLY, and that is why #268
+  had to land first.** An unresolved target is drawn as a hollow node carrying
+  the text its author typed — org-roam's and Obsidian's own behaviour, and the
+  useful half of the picture, because "four notes point at a note nobody has
+  written" is a thing to go and do. Under slice 2's resolution an UNREADABLE
+  target answered differently from a nonexistent one, so that node would have
+  named a colleague's private note back to a reader who had merely guessed its
+  title: the same oracle, in its strongest form. Found by reading
+  `resolve-target` before building on it.
+- **THE WHOLE DRAWING IS DETERMINISTIC, NOT ONLY THE LAYOUT.** RG-9 declined a
+  force simulation for the DERIVED graph on three grounds; two do not survive
+  the move to an authored graph of tens of nodes (the dependency — answered by
+  taking none — and ~200 lines of physics, which is ~40 here). **The objection
+  that survives is non-determinism**, because this project's gates are its
+  evidence. A fixed seed and a fixed tick count answer it, and so does the NODE
+  SET: `created_at DESC, id DESC` (NPG-3) for the whole team, a breadth-first
+  walk over a SORTED frontier for a neighbourhood. A seeded layout over an
+  arbitrary subset is still an arbitrary picture.
+- 🔑 **SO THERE IS NO ANIMATION LOOP, AND THAT IS A SECURITY PROPERTY RATHER
+  THAN A PERFORMANCE ONE.** #38's idle clock counts from the last REQUEST, so a
+  canvas that kept ticking would hold a session open for as long as the tab was
+  left up — QVIZ-6's objection, an idle timeout switched off by something that
+  looks like polish. `console-tests.rkt` refuses `requestAnimationFrame`,
+  `setInterval`, `setTimeout` and `Math.random` in that file, through
+  `console-code` — the file's own header explains there is no animation loop,
+  which is the SIXTH appearance of a text scan reading its own comment.
+  Dragging a node is a loop too, and it is LAY-12's plugin canvas.
+- 🔑 **WHICH SPELLING LABELS AN UNRESOLVED NODE IS DECIDED BY THE DATA (ORG-13a),
+  and its own test found that it was not.** Two authors who typed
+  `[[Levee 7 survey]]` and `[[levee 7 SURVEY]]` point at ONE unwritten note (the
+  fold is the identity), and taking whichever link row arrived first is
+  `ORDER BY src_note_id` — i.e. whichever SOURCE NOTE owns the smaller random
+  uuid. The same input therefore drew a different label on every instance. The
+  smallest spelling wins. **And the control for it bit on a coin flip**: against
+  the row-order version the right label comes back half the time, so the case was
+  rewritten over TWELVE pairs (2^-12) and says so, rather than leaving a flaky
+  control to be rediscovered.
+- **AN AMBIGUOUS TARGET IS COUNTED AND DRAWN AS NOTHING (ORG-16a)** — the one
+  place this read differs from ORG-9's silence. A phantom would sit beside the
+  two real notes that already carry that title, naming the same words three
+  times; and a count reveals nothing, because every note involved is one the
+  caller can read and the remedy is theirs. CLS-27's line read correctly: a bound
+  somebody can act on is reported, a fact about somebody else's note is not.
+  **THE HTTP SMOKE IS WHAT ESTABLISHED THE SCOPING** — counted over the whole
+  team, a reader looking at one note's neighbourhood was told about an ambiguity
+  in a note that is not in the picture and may never have been seen, which is
+  #178's decoration. It counts the links FROM a node that is drawn.
+- **`truncated` REPORTS BOTH WAYS OF STOPPING, as a CLOSED `reason`** —
+  `NOTE-GRAPH-STOPS` is `("cap" "neighbourhood" "scan")`, VEC-39's rule, because
+  the three have different remedies: a smaller question, fewer hops, or nothing
+  the reader can do. The actionable ones are reported FIRST for that reason.
+  `scan` is reachable only with over 2,000 link rows among at most 150 notes, so
+  it is STATED in the vocabulary case rather than pinned with a fixture several
+  times the size of the file.
+- **A PHANTOM ONLY REACHES THE PICTURE WHEN SOMETHING THAT IS IN IT POINTS AT
+  IT (ORG-16b)**, so the cap is spent on the team's own notes first: the notes
+  exist and the phantoms are inferred. In a neighbourhood one arrives through the
+  walk like any other node; a whole-team view has no walk, so they are appended.
+  **The first version commented that and never implemented it** — the probe is
+  what showed the whole-team map silently had no unresolved nodes at all.
+- **THE CAP'S OWN DEMONSTRATION IS THE HUB BEING DROPPED.** The test fixture's
+  hub is the oldest note, so an over-cap whole-team view loses the one node every
+  edge ran through and comes back with NO EDGES — which is ORG-16 and RG-9's
+  argument made concrete, and why the remedy is a neighbourhood rather than a
+  bigger cap. **And the fixture has to AGE the hub with raw SQL**: 161 notes land
+  inside one second, `created_at` is TEXT at second resolution, so they TIE and
+  the tiebreak is a random uuid — "the oldest is the hub" was reasoning from a
+  key that does not resolve. CLS-27's fixture lesson, paid again.
+- **A FOCUS THAT IS NOT THERE AND ONE THE CALLER MAY NOT READ ARE ONE ANSWER**
+  (`#f`, rendered 404), because the index is the caller's view — `repo-get`'s
+  collapse, so a graph read is not an existence oracle on a note id.
+- **A DEPTH CHANGE SWAPS THE CARD, NOT THE TAB** (NPG-10, and `edSetFormat` a
+  third time): `renderTab()` paints a `…` placeholder and re-fires every request
+  the Notes tab makes, and the create form's title is a plain `<input>`, so
+  redrawing the graph through a tab render would throw away a half-written note.
+  Opening and closing DO re-render, deliberately — the card is on screen in
+  neither state, so there is nothing to swap, and the read then rides the tab's
+  own `Promise.all` round rather than becoming a fourth sequential await.
+- **A NONSENSE `?depth=` IS CLAMPED IN THE DOMAIN, NOT REFUSED**, beside the cap
+  it shares a purpose with: a bad query parameter whose effect the reader can see
+  is not worth a 400.
+- **THE ROUTE SITS ABOVE `/api/notes/:id`** — first match wins in list order, so
+  written below it `/api/notes/graph` is a note whose id is the word "graph". The
+  smoke asserts it, `/api/notes/import`'s own lesson.
+- **ORG-14: the notes graph is NOT joined to the knowledge graph**, and the
+  smoke refutes an `entity` or a `mentions` key in a team whose knowledge blocks
+  ran 500 lines above. An authored edge and a derived mention are different kinds
+  of statement with different warrants; one would have to be drawn as weaker,
+  which is a visual encoding of a distinction the data already carries better.
+- **Four traps paid again:** `\\n` in a Racket string reaches `pregexp` as
+  backslash-then-n — "illegal alphabetic escape", at READ time, and `\s` already
+  crosses a newline (third appearance, and `console-tests.rkt`'s own comment had
+  recorded it forty lines above the new case); a control whose patch does not
+  apply is not a control that did not bite, and the harness must say which;
+  `notes-create` answers the NOTE, not an id; and the phantom's node id embeds
+  the FOLD, so a smoke normalizer comparing two answers has to take the folded
+  spelling as well as the written one.
+- **Not built, deliberately**: dragging or pinning a node (a loop, and LAY-12's
+  plugin canvas); a whole-instance or cross-team view (`can?` is per team and the
+  org gate is step 0); edge labels on the canvas (the label is in the links panel,
+  and a few dozen of them is an unreadable picture); and clustering or any
+  centrality figure, which is a claim about somebody's notes that nothing here
+  has measured.
+
 ## A workflow tool is not a conversational tool (`#:agent?`, reported from outside)
 
 The agent is offered the tools the team has ENABLED that fit the window, and for

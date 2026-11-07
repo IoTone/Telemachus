@@ -393,11 +393,26 @@ cannot find text that is on the screen.
    `#+FILETAGS:` authority, the refusal of a `tags` field, and `note_autotag`
    declining an org note before it calls the model.
    `test/org-interchange-tests.rkt`, 19 cases, nine controls.
-4. **The graph** — #247. ORG‑13's layout, ORG‑16's bound and neighbourhood
-   default, the e2e assertion that pins a node.
+4. **The graph** — **BUILT** (7 Nov 2026), which closes **#247**. `note-graph`
+   in `notes.rkt` beside the two link readers — a THIRD reader of one edge set,
+   in that module because `team-note-index` IS the caller's own view and
+   `resolve-target` is the one place a stored target becomes a note.
+   `GET /api/notes/graph` above the `:id` patterns, and
+   `static/console/21-notegraph.js`: ORG‑13's seeded fixed-iteration
+   Fruchterman-Reingold as inline SVG, run once and drawn still — **no
+   `requestAnimationFrame`, no `Math.random`, no timer**, which is QVIZ‑6 as
+   well as the gates. ORG‑16's cap, neighbourhood default and three-member
+   `reason` vocabulary. **No migration, no new permission, no new environment
+   variable.** `test/note-graph-tests.rkt` (11 cases, eight controls), six
+   console cases with eight controls, 24 HTTP assertions, and
+   `demo-validate.mjs` §3c6, which **pins a node by name** — the assertion
+   ORG‑13's whole argument rests on, and whose own control (a `Math.random`
+   jitter) fails it by name.
 
 Slices 1 and 2 are #246. Slice 3 is #246's other half and needs nothing from
-slice 2. Slice 4 is #247 and needs slice 2.
+slice 2. Slice 4 is #247 and needed slice 2 — and, as it turned out, needed
+ORG‑9a, because the drawing has a node for an unresolved target and slice 2's
+resolution would have made that node an oracle.
 
 ## What this document does not promise
 

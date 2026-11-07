@@ -21,6 +21,9 @@
          NOTE-FORMATS format-problem
          ;; links (#246 slice 2) — exported for the endpoint and its tests
          note-links-of note-backlinks-of
+         ;; the graph (#247 / ORG-13…16) — the read, its bounds and the closed
+         ;; vocabulary of ways it stops, exported for the endpoint and the gate
+         note-graph NOTE-GRAPH-MAX NOTE-GRAPH-DEPTH-MAX NOTE-GRAPH-STOPS
          ;; the `.org` interchange (#246 slice 3) — the endpoint composes and
          ;; parses through these, and ORG-12's refusal has one spelling
          notes-import org-text-of ORG-TAGS-REFUSAL notes-tags-writable!)
@@ -494,11 +497,13 @@
   (define by-fold (make-hash))
   (define by-id (make-hash))
   (for ([r (in-list (query-rows conn
-                      (string-append "SELECT id, team_id, owner_user_id, visibility, title "
-                                     "FROM notes WHERE team_id = ?") team))])
+                      (string-append "SELECT id, team_id, owner_user_id, visibility, title, "
+                                     "created_at FROM notes WHERE team_id = ?") team))])
+    ;; `created_at` is carried for #247's cap, which has to drop notes in SOME
+    ;; order and uses the listing's own (NPG-3). The two link readers ignore it.
     (define n (hasheq 'id (vector-ref r 0) 'team_id (vector-ref r 1)
                       'owner_user_id (vector-ref r 2) 'visibility (vector-ref r 3)
-                      'title (vector-ref r 4)))
+                      'title (vector-ref r 4) 'created_at (vector-ref r 5)))
     (when (readable-note? conn p n)
       (hash-set! by-id (hash-ref n 'id) n)
       (hash-update! by-fold (fold-key (hash-ref n 'title)) (lambda (xs) (cons n xs)) '())))
@@ -641,6 +646,219 @@
               [(not src) #f]
               [else (hasheq 'note_id (hash-ref src 'id) 'title (hash-ref src 'title)
                             'label (vector-ref row 1) 'target (vector-ref row 2))]))))))
+
+;; ---- #247: the graph (ORG-13 / ORG-14 / ORG-16) ----------------------------
+;;
+;; A THIRD READER OF ONE EDGE SET, and it is in this module for the reason the
+;; other two are: `team-note-index` IS the caller's own view of the team's notes
+;; (ORG-9a), and `resolve-target` is the one place a stored target becomes a
+;; note. A graph assembled anywhere else would have to re-ask both questions,
+;; which is `executor-can-run?`'s drift in the place it has already cost the most
+;; — slice 2 enforced ORG-9 by dropping an edge and that was an oracle, so a
+;; second resolution written here would be a second chance to make exactly that
+;; mistake. The picture is therefore a PROJECTION of what the links panel
+;; already answers, never a parallel computation.
+;;
+;; 🔑 ORG-9a IS WHAT MAKES A PHANTOM NODE SAFE, and before it this drawing could
+;; not have been built honestly. A target that resolves to nothing is drawn as an
+;; unresolved node carrying the text its author typed — org-roam's and Obsidian's
+;; own behaviour, and the useful half of the picture, because "four notes point
+;; at a note nobody has written" is a thing to go and do. Under slice 2's
+;; resolution an UNREADABLE target answered differently from a nonexistent one,
+;; so such a node would have told the reader which of their colleagues' private
+;; notes exist. The two answers are indistinguishable now, so the phantom says
+;; only what the caller themselves wrote.
+;;
+;; AN AMBIGUOUS TARGET IS COUNTED AND DRAWN AS NOTHING, which is the one place
+;; this read deliberately differs from ORG-9's silence. A phantom for it would
+;; sit on the canvas beside the two real notes that already carry that title,
+;; naming the same words three times; and a count here reveals nothing, because
+;; every note involved is one the caller can read and the remedy is theirs (link
+;; by id, or rename one). That is CLS-27's line read correctly — a bound somebody
+;; can act on is reported, a fact about somebody else's note is not.
+(define NOTE-GRAPH-MAX 150)
+(define NOTE-GRAPH-SCAN 2000)
+(define NOTE-GRAPH-DEPTH-MAX 3)
+
+;; The ways this read can stop, as a CLOSED vocabulary rather than a message:
+;; VEC-39's rule, and here the three have different remedies — ask for one note's
+;; neighbourhood, ask for less depth, or accept that a team this size has no
+;; whole-graph picture (ORG-16, and RG-9's argument that no layout rescues it).
+(define NOTE-GRAPH-STOPS '("cap" "neighbourhood" "scan"))
+
+(define (graph-node n #:focus? [focus? #f])
+  (hasheq 'id (hash-ref n 'id) 'title (hash-ref n 'title)
+          'missing #f 'focus focus?))
+
+;; created_at DESC, id DESC — the notes listing's own order and its own tiebreak
+;; (NPG-3), because `created_at` is TEXT at SECOND resolution and `id` is a random
+;; uuid, so a cap that dropped notes by whatever the engine returned would draw a
+;; different picture per query. ORG-13's determinism reaches the NODE SET too, not
+;; only the layout: a seeded layout over an arbitrary subset is still arbitrary.
+(define (note-newer? a b)
+  (define ca (hash-ref a 'created_at ""))
+  (define cb (hash-ref b 'created_at ""))
+  (if (string=? ca cb)
+      (string>? (hash-ref a 'id) (hash-ref b 'id))
+      (string>? ca cb)))
+
+(define (note-graph conn p #:note [focus #f] #:depth [depth 1])
+  (require-perm conn p "notes:read")
+  (define team (principal-team-id p))
+  (define idx (team-note-index conn p team))
+  (define by-id (cdr idx))
+  (define d (max 1 (min NOTE-GRAPH-DEPTH-MAX (if (exact-integer? depth) depth 1))))
+  ;; A FOCUS THAT IS NOT THERE AND ONE THE CALLER MAY NOT READ ARE ONE ANSWER,
+  ;; because the index is the caller's view: `#f` here, which the endpoint renders
+  ;; as a 404. `repo-get`'s collapse, and ORG-9a's rule arriving at a third reader.
+  (cond
+    [(and focus (not (hash-ref by-id focus #f))) #f]
+    [else
+     (define rows
+       (query-rows conn
+         (string-append "SELECT src_note_id, raw_target, target_fold FROM note_links "
+                        "WHERE team_id = ? ORDER BY src_note_id, ord LIMIT ?")
+         team NOTE-GRAPH-SCAN))
+     (define scan-full? (>= (length rows) NOTE-GRAPH-SCAN))
+     ;; the edge set, resolved through the caller's own index. An edge whose
+     ;; SOURCE is unreadable is simply not here, which needs no test of its own:
+     ;; such a note is not in the index either.
+     (define phantoms (make-hash))          ; node key -> the target as written
+     (define classified
+       (for/list ([row (in-list rows)])
+         (define src (vector-ref row 0))
+         (define raw (vector-ref row 1))
+         (define fold (vector-ref row 2))
+         (cond
+           [(not (hash-ref by-id src #f)) #f]
+           [else
+            (define-values (dst reason) (resolve-target idx raw fold))
+            (cond
+              [dst (cons src (hash-ref dst 'id))]
+              [(equal? reason "ambiguous") (cons src 'ambiguous)]
+              [else
+               (define key (string-append "missing:" fold))
+               ;; 🔑 WHICH SPELLING THE NODE IS LABELLED WITH IS DECIDED BY THE
+               ;; DATA, NOT BY A ROW ORDER, and the first version of this took
+               ;; whichever row arrived first — which is `ORDER BY src_note_id`,
+               ;; i.e. whichever SOURCE NOTE happens to own the smallest random
+               ;; uuid. Two authors who typed `[[Levee 7 survey]]` and
+               ;; `[[levee 7 SURVEY]]` are pointing at one unwritten note (the
+               ;; fold is the identity), so one of the two labels the node, and
+               ;; a uuid deciding it means the same input draws a different
+               ;; picture on every instance. ORG-13's determinism is about the
+               ;; whole drawing and not only the layout, so the smallest
+               ;; spelling wins: arbitrary, and a function of the targets alone.
+               ;; Its own test is what found this.
+               (define seen (hash-ref phantoms key #f))
+               (when (or (not seen) (string<? raw seen)) (hash-set! phantoms key raw))
+               (cons src key)])])))
+     (define pairs (filter pair? classified))
+     (define edges (filter (lambda (e) (string? (cdr e))) pairs))
+     (define ambs (filter (lambda (e) (eq? (cdr e) 'ambiguous)) pairs))
+     ;; undirected adjacency, for the neighbourhood walk only
+     (define adj (make-hash))
+     (define (link! a b) (hash-update! adj a (lambda (xs) (cons b xs)) '()))
+     (for ([e (in-list edges)]) (link! (car e) (cdr e)) (link! (cdr e) (car e)))
+     (define-values (keys stop)
+       (if focus
+           (neighbourhood focus adj d)
+           (whole-team (hash-values by-id))))
+     ;; A PHANTOM ONLY REACHES THE PICTURE WHEN SOMETHING THAT IS IN IT POINTS AT
+     ;; IT, so the cap is spent on the team's own notes first — a team at the cap
+     ;; draws no unresolved targets at all, which is the right way round: the
+     ;; notes exist and the phantoms are inferred. In a NEIGHBOURHOOD one arrives
+     ;; through the walk like any other node, because the adjacency is built over
+     ;; the resolved edge set; a whole-team view has no walk, so they are
+     ;; appended here. Sorted, for ORG-13's determinism under the cap.
+     (define base (for/hash ([k (in-list keys)]) (values k #t)))
+     (define wanted
+       (if focus
+           '()
+           (sort (remove-duplicates
+                  (for/list ([e (in-list edges)]
+                             #:when (and (hash-ref phantoms (cdr e) #f)
+                                         (hash-ref base (car e) #f)
+                                         (not (hash-ref base (cdr e) #f))))
+                    (cdr e)))
+                 string<?)))
+     (define room (max 0 (- NOTE-GRAPH-MAX (length keys))))
+     (define added (if (> (length wanted) room) (take wanted room) wanted))
+     (define all-keys (append keys added))
+     (define stop* (or stop (and (> (length wanted) (length added)) "cap")))
+     (define kept (for/hash ([k (in-list all-keys)]) (values k #t)))
+     (define drawn-edges
+       (for/list ([e (in-list edges)]
+                  #:when (and (hash-ref kept (car e) #f) (hash-ref kept (cdr e) #f)))
+         (hasheq 'from (car e) 'to (cdr e))))
+     (hasheq
+      'nodes (for/list ([k (in-list all-keys)])
+               (cond [(hash-ref phantoms k #f)
+                      => (lambda (raw)
+                           (hasheq 'id k 'title raw 'missing #t 'focus #f))]
+                     [else (graph-node (hash-ref by-id k) #:focus? (equal? k focus))]))
+      'edges drawn-edges
+      'focus (or focus 'null)
+      'depth (if focus d 'null)
+      'total (hash-count by-id)
+      ;; 🔑 SCOPED TO THE VIEW, and the HTTP smoke is what found that it had to
+      ;; be. Counted over the whole team, a reader looking at ONE note's
+      ;; neighbourhood was told about an ambiguous link in a note that is not in
+      ;; the picture and that they may never have seen — a figure with no
+      ;; remedy beside it, which is #178's decoration. It counts the links FROM
+      ;; a node that is drawn, so it is always about what is on the screen.
+      'ambiguous (for/sum ([e (in-list ambs)]) (if (hash-ref kept (car e) #f) 1 0))
+      'truncated (and (or stop* scan-full?) #t)
+      ;; QUOTA-3's rule: the reason is ABSENT when nothing was cut, so a reader
+      ;; never has to decide whether a stated one means anything. The scan bound
+      ;; is reported last because it is the one an operator would be surprised by.
+      'reason (cond [stop* stop*] [scan-full? "scan"] [else 'null]))]))
+
+;; THE WHOLE-TEAM VIEW DRAWS ISOLATED NOTES TOO — it is a map, and a note nobody
+;; has linked yet is exactly what somebody opening this is looking for. Past the
+;; cap it is not a map of anything (ORG-16), so it keeps a deterministic prefix
+;; and says so rather than pretending.
+(define (whole-team notes)
+  (define ordered (map (lambda (n) (hash-ref n 'id)) (sort notes note-newer?)))
+  (if (> (length ordered) NOTE-GRAPH-MAX)
+      (values (take ordered NOTE-GRAPH-MAX) "cap")
+      (values ordered #f)))
+
+;; ORG-16's DEFAULT: one note and what reaches it. Breadth-first and UNDIRECTED,
+;; because "what links here" is the half people use (ORG-15) and a reader looking
+;; at a note wants both sides of it on the canvas.
+;;
+;; A FRONTIER THAT WOULD CROSS THE CAP STOPS THE WALK AND IS REPORTED AS
+;; `neighbourhood`, not as `cap`: the remedy is less depth, where the whole-team
+;; cap's remedy is a smaller question. It takes the frontier in a SORTED order so
+;; a partially drawn neighbourhood is the same one every time — ORG-13's
+;; determinism again, and the reason this cannot just walk a hash's values.
+(define (neighbourhood start adj d)
+  (let loop ([frontier (list start)]
+             [seen (hash start #t)]
+             [order (list start)]
+             [level 0])
+    (cond
+      [(or (= level d) (null? frontier)) (values (reverse order) #f)]
+      [else
+       (define next
+         (sort (remove-duplicates
+                (for*/list ([k (in-list frontier)]
+                            [nb (in-list (hash-ref adj k '()))]
+                            #:unless (hash-ref seen nb #f))
+                  nb))
+               string<?))
+       (cond
+         [(null? next) (values (reverse order) #f)]
+         [(> (+ (length order) (length next)) NOTE-GRAPH-MAX)
+          (define room (max 0 (- NOTE-GRAPH-MAX (length order))))
+          (values (reverse (append (reverse (take next room)) order)) "neighbourhood")]
+         [else
+          (loop next
+                (for/fold ([h seen]) ([k (in-list next)]) (hash-set h k #t))
+                (append (reverse next) order)
+                (add1 level))])])))
+
 
 ;; ---- ORG-11: the `.org` interchange ---------------------------------------
 ;;

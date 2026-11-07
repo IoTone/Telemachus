@@ -188,6 +188,21 @@
   .md h1.org-title{margin-top:0}
   .md p.org-filetags{display:flex;flex-wrap:wrap;gap:6px}
   .ed-fmt{margin:0;height:auto;padding:3px 6px;font-size:12px;width:auto}
+  /* #247 — the note graph (ORG-13). Drawn still, so there is no transition on
+     anything here; the colours are the theme's own tokens, so a customer's
+     palette reaches the picture with no second decision (see 12-theme.js). */
+  svg.ng-svg{width:100%;height:auto;max-height:62vh;display:block;margin-top:10px;
+    background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius)}
+  .ng-edge{stroke:var(--line);stroke-width:1.2}
+  .ng-node{fill:var(--accent2);stroke:var(--panel2);stroke-width:1.5}
+  /* an unresolved target: hollow and dashed, because there is no note behind it */
+  .ng-missing{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:3 2}
+  .ng-focus{fill:var(--accent);stroke:var(--ink);stroke-width:2}
+  .ng-label{fill:var(--muted);font-size:11px;text-anchor:middle;pointer-events:none}
+  .ng-click{cursor:pointer}
+  .ng-click:hover .ng-node{fill:var(--accent)}
+  .ng-click:hover .ng-label{fill:var(--ink)}
+  .ng-g:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   /* #182: the command palette and the shortcut list. Both are overlays over
      whatever is on screen, so they live in the static shell rather than in a
      render pass — a tab re-render must not take the palette down. */
@@ -303,6 +318,7 @@
 <script src="/console/18-queueviz.js"></script>
 <script src="/console/19-route.js"></script>
 <script src="/console/20-mail.js"></script>
+<script src="/console/21-notegraph.js"></script>
 <script src="/console/99-boot.js"></script>
 </body>
 </html>

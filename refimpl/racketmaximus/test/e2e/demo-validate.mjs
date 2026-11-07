@@ -705,6 +705,144 @@ try {
   await page.evaluate(() => renderTab());
   await page.waitForSelector('#nlist', { timeout: 5000 });
 
+  // ── 3c6. the note graph, and a node pinned by name (#247, ORG-13/16) ───────
+  // 🔑 THE BUILD PLAN ASKS FOR "the e2e assertion that pins a node", AND THAT IS
+  // THE WHOLE POINT OF ORG-13. A force layout was declined for the DERIVED
+  // graph (RG-9) on three grounds, and the one that survived the move to an
+  // authored graph was NON-DETERMINISM: this project's gates are its evidence,
+  // so a layout no screenshot reproduces and no assertion can pin a node in is
+  // a feature with nothing behind it. A fixed seed and a fixed tick count are
+  // what answer that, and only a browser can say whether they really do.
+  step('graph: a seeded layout, pinned');
+  await goTab(page, 'notes', '#nlist');
+  const gIds = await page.evaluate(async () => {
+    const mk = async (title, body, format) => {
+      const r = await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + S.token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, body, format, visibility: 'team' })
+      });
+      return (await r.json()).id;
+    };
+    const hub = await mk('G hub', 'the centre', 'markdown');
+    const a = await mk('G spoke a', '[[G hub]]', 'org');
+    const b = await mk('G spoke b', '[[G hub]] and [[G spoke a]]', 'org');
+    const wish = await mk('G wisher', '[[G never written]]', 'org');
+    return { hub, a, b, wish };
+  });
+  ok('the graph fixture is in place', !!gIds.hub);
+  // THE LAYOUT IS A PURE FUNCTION AND IS CALLED AS ONE — §3c's rule, the same
+  // one the Markdown sanitiser is tested by: a question about what code
+  // COMPUTES cannot be answered by grepping it.
+  const laid = await page.evaluate(() => {
+    const nodes = [{ id: 'n1', title: 'one', missing: false, focus: true },
+                   { id: 'n2', title: 'two', missing: false, focus: false },
+                   { id: 'n3', title: 'three', missing: false, focus: false },
+                   { id: 'missing:x', title: 'x', missing: true, focus: false }];
+    const edges = [{ from: 'n1', to: 'n2' }, { from: 'n2', to: 'n3' }, { from: 'n3', to: 'missing:x' }];
+    const a = graphLayout(nodes, edges).map(p => [p.node.id, p.x, p.y]);
+    const b = graphLayout(nodes, edges).map(p => [p.node.id, p.x, p.y]);
+    return { a, b, same: JSON.stringify(a) === JSON.stringify(b) };
+  });
+  ok('the same input lays out to the same picture, exactly', laid.same,
+    JSON.stringify(laid.a) + ' vs ' + JSON.stringify(laid.b));
+  // …and the positions are REAL, not all one point: a layout that never ran
+  // would be reproducible too, which is the control this assertion needs
+  const spread = await page.evaluate((pts) => {
+    const xs = pts.map(p => p[1]), ys = pts.map(p => p[2]);
+    return { dx: Math.max(...xs) - Math.min(...xs), dy: Math.max(...ys) - Math.min(...ys) };
+  }, laid.a);
+  ok('…and the layout really ran, rather than leaving every node in one place',
+    spread.dx > 40 && spread.dy > 40, JSON.stringify(spread));
+  // the nodes are WITHIN the canvas, or an edge of the graph is drawn off-screen
+  ok('…with every node inside the viewBox',
+    laid.a.every(p => p[1] >= 0 && p[1] <= 760 && p[2] >= 0 && p[2] <= 440));
+  // THE CARD, DRAWN. It is behind an explicit control, because a graph read is a
+  // request and the picture is not what somebody opening Notes came for.
+  await page.evaluate((id) => graphOpen(id), gIds.hub);
+  await page.waitForSelector('#ngraph svg.ng-svg', { timeout: 10000 });
+  ok('the graph opens as inline SVG', true);
+  const drawn = await page.evaluate(() => {
+    const svg = document.querySelector('#ngraph svg.ng-svg');
+    const nodes = [...svg.querySelectorAll('circle')];
+    const labels = [...svg.querySelectorAll('text')].map(t => t.textContent);
+    return {
+      nodes: nodes.length,
+      edges: svg.querySelectorAll('line').length,
+      focus: svg.querySelectorAll('circle.ng-focus').length,
+      missing: svg.querySelectorAll('circle.ng-missing').length,
+      clickable: svg.querySelectorAll('g.ng-click[data-h-click]').length,
+      labels
+    };
+  });
+  // 🔑 A NODE PINNED BY NAME, which is what RG-9's objection was about
+  ok('the focus is drawn exactly once and marked as the focus', drawn.focus === 1,
+    JSON.stringify(drawn));
+  ok('…its neighbours are on the canvas',
+    drawn.labels.includes('G spoke a') && drawn.labels.includes('G spoke b'),
+    JSON.stringify(drawn.labels));
+  ok('…and the edges between them are drawn', drawn.edges >= 2, String(drawn.edges));
+  // AN UNRESOLVED TARGET IS A NODE, HOLLOW AND UNCLICKABLE. ORG-9a is what makes
+  // that safe: before it, this node would have told the reader which of a
+  // colleague's private notes exist.
+  await page.evaluate(() => graphSetFocus(null));
+  await page.waitForTimeout(1200);
+  const whole = await page.evaluate(() => {
+    const svg = document.querySelector('#ngraph svg.ng-svg');
+    const ph = [...svg.querySelectorAll('circle.ng-missing')];
+    return {
+      missing: ph.length,
+      titles: ph.map(c => (c.closest('g').querySelector('text') || {}).textContent),
+      // a phantom's <g> must carry NO handler: there is no note to open, and a
+      // node whose click does nothing is worse than one that offers nothing
+      phantomClickable: ph.filter(c => c.closest('g').hasAttribute('data-h-click')).length,
+      realClickable: svg.querySelectorAll('g.ng-click[data-h-click]').length
+    };
+  });
+  ok('an unresolved target is drawn as a hollow node', whole.missing >= 1,
+    JSON.stringify(whole));
+  ok('…labelled with the text its author typed',
+    (whole.titles || []).some(x => x && x.startsWith('G never written')),
+    JSON.stringify(whole.titles));
+  ok('…and it offers no click, while a real note does',
+    whole.phantomClickable === 0 && whole.realClickable >= 1, JSON.stringify(whole));
+  // A DEPTH CHANGE SWAPS THE CARD AND NOT THE TAB — NPG-10's property, and the
+  // half-written note is what makes it visible.
+  await page.evaluate((id) => graphSetFocus(id), gIds.hub);
+  await page.waitForTimeout(1200);
+  await page.fill('#nt', 'graph: must survive a hop change');
+  const gseq = await page.evaluate(() => renderSeq);
+  await page.evaluate(() => graphSetDepth(2));
+  await page.waitForTimeout(1200);
+  ok('a hop change left the tab alone',
+    await page.evaluate(() => renderSeq) === gseq,
+    `renderSeq ${gseq} -> ${await page.evaluate(() => renderSeq)}`);
+  ok('…so a half-written note survived it',
+    await page.inputValue('#nt') === 'graph: must survive a hop change');
+  ok('…and the card really redrew at the new depth',
+    await page.evaluate(() => S.graphDepth) === 2);
+  // clicking a node opens that note, which is what makes the picture navigable —
+  // ORG-6 said slice 4 is what makes an internal link go somewhere
+  await page.evaluate(() => {
+    const g = document.querySelector('#ngraph g.ng-click[data-h-click]');
+    g.querySelector('circle').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await page.waitForTimeout(1200);
+  ok('clicking a node opens that note',
+    (await page.innerHTML('#app')).includes('G hub') ||
+    (await page.innerHTML('#app')).includes('G spoke'));
+  // A FIXTURE THAT CHANGES GLOBAL STATE BREAKS A DISTANT BLOCK, and §3c5 above
+  // paid that twice already: close the card, close the graph, and take the four
+  // notes away, or every later block that counts notes reads this one's fixture.
+  await page.evaluate(() => { noteViewClose(); graphClose(); });
+  await page.evaluate(async (ids) => {
+    for (const id of Object.values(ids))
+      await fetch('/api/notes/' + id, { method: 'DELETE',
+        headers: { 'Authorization': 'Bearer ' + S.token } });
+  }, gIds);
+  await page.evaluate(() => renderTab());
+  await page.waitForSelector('#nlist', { timeout: 5000 });
+
   // ── 3d. the command palette and the keyboard (issue #182) ───────────────────
   // Real key events through the real delegated listener: a source assertion can
   // say the hook is wired and only a browser can say the key arrives.

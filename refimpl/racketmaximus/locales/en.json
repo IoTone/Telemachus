@@ -39,6 +39,14 @@
       "text": "{age} ago",
       "hash": "1ebef83b6f3881bed47f04d4eabef9ee2108c73d"
     },
+    "ui.ngraphscan": {
+      "text": "Not every link in the team was read, so an edge may be missing.",
+      "hash": "526835a7e592e1762515966560e64c07f843cb07"
+    },
+    "doc.workflow.index-documents": {
+      "text": "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.",
+      "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
+    },
     "doc.tool.note_autotag.id": {
       "text": "The note id",
       "hash": "fd02a584451d28a275838f32365a74f1b2293116"
@@ -54,10 +62,6 @@
     "doc.route.get.api.repo-obj.id.form-fields": {
       "text": "The AcroForm fields a PDF carries — name, kind, current value and, for a choice field, its options — which is what a caller needs before sending `doc_fill_form` any values (#88 req 2). A document that is not a form answers an empty list, because whether it is one is the question being asked; a box without pdfcpu answers 501, since the question is fine and this instance cannot answer it. `can_flatten` says whether `flatten: true` will work here, flattening being a second binary.",
       "hash": "73c99d2a62d3623714b2ff633415089de4ebc3f5"
-    },
-    "doc.workflow.index-documents": {
-      "text": "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.",
-      "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
     },
     "ui.edzenhint": {
       "text": "full width, Esc to leave",
@@ -1091,6 +1095,10 @@
       "text": "holding",
       "hash": "329bb6c3b55346c25bd3f35339f2942b972a5966"
     },
+    "ui.ngraphnb": {
+      "text": "The picture filled up before the last hop. Ask for fewer hops.",
+      "hash": "72852d0cd9781d2f999e513f8426f3a04ea4e879"
+    },
     "doc.tool.doc_classify": {
       "text": "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second; `backends` reorders them and may also name `embed`, a nearest-label embedding backend that needs an embedding endpoint configured and is not in the default chain. The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json.",
       "hash": "f0effca4e2c91938adb06fcb1492a0a59546932e"
@@ -1195,6 +1203,14 @@
       "text": "Link",
       "hash": "d0517071aa376e797705058bbad4b658954b9930"
     },
+    "ui.send": {
+      "text": "Send",
+      "hash": "9bc2575c3930437e80555f78757b783c842e8e66"
+    },
+    "ui.ngraphdepth": {
+      "text": "Hops",
+      "hash": "d260994f2484a55cf92eb256edb96a17261236fc"
+    },
     "ui.submitjob": {
       "text": "Submit a job",
       "hash": "510341190745d586870fc9862595a371c925fc0f"
@@ -1202,10 +1218,6 @@
     "ui.palhdocs": {
       "text": "Ask the documentation",
       "hash": "e3c0b081bfbf19ae1873883658c8f5d91850a1a1"
-    },
-    "ui.send": {
-      "text": "Send",
-      "hash": "9bc2575c3930437e80555f78757b783c842e8e66"
     },
     "ui.body": {
       "text": "Body",
@@ -1298,6 +1310,10 @@
     "ui.jobunclaimedshort": {
       "text": "unclaimed",
       "hash": "4f24d75496e51eddcda170d8fa47b49f5034a85d"
+    },
+    "ui.ngraphteam": {
+      "text": "The whole team",
+      "hash": "7a2af95ed2a8f712ab55b77ffc343b85a7132c39"
     },
     "ui.featallow": {
       "text": "Allow",
@@ -1659,6 +1675,10 @@
       "text": "What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too.",
       "hash": "d6dc9485ecac2f80742e0ddea83e96860cd52f49"
     },
+    "ui.ngraphshow": {
+      "text": "Show the graph",
+      "hash": "7554dea6172168f058328f9e27cea5c7a8993f14"
+    },
     "doc.tool.feed_queue_put.status": {
       "text": "Defaults to open",
       "hash": "ae650e1d3f893611c541c424ab66de9fd71dcafd"
@@ -1758,6 +1778,10 @@
     "doc.route.post.api.orgs.ref.suspend": {
       "text": "Suspend a company (id or slug); every team in it becomes read-only.",
       "hash": "7213af47375bd25765fc825e6fb9468c27785bc8"
+    },
+    "doc.route.get.api.notes.graph": {
+      "text": "The team's note graph, as nodes and edges (#247). `?note=<id>` is the DEFAULT view and the one the console asks for: that note's neighbourhood, `?depth=` hops out (1-3, clamped), undirected because what links here is half of what a reader wants. With no `?note=` it answers the whole team, isolated notes included. The node set is capped: `truncated` says some were left out and `reason` says which bound was reached (`cap` for a team larger than the picture, `neighbourhood` for a walk that filled it, `scan` for the link window). A target that resolves to no note is a node of its own carrying the text its author typed, so a note nobody has written yet is visible as the thing several notes point at; a target two notes share resolves to neither, so it is only counted, in `ambiguous`. An edge whose other end the caller may not read is simply absent, exactly as it is on the links read. The notes graph is the team's own authored links and is NOT joined to the knowledge graph.",
+      "hash": "94b578b072ed353d9a0e6f6b6b965904d995a113"
     },
     "doc.tool.doc_set_type.review": {
       "text": "The review id, for provenance",
@@ -2131,6 +2155,14 @@
       "text": "Which detectors to run: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary, which needs terms)",
       "hash": "9995fe44288c76e96f3ae9c3408a6e689cb17fd9"
     },
+    "ui.ngraphempty": {
+      "text": "Nothing to draw yet. An org note's [[target]] is what makes an edge.",
+      "hash": "b398b7a801967ae4a69b193b81bee8967859537a"
+    },
+    "doc.perm.models:serve": {
+      "text": "Register a model executor for the team.",
+      "hash": "f0378315073f278fc7316f2dfb24ed7c1d3eb483"
+    },
     "doc.route.post.api.repo-obj.id.annotations": {
       "text": "Mark a place: `kind` (`note`, which needs a `body`, or `highlight`, which does not), plus a `bbox` of four numbers with its `page`, a `start`/`end` character range into the extracted text, or both. ANYONE WHO MAY READ THE DOCUMENT MAY ANNOTATE IT — a specialist handed a document to review holds the `view` capability, and a review surface they cannot mark up is not one; nothing about the document changes and the row records whose observation it is. Binds to the current version unless `version_id` names another of this document's own; `review_id` links the region to a review decision.",
       "hash": "c291506c0a9d9972e2acb149acfbaedb79850974"
@@ -2146,10 +2178,6 @@
     "doc.route.get.api.repo-obj.id.traces": {
       "text": "What is LEFT of an object: versions, extracted text, derived documents, derivation rows, grants, blobs still present, and jobs whose payload or result still quotes its id. The verification read for a deletion request (#86) — \"I called DELETE and got a 200\" is not evidence, and this is. `audit` is reported and is NOT a trace to drive to zero: the audit log is deliberately what survives an erasure.",
       "hash": "fc6d2a1c147f3c42059faa9fa59964a8e8e002c6"
-    },
-    "doc.perm.models:serve": {
-      "text": "Register a model executor for the team.",
-      "hash": "f0378315073f278fc7316f2dfb24ed7c1d3eb483"
     },
     "beta.duplicate": {
       "text": "we already have your request — we'll be in touch",
@@ -2799,6 +2827,10 @@
       "text": "Automations",
       "hash": "82542d6d0a0aa0c1e9afdbe2f29d3057618daec2"
     },
+    "ui.ngraphcap": {
+      "text": "This team has more notes than one picture can show. Open a single note's graph instead.",
+      "hash": "9df0ed9f0122b7b10e428a53a41794fcf43700f3"
+    },
     "doc.tool.doc_classify.rules": {
       "text": "Deterministic rules, tried in order; the first that matches decides. Phrases, not regular expressions, and a rule needs at least one condition",
       "hash": "f0d4676bdc382875ffbee80ded609e55d11b83e6"
@@ -2955,6 +2987,10 @@
       "text": "Ask the HTML engine for an archival PDF: \"pdf/a-2b\". A raster image makes the output non-conformant (the engine marks images Interpolate true, which PDF/A forbids) — use an SVG logo.",
       "hash": "6a7a6b51e7ca8bfcbf162104cdcd1fcbdda37311"
     },
+    "ui.ngraph": {
+      "text": "Graph",
+      "hash": "9a7405ebcedde5be8d095a986ea8794e19ee84e2"
+    },
     "ui.wktoken": {
       "text": "worker token — shown once",
       "hash": "9acc8acb71039219d6d109fcea4f14ba824ddafc"
@@ -2971,6 +3007,14 @@
       "text": "the model this instance calls itself, in process — it claims nothing and cannot be drained",
       "hash": "86c4c4eb2c336125df1fcb5739eadf5cbd38b723"
     },
+    "doc.route.put.api.documents.id": {
+      "text": "Update a text document's title, body or visibility (a new version).",
+      "hash": "3fe2ff530ad25f0415478ddb3b6cf245d43a2000"
+    },
+    "ui.ngraphhide": {
+      "text": "Hide the graph",
+      "hash": "7a6c62b3bc618da7c264e26a3ef92a1e876e3b1f"
+    },
     "ui.qkind": {
       "text": "kind",
       "hash": "0ef25ae00f40c8471ee44b720036abcc25e96cee"
@@ -2986,10 +3030,6 @@
     "doc.route.post.api.admin.seed-tenants": {
       "text": "Seed Acme and Globex with known dev passwords — demo fixture only.",
       "hash": "8ebbc1998b371a5d1fe99da2c98f2af7481e2a9a"
-    },
-    "doc.route.put.api.documents.id": {
-      "text": "Update a text document's title, body or visibility (a new version).",
-      "hash": "3fe2ff530ad25f0415478ddb3b6cf245d43a2000"
     },
     "ui.builddev": {
       "text": "unreleased build",
@@ -3130,6 +3170,10 @@
     "ui.quotaresets": {
       "text": "Resumes {when}.",
       "hash": "826fcc2fc0cc24a889c559c58c4e78c2d2a4e137"
+    },
+    "ui.ngraphhint": {
+      "text": "the notes and the links between them, drawn — this is your own notes, not the knowledge graph",
+      "hash": "3af9e2b871d7fd62b33aa3b329ce9009a1138501"
     },
     "ui.edexportorghint": {
       "text": "download the body as an Org file",
@@ -3907,6 +3951,10 @@
       "text": "Administer the company: teams and members. Manages, does not read, team data (TEN-2a).",
       "hash": "d7516686c8225ea117fb689ec5055fa55f122dea"
     },
+    "ui.ngraphnodes": {
+      "text": "{n} drawn of {total} notes, {e} links",
+      "hash": "4c34463118bdb05e43928a95d19a545eac99e3bb"
+    },
     "doc.tool.doc_set_type.label": {
       "text": "The type that was decided, spelled exactly as in the label set; empty to withdraw the type",
       "hash": "c05644c4235b6cc6e353c480e57173c6629ed9e1"
@@ -3998,6 +4046,10 @@
     "ui.localization": {
       "text": "Localization",
       "hash": "b9fc941160f1b0396956bfd39853ec712bd8d1fb"
+    },
+    "ui.ngraphmissing": {
+      "text": "no note has been written for this yet",
+      "hash": "899ee15e9199d3d94cf1ffd9dcc5ebbb6121dd88"
     },
     "ui.l10nimport": {
       "text": "Import catalogs",
@@ -4199,6 +4251,10 @@
       "text": "Attributes",
       "hash": "a6652617f2c799eb11ee727b16c5646c48af6905"
     },
+    "ui.ngraphfocus": {
+      "text": "around {t}",
+      "hash": "67ac4445bb983743bd95132bc846bedfd8c84589"
+    },
     "doc.tool.list_notes": {
       "text": "List the current user's notes (title and visibility).",
       "hash": "4f1bac788f076a7c3d361dd1dff2b3150e25f62c"
@@ -4367,6 +4423,14 @@
       "text": "Derived from",
       "hash": "b8848cfcf4b7af9f75aeebfb6f46e3659fbcb215"
     },
+    "ui.ngraphamb": {
+      "text": "{n} link(s) name a title two notes share, so they reach neither and are not drawn.",
+      "hash": "8c889df9283ed468c3a338d830df337a2de9f5c6"
+    },
+    "doc.workflow.distil-bookmarks.name": {
+      "text": "Distil Bookmarks",
+      "hash": "e7bbcb2a83b95a7308396e78fc39688e57b51422"
+    },
     "ui.helphint": {
       "text": "Ask the documentation",
       "hash": "e3c0b081bfbf19ae1873883658c8f5d91850a1a1"
@@ -4386,10 +4450,6 @@
     "doc.plugin.doc-indexer": {
       "text": "A workflow that extracts text from repository documents into the search index: find what is unindexed, fan out, extract. Re-run it any time; it only touches what changed.",
       "hash": "d08d63795f44a20053f6f918b103c58a95685c87"
-    },
-    "doc.workflow.distil-bookmarks.name": {
-      "text": "Distil Bookmarks",
-      "hash": "e7bbcb2a83b95a7308396e78fc39688e57b51422"
     },
     "ui.mlminehint": {
       "text": "Where this account is notified, and what about. An address is not used until it has been confirmed.",
