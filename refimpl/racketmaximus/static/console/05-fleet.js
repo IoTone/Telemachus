@@ -283,52 +283,20 @@ function qGo(page){
   qRefresh();
 }
 function qPage(d){ qGo(qCur()+d); }
-// The jump box is honest about its own bounds: a page number outside the range
-// is clamped rather than refused, because the only way to produce one is to type
-// it and the useful answer to "page 900 of 6" is page 6.
-function qJump(el){
-  const n=parseInt(el.value,10);
-  if(!isNaN(n)) qGo(n);
-}
-
 // NUMBERED, WITH A WINDOW AND A JUMP. `←`/`→` alone cannot answer "how much is
 // there" or get you to the end of a long queue, which is where the interesting
 // rows are when something has gone wrong — the drain order puts the oldest
 // queued job FIRST, but a `recent` listing of a thousand settled jobs buries
 // last night's failures pages deep.
 //
-// First and last are always offered, so the range is visible even when the
-// window is nowhere near either end; the ellipsis is NOT a button, because a
-// control whose destination a reader cannot predict is worse than none.
+// THE ARITHMETIC IS `pagerHTML`'S NOW, and the clamp and the jump box went with
+// it — the notes listing wanted the same pager, and a second copy of a window
+// computation with a gate behind only one of them is the drift this tree names
+// everywhere. What stays here is what is the QUEUE's: its page size, where the
+// offset lives, and that a page change swaps this card rather than the tab.
 function qPager(Q, rows){
-  const total=Q.total||0, pages=qPages(), cur=qCur();
-  const from=(Q.offset||0)+1, to=(Q.offset||0)+rows.length;
-  const showing=`<span class="muted">${t('qshowing').replace('{from}',from).replace('{to}',to).replace('{total}',total)}</span>`;
-  if(pages<=1) return `<p style="margin-top:8px">${showing}</p>`;
-  const btn=(label,page,opts)=>{
-    const o=opts||{};
-    if(o.disabled) return `<button class="btn sm ghost" disabled>${label}</button>`;
-    return `<button class="btn sm ${o.active?'':'ghost'}" ${o.title?`title="${esc(o.title)}"`:''}
-      data-h-click="${H(()=>qGo(page))}"${o.active?' aria-current="page"':''}>${label}</button>`;
-  };
-  const win=2, nums=[];
-  let lo=Math.max(1,cur-win), hi=Math.min(pages,cur+win);
-  if(lo>1){ nums.push(btn('1',1,{active:cur===1})); if(lo>2) nums.push(`<span class="muted">…</span>`); }
-  for(let p=lo;p<=hi;p++) nums.push(btn(String(p),p,{active:p===cur}));
-  if(hi<pages){ if(hi<pages-1) nums.push(`<span class="muted">…</span>`); nums.push(btn(String(pages),pages,{active:cur===pages})); }
-  return `<div class="row qpager" style="align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap">
-    ${showing}
-    <span style="flex:1 1 auto"></span>
-    ${btn('«',1,{disabled:cur<=1,title:t('qfirst')})}
-    ${btn('‹',cur-1,{disabled:cur<=1,title:t('qprev')})}
-    ${nums.join('')}
-    ${btn('›',cur+1,{disabled:cur>=pages,title:t('qnext')})}
-    ${btn('»',pages,{disabled:cur>=pages,title:t('qlast')})}
-    <label style="margin:0 0 0 10px;white-space:nowrap">${t('qjump')}
-      <input type="number" min="1" max="${pages}" value="${cur}" style="width:5.5em;margin-left:6px"
-        data-h-change="${H((el)=>qJump(el))}"
-        data-h-keydown="${H((el,ev)=>{ if(ev.key==='Enter'&&!ev.isComposing){ qJump(el); return false; } })}">
-      <span class="muted">/ ${pages}</span></label></div>`;
+  return pagerHTML({ total: Q.total || 0, offset: Q.offset || 0, size: QPAGE,
+                     shown: rows.length, go: qGo });
 }
 function queueCard(qr, fr){
   if(!qr||!qr.ok) return '';

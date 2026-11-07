@@ -19,7 +19,7 @@
          web-server/http
          (only-in "../../config.rkt" content-encryption-enabled?)
          (only-in "../../domain/notes/notes.rkt"
-                  notes-create notes-delete notes-get notes-list notes-share notes-update
+                  notes-create notes-delete notes-get notes-list notes-count notes-share notes-update
                   notes-tag-list note-links-of note-backlinks-of
                   notes-import org-text-of)
          (only-in "../../domain/notes/note-tools.rkt" note-autotag!)
@@ -50,11 +50,52 @@
 ;; not `query-param`, which answers with the FIRST value — right for a scalar and
 ;; wrong for a filter you are meant to stack. LAY-4's `?attr=` paid for that
 ;; distinction already.
+;; ---- the notes listing, paged ------------------------------------------------
+;;
+;; THE ONE BEHAVIOUR CHANGE IN THIS SLICE, AND IT IS VISIBLE IN THE ANSWER
+;; RATHER THAN SILENT. This route used to return every note the caller could
+;; read, which on a team of any size is the defect being reported; it answers a
+;; PAGE now, and carries `total`, `limit` and `offset` so a caller who wants the
+;; whole list can walk it. `GET /api/documents` has defaulted to a page of 20
+;; since the fold, so the unbounded listing was the anomaly rather than the
+;; contract — but it is a change, and anybody paging through a tag search is
+;; the caller to think about first.
+;;
+;; `total` SUBSUMES `next_offset`, WHICH IS WHY THERE IS NO `next_offset` HERE.
+;; The documents listing reports one because it has no count to offer, so "is
+;; there more" is the most it can honestly say; with a total, a second field
+;; computing the same fact is two spellings of it. What the total CANNOT say is
+;; how much of itself the caller may read — `notes-count` is the window without
+;; the per-row `can?` (CLS-27) — so a numbered pager built on it may offer a
+;; page that renders short, which is the same posture `repo-count` already took.
+(define NOTES-PAGE-DEFAULT 50)
+(define NOTES-PAGE-MAX 200)
+
+;; A nonsense `?limit=` falls back to the default rather than being honoured or
+;; refused, and `0` is nonsense here: a page of nothing is a listing that can
+;; never finish, which is the shape every interval knob in this tree already
+;; declines to accept. The cap is the one bound an unauthenticated amplification
+;; would otherwise be missing — `GET /api/l10n/messages` caps at 200 for it.
+(define (page-limit req)
+  (define n (string->number (query-param req 'limit (number->string NOTES-PAGE-DEFAULT))))
+  (if (and (exact-integer? n) (positive? n)) (min n NOTES-PAGE-MAX) NOTES-PAGE-DEFAULT))
+
+(define (page-offset req)
+  (define n (string->number (query-param req 'offset "0")))
+  (if (and (exact-integer? n) (>= n 0)) n 0))
+
 (define (ep-notes-list req)
   (with-auth req (lambda (p)
+    (define scope (scope-of req))
+    (define tags (query-params req 'tag))
+    (define lim (page-limit req))
+    (define off (page-offset req))
     (json-response
-     (hasheq 'notes (notes-list db-conn p #:scope (scope-of req)
-                                #:tags (query-params req 'tag)))))))
+     (hasheq 'notes (notes-list db-conn p #:scope scope #:tags tags
+                                #:limit lim #:offset off)
+             'total (notes-count db-conn p #:scope scope #:tags tags)
+             'limit lim
+             'offset off)))))
 
 ;; TAG-1 — the team's tag list is DERIVED, so there is nothing to store and
 ;; nothing to keep in step. It is its own route rather than a field on the

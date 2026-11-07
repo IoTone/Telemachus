@@ -581,3 +581,65 @@ function pathNav(folders, prefix, go){
     ? `<div class="muted" style="font-size:12px;margin-top:4px">${t('foldercut')}</div>` : '';
   return strip(crumbs.join('')) + folderStrip + cut;
 }
+
+// ── a numbered pager, for any listing that offers a window ────────────────────
+//
+// ONE HOME, TWO ASKERS. The arithmetic — the window around the current page, the
+// two ellipses, first and last always reachable, the clamp — is ONE rule, and
+// this tree's own line is that two copies of one rule drift. It was written for
+// the queue (CARD-4/5) with `qGo`/`qPages`/`QPAGE` baked in, so the notes pager
+// would have been a second copy of a computation only the queue's one has a gate
+// behind. `pathNav` above takes its `go` the same way and for the same reason.
+//
+// THE PAGE SIZE IS THE CALLER'S AND IS PASSED IN, not read from a constant here:
+// each surface has its own (`QPAGE`, `NPAGE`), each is spelled once in its own
+// file and used both to ASK the server and to compute the page count, which is
+// what stops a pager offering a page the listing never fills.
+//
+// `shown` IS THE LENGTH OF THE PAGE AS RENDERED, WHICH IS NOT `size`. Every
+// listing here applies `can?` per row after the SQL window (CLS-27), so a page
+// can be shorter than its limit with rows still behind it — the "showing x–y of
+// n" line therefore reads `shown` and the page COUNT reads `total`, and the two
+// disagreeing is the honest report rather than a bug to paper over.
+//
+// First and last are always offered, so the range is visible even when the
+// window is nowhere near either end; the ellipsis is NOT a button, because a
+// control whose destination a reader cannot predict is worse than none. The
+// strings are the `q*` catalog keys — named for where they first appeared, not
+// for the queue, and shared rather than duplicated per surface.
+function pagerHTML(o){
+  const total = o.total || 0, size = o.size, off = o.offset || 0, go = o.go;
+  const pages = Math.max(1, Math.ceil(total / size));
+  const cur = Math.min(pages, Math.floor(off / size) + 1);
+  const from = total ? off + 1 : 0, to = off + (o.shown || 0);
+  const showing = `<span class="muted">${t('qshowing').replace('{from}',from).replace('{to}',to).replace('{total}',total)}</span>`;
+  if(pages<=1) return `<p style="margin-top:8px">${showing}</p>`;
+  const btn=(label,page,opts)=>{
+    const op = opts || {};
+    if(op.disabled) return `<button class="btn sm ghost" disabled>${label}</button>`;
+    return `<button class="btn sm ${op.active?'':'ghost'}" ${op.title?`title="${esc(op.title)}"`:''}
+      data-h-click="${H(()=>go(page))}"${op.active?' aria-current="page"':''}>${label}</button>`;
+  };
+  // the jump box is honest about its own bounds: a page number outside the range
+  // is CLAMPED rather than refused, because the only way to produce one is to
+  // type it and the useful answer to "page 900 of 6" is page 6
+  const jump = el => { const n = parseInt(el.value,10); if(!isNaN(n)) go(Math.min(Math.max(1,n),pages)); };
+  const win=2, nums=[];
+  let lo=Math.max(1,cur-win), hi=Math.min(pages,cur+win);
+  if(lo>1){ nums.push(btn('1',1,{active:cur===1})); if(lo>2) nums.push(`<span class="muted">…</span>`); }
+  for(let p=lo;p<=hi;p++) nums.push(btn(String(p),p,{active:p===cur}));
+  if(hi<pages){ if(hi<pages-1) nums.push(`<span class="muted">…</span>`); nums.push(btn(String(pages),pages,{active:cur===pages})); }
+  return `<div class="row qpager" style="align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap">
+    ${showing}
+    <span style="flex:1 1 auto"></span>
+    ${btn('«',1,{disabled:cur<=1,title:t('qfirst')})}
+    ${btn('‹',cur-1,{disabled:cur<=1,title:t('qprev')})}
+    ${nums.join('')}
+    ${btn('›',cur+1,{disabled:cur>=pages,title:t('qnext')})}
+    ${btn('»',pages,{disabled:cur>=pages,title:t('qlast')})}
+    <label style="margin:0 0 0 10px;white-space:nowrap">${t('qjump')}
+      <input type="number" min="1" max="${pages}" value="${cur}" style="width:5.5em;margin-left:6px"
+        data-h-change="${H((el)=>jump(el))}"
+        data-h-keydown="${H((el,ev)=>{ if(ev.key==='Enter'&&!ev.isComposing){ jump(el); return false; } })}">
+      <span class="muted">/ ${pages}</span></label></div>`;
+}

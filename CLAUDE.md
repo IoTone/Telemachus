@@ -9173,6 +9173,108 @@ bash test/e2e/validate.sh                                             # §3c4 �
   covers an org user's real files — it is a subset, it is stated, and the first
   import of somebody's actual notes is what will say which construct is missing.
 
+## The notes listing is a page (NPG‑1…12, reported from outside)
+
+Reported with #245's filter already shipped: *"Notes should paginate and
+filter."* The filter existed — `?tag=`, repeatable, ANDed — and the listing
+returned EVERY note the caller could read. `GET /api/documents` has answered a
+page of 20 since the fold and `GET /api/repo` a page of 100 since slice 49, so
+the unbounded one was the anomaly. `notes-window`/`notes-count` in
+`domain/notes/notes.rkt`, `pagerHTML` in `01-base.js`. **No migration, no new
+route, no new permission and no new catalog string.**
+
+```sh
+raco test test/note-page-tests.rkt                              # 5 cases, 4 controls
+DATABASE_URL="postgres://…" raco test test/note-page-tests.rkt  # whole file, both dialects
+raco test test/console-tests.rkt                                # the ONE-pager rule, 3 controls
+bash test/server-smoke.sh                                       # the page block, 14 assertions
+bash test/e2e/validate.sh                                       # §3c5 — the pager in a browser
+```
+
+- **THE WINDOW HAS ONE HOME, ASKED BY THE LISTING AND BY THE COUNT** (NPG‑1).
+  Two spellings of "which notes are in scope" is LIVE‑IN's drift in the one
+  place where the symptom is a control that does nothing: a pager offering a
+  page the listing can never fill.
+- **THE TAG FILTER MOVED INTO THE WINDOW, AND TAG‑5's RULE IS UNCHANGED BY
+  THAT** (NPG‑2). That rule is that a filter may only NARROW what the caller was
+  already allowed to see, and `can?` still runs on every row the window returns
+  — so the result set does not depend on which of two narrowing tests runs
+  first. What moving it buys is the only thing pagination needs: a page of a tag
+  search comes back FULL rather than being whatever survived of twenty-five
+  unfiltered rows. **It is an indexed equality, which is NOT what PERF‑5
+  declined** — that finding was a `LIKE` with a LEADING wildcard over bodies.
+- 🔑 **THE ORDER CARRIES A TIEBREAK NOW, AND IT IS NOT FALSIFIABLE BY THE SUITE
+  ON EITHER ENGINE** (NPG‑3). `created_at` is TEXT `CURRENT_TIMESTAMP` at SECOND
+  resolution and `id` is a random UUID, so same-second notes came back in an
+  order unrelated to anything — harmless while every caller read the whole list,
+  fatal for an offset walk. With `id DESC` removed all five cases pass on SQLite
+  AND PostgreSQL 18: both planners sort these ties stably. **Nor does a write
+  between two pages shake it loose** — the guess was that an UPDATE moving a
+  tuple to the end of PostgreSQL's heap would reshuffle a bare
+  `created_at DESC`, and it was MEASURED and it does not. VEC‑13's unpinnable
+  pin: a reason to write the key down, never evidence it is redundant.
+- **ONE QUERY ACROSS THE TEAMS, AND THE CONTROL BITES ON THE PAGE SIZE RATHER
+  THAN THE ORDERING** (NPG‑4). The old shape ran an ordered query per team and
+  `append*`ed, so `?scope=org` came back team-by-team — untidy while nothing
+  paged. It also applied `LIMIT`/`OFFSET` to EACH team's query, so a page of 3
+  across two teams came back with 6 rows: every page over-fetching while the
+  union stayed complete, which the union assertion cannot see. The pager's whole
+  arithmetic assumes `total / size` pages of `size`.
+- **`#:limit #f` IS UNBOUNDED AND IS THE DEFAULT, WHICH IS MORE THAN
+  COMPATIBILITY** (NPG‑5). `notes-tag-list` DERIVES the team's tag vocabulary by
+  walking this listing (TAG‑1), so a default page would shrink that vocabulary
+  to whatever the first page held — a filter offering fewer words the more notes
+  a team has. `list_notes` and the out-of-process `notes.list` read it whole for
+  the same reason. The ENDPOINT asks for a page.
+- **THE COUNT IS THE SAME WINDOW WITHOUT THE `can?` FILTER** (NPG‑6),
+  `repo-count`'s precedent and its stated cost: CLS‑27 means the LENGTH of a
+  page cannot answer "how many pages are there", because a page emptied by a
+  colleague's private notes reads as the end of the list. So the total may
+  exceed what the caller can ever see — honest, and what lets a numbered pager
+  offer the right range at all.
+- **`total` SUBSUMES `next_offset`, which is why there is none** (NPG‑7). The
+  documents listing reports one because it has no count to offer.
+- **THE ENDPOINT'S DEFAULT IS A BEHAVIOUR CHANGE AND IT IS VISIBLE IN THE ANSWER
+  RATHER THAN SILENT** (NPG‑8): a page of 50 capped at 200, with `total`,
+  `limit` and `offset` beside the notes. A nonsense `?limit=` falls back to the
+  default, and **`0` is nonsense here** — a page of nothing is a listing that can
+  never finish, every interval knob's rule.
+- **ONE PAGER IN THE CONSOLE, TWO ASKERS** (NPG‑9). `pagerHTML` in `01-base.js`
+  takes its `go` the way `pathNav` beside it does; `qPager` is a four-line call,
+  so the e2e case that exercises the arithmetic by name now exercises the shared
+  one. The page SIZE stays each surface's own (`QPAGE`, `NPAGE`), spelled once
+  per file and used both to ASK the server and to compute the page count. The
+  strings are the `q*` catalog keys — named for where they first appeared, not
+  for the queue — so the slice added NO new ones.
+- **A PAGE CHANGE SWAPS THE LIST, NOT THE TAB** (NPG‑10). `renderTab()` paints a
+  `…` placeholder and re-fires all four of this tab's requests, and the create
+  form's title is a plain input — so paging would throw away a half-written
+  note. `edSetFormat` (ORG‑1) stopped calling it for that reason one slice
+  earlier. A filter change RESETS the offset (NPG‑11), or narrowing to two notes
+  leaves the reader on page 7 of 1 and the clamp makes it read as a filter that
+  matched nothing.
+- 🔑 **THE NOTE IN FOCUS IS FETCHED BY ID, AND THE FIRST E2E CASE FOR IT PASSED
+  AGAINST THE OLD CODE** (NPG‑12). The view and edit cards used to find their
+  note in the loaded listing — fine for the whole list, wrong for a page. But
+  `nGo` swaps only the list and so never re-evaluates the card, so "the card
+  stays open after paging" passes whatever the card does; the assertion has to
+  force a FULL RENDER from page 2, which is what a save, a tag toggle or coming
+  back to the tab does. Then the control fails by name.
+- **A TEXT SCAN READ ITS OWN COMMENT, SIXTH APPEARANCE.** The "the ellipsis is
+  not clickable" assertion moved to `01-base.js` and matched that file's own
+  header, which explains #27's inline-handler migration with a literal
+  `data-h-click="${H((el,ev)=>…)}"` in it. `console-code` strips comment lines
+  and is the remedy already in the tree — use it for every scan over the
+  console, not `file->string`.
+- **A FIXTURE THAT CHANGES GLOBAL STATE BREAKS A DISTANT BLOCK**, in both new
+  blocks: the smoke's page block goes near the END because it CREATES notes and
+  the tag block 350 lines above counts them, and the e2e block deletes its
+  thirty notes and puts the tab back on page one with no card open.
+- **Not built, deliberately**: a filter on anything but tags (a title search is
+  `GET /api/search`, which already covers notes under the same per-row `can?`);
+  a cursor in place of an offset, which is the answer at a scale this listing is
+  nowhere near and would change the wire.
+
 ## A workflow tool is not a conversational tool (`#:agent?`, reported from outside)
 
 The agent is offered the tools the team has ENABLED that fit the window, and for

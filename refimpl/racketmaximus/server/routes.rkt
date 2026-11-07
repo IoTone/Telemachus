@@ -208,7 +208,7 @@
 
    ;; ---- notes and text documents ----------------------------------------------------
    (R "POST" "/api/notes" 'notes-create #:perm "notes:write" #:doc "Create a note with a visibility.")
-   (R "GET" "/api/notes" 'notes-list #:perm "notes:read" #:doc "List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones).")
+   (R "GET" "/api/notes" 'notes-list #:perm "notes:read" #:doc "List a page of the notes the caller can read, newest first, with `total`, `limit` and `offset`; `?limit=` defaults to 50 and is capped at 200, `?offset=` walks. `?tag=` is repeatable and several are an AND. `?scope=org` spans every team in the company (an org_reader sees team-visible notes, never private ones). `total` counts the window and not what the caller may read, so a page may come back short.")
    (R "POST" "/api/documents" 'documents-create #:perm "files:write" #:doc "Create a text document (a repository object with content_type text/markdown). `key` files it into a project (#239): a key ending in `/` is a folder and the filename is composed from the title, a full key is taken verbatim, and an absent or blank one composes `documents/<slug>-<id8>.md` as before.")
    (R "GET" "/api/documents" 'documents-list #:perm "files:read" #:doc "List text documents — every non-derived `text/markdown` object in the team, narrowed to one project by `?prefix=`. `folders` carries the paths directly under that prefix, derived from the keys that exist and filtered to what the caller may read.")
    (R "GET" "/api/documents/:id" 'documents-get #:perm "files:read" #:scope 'resource #:doc "One text document with its body.")

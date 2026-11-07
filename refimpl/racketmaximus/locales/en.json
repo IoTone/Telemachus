@@ -3728,8 +3728,8 @@
       "hash": "694e98ff43653287a34b42e7e75e466a4beb43bd"
     },
     "doc.route.get.api.notes": {
-      "text": "List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones).",
-      "hash": "9656ce2e5bd9ee7b9604b8c87abfa6860ccf1361"
+      "text": "List a page of the notes the caller can read, newest first, with `total`, `limit` and `offset`; `?limit=` defaults to 50 and is capped at 200, `?offset=` walks. `?tag=` is repeatable and several are an AND. `?scope=org` spans every team in the company (an org_reader sees team-visible notes, never private ones). `total` counts the window and not what the caller may read, so a page may come back short.",
+      "hash": "2d11e7134ba4c7c060720cde2602c4e84098d79f"
     },
     "doc.tool.create_note.title": {
       "text": "Short note title",

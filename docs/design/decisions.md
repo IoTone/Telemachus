@@ -6350,3 +6350,115 @@ user's files (the first import of somebody's actual notes is what will say which
 construct is missing); and that an authored graph improves anything measurable —
 unlike RG's slice 5 there is no recall question here, because this is a
 navigation surface and not a retrieval index.
+
+## NPG — the notes listing is a page (reported from outside, built 7 Nov 2026)
+
+Reported with #245's filter already shipped: *"Notes should paginate and
+filter."* The filter existed — `?tag=`, repeatable, ANDed — and the listing
+returned **every** note the caller could read, which on a team of any size is
+the whole of the report. `GET /api/documents` has answered a page of 20 since
+the fold and `GET /api/repo` a page of 100 since slice 49, so the unbounded
+listing was the anomaly rather than the contract.
+
+- **NPG‑1 — the window has ONE home, asked by the listing AND by the count.**
+  Two spellings of "which notes are in scope" is LIVE‑IN's drift in the one
+  place where the symptom is a control that does nothing: a pager offering a
+  page the listing can never fill. `notes-window` composes the `WHERE` clause
+  and its arguments once; `notes-list` appends `LIMIT`/`OFFSET` and
+  `notes-count` appends nothing.
+- **NPG‑2 — the tag filter moved INTO the window, and TAG‑5's rule is
+  unchanged by that.** That rule is that a filter may only NARROW what the
+  caller was already allowed to see, never widen it, and `can?` still runs on
+  every row the window returns — so the result set does not depend on which of
+  two narrowing tests is applied first. What moving it buys is the only thing
+  pagination needs: a page of a tag search comes back FULL rather than being
+  whatever survived of twenty-five unfiltered rows. It is an indexed equality
+  on `idx_note_tags_note`, which is **not** what PERF‑5 measured and declined —
+  that finding was a `LIKE` with a LEADING wildcard over bodies, which cannot
+  use its index at all. Several tags are an AND, one `EXISTS` each.
+- **NPG‑3 — the order carries a tiebreak, and pagination is what makes it
+  load-bearing.** `created_at` is TEXT `CURRENT_TIMESTAMP` at SECOND resolution
+  and `id` is a random UUID, so notes written in the same second came back in an
+  order unrelated to anything — harmless while every caller read the whole list,
+  and fatal for an offset walk, where an unstable sort serves one note twice and
+  never serves another. Issue #47's rule for the audit log (`at DESC,
+  at_us DESC, id DESC`) arriving where it first becomes observable.
+  **It is NOT falsifiable by the unit suite on either engine, and saying so is
+  the point**: with `id DESC` removed all five cases pass on SQLite *and* on
+  PostgreSQL 18, because both planners sort these ties stably. Nor does a write
+  between two pages shake it loose — the guess was that an UPDATE moving a tuple
+  to the end of PostgreSQL's heap would reshuffle a bare `created_at DESC`, and
+  it was measured and it does not (25 rows sort in memory, stably). VEC‑13's
+  unpinnable pin: a reason to WRITE the key down, never evidence it is
+  redundant, because neither engine PROMISES this.
+- **NPG‑4 — it is ONE query across the teams, not one per team appended.** The
+  old shape ran an ordered query per team and `append*`ed the results, so
+  `?scope=org` came back team-by-team rather than newest-first. That was true
+  before this change and was merely untidy, because nothing paged; an OFFSET
+  into a list that is not globally ordered names a different row on every
+  request. **What the control bites on is the page SIZE, not the ordering**: the
+  per-team shape applied `LIMIT`/`OFFSET` to each team's query, so a page of 3
+  across two teams came back with 6 rows — every page over-fetching while the
+  union stayed complete, and the pager's whole arithmetic assumes `total / size`
+  pages of `size`.
+- **NPG‑5 — `#:limit #f` is unbounded and is the DEFAULT, which is more than
+  compatibility.** `notes-tag-list` DERIVES the team's tag vocabulary by walking
+  this listing (TAG‑1), so a default page would silently shrink that vocabulary
+  to whatever the first page held — a filter offering fewer words the more notes
+  a team has. `list_notes` and the out-of-process `notes.list` capability read it
+  whole for the same reason. The ENDPOINT is what asks for a page.
+- **NPG‑6 — the count is the same window WITHOUT the `can?` filter**, which is
+  `repo-count`'s precedent and its stated cost with it. CLS‑27's rule means the
+  LENGTH of a page cannot answer "how many pages are there": a page emptied by a
+  colleague's private notes would read as the end of the list. So the total may
+  exceed what the caller can ever see and a page may come back short or even
+  empty — honest, since there really are rows there and they are not theirs, and
+  it is what lets a numbered pager offer the right range at all. It is a count
+  and no identity, within the caller's own scope, behind the same permission.
+- **NPG‑7 — `total` subsumes `next_offset`, which is why there is no
+  `next_offset`.** The documents listing reports one because it has no count to
+  offer, so "is there more" is the most it can honestly say; with a total, a
+  second field computing the same fact is two spellings of it.
+- **NPG‑8 — the endpoint's default IS a behaviour change, and it is visible in
+  the answer rather than silent.** A page of 50, capped at 200, with `total`,
+  `limit` and `offset` beside the notes, so a caller who wants the whole list
+  can walk it. A nonsense `?limit=` falls back to the default rather than being
+  honoured or refused, and `0` is nonsense here — a page of nothing is a listing
+  that can never finish, which is the shape every interval knob in this tree
+  already declines. The cap is the bound an unauthenticated amplification would
+  otherwise be missing; `GET /api/l10n/messages` caps at 200 for it.
+- **NPG‑9 — ONE pager in the console, two askers.** The window, the two
+  ellipses, first-and-last-always-reachable and the clamp are one rule, written
+  for the queue (CARD‑4/5) with `qGo`/`qPages`/`QPAGE` baked in. `pagerHTML` in
+  `01-base.js` takes its `go` the way `pathNav` beside it already does; `qPager`
+  is a four-line call, so the e2e case that exercises the arithmetic by name now
+  exercises the shared one. The page SIZE stays each surface's own (`QPAGE`,
+  `NPAGE`), spelled once per file and used both to ASK the server and to compute
+  the page count. The strings are the `q*` catalog keys — named for where they
+  first appeared, not for the queue — so the slice added no new ones.
+- **NPG‑10 — a page change swaps the LIST, not the tab.** `renderTab()` paints
+  a `…` placeholder over the whole screen before it awaits and re-fires all four
+  of this tab's requests — and the create form's title and visibility are plain
+  inputs, so paging would throw away a half-written note. `edSetFormat` (ORG‑1)
+  stopped calling `renderTab()` for exactly that reason one slice earlier, and
+  CARD‑2's bracket applies: `cardSwap` is what keeps the swapped card's handlers
+  sweepable.
+- **NPG‑11 — a filter change resets the offset**, or narrowing to two notes
+  leaves the reader standing on page 7 of 1, which the pager clamps — so the
+  symptom is a filter that appears to have matched nothing. `qSet`'s rule.
+- **NPG‑12 — the note in focus is fetched BY ID, which pagination is what
+  forces.** The view and edit cards used to find their note in the loaded
+  listing: fine while that was every note the caller could read, and wrong the
+  moment it is a page. Viewing and editing are the same state slot, so one fetch
+  covers both, and it rides the round the tab already makes.
+  **The first e2e case for this passed against the OLD code**, because `nGo`
+  swaps only the list and so never re-evaluates the card — the assertion has to
+  force a full render from page 2, which is what a save, a tag toggle or coming
+  back to the tab does.
+
+**Not built, deliberately**: a notes filter on anything but tags (a title
+search is `GET /api/search`, which already covers notes under the same per-row
+`can?`); a cursor in place of an offset, which is the answer at a scale this
+listing is nowhere near and would change the wire; and `?scope=org` does not
+gain a per-team breakdown, because the window is the company's and a reader
+asking for it wants one list.
