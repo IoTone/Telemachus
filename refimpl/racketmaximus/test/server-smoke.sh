@@ -2977,6 +2977,118 @@ assert "links: an unknown note is 404" \
 assert "links: a viewer may read them" \
   "$(curl -s $B/api/notes/$SRCID/links -H "Authorization: Bearer $VERA")" '"links"'
 
+echo "== a note as a .org file (#246 slice 3) ===================================="
+# ORG-11 — the keywords are the note's metadata in BOTH directions, and the pair
+# has to be read together: the export composes `#+TITLE:` and `#+FILETAGS:` in
+# front of the body with one blank line, and the import consumes exactly that.
+# THE ROUND TRIP IS BYTE-IDENTICAL FOR THE BODY, which is the only property a
+# user of this cares about — and it is asserted over the STORED bytes rather than
+# over the response's prose.
+IXN=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"Interchange note","format":"org","body":"* Levee 7\n\nsee [[Budget review]] and *this*\n"}')
+IXID=$(printf '%s' "$IXN" | grep -oP '"id":\s*"\K[^"]+')
+
+# the download is an ATTACHMENT, and `text/org` is not a registered media type —
+# so the bytes go out as plain text and the EXTENSION carries the format
+IXH=$(curl -s -D - -o /dev/null "$B/api/notes/$IXID?as=org" -H "Authorization: Bearer $OP")
+assert "org file: it comes back as an attachment" "$IXH" 'attachment; filename='
+assert "org file: …named .org"                    "$IXH" '.org"'
+assert "org file: …as plain text, not a made-up media type" "$IXH" 'text/plain'
+assert "org file: …with nosniff"                  "$IXH" 'nosniff'
+# 🔑 TO A FILE, NEVER THROUGH `$( )`. Command substitution STRIPS TRAILING
+# NEWLINES, so routing the download through a shell variable loses the body's
+# last `\n` and the round trip is not byte-identical — which the equality check
+# below reported as a product defect on its first run and which `assert`, being
+# a grep, would never have noticed at all. The whole point of this block is the
+# bytes, so the bytes go to disk.
+IX_DIR=$(mktemp -d)
+curl -s "$B/api/notes/$IXID?as=org" -H "Authorization: Bearer $OP" -o "$IX_DIR/note.org"
+IXF=$(cat "$IX_DIR/note.org")
+assert "org file: the title is a keyword"  "$IXF" '#+TITLE: Interchange note'
+assert "org file: …and the body follows"   "$IXF" '* Levee 7'
+
+# …and back in. THE BODY IS THE REQUEST, not JSON: `curl --data-binary @note.org`
+# is the whole of it, which is also exactly how an importer would do it.
+BACK=$(curl -s -X POST "$B/api/notes/import" \
+  -H "Authorization: Bearer $OP" -H 'Content-Type: text/plain' \
+  --data-binary @"$IX_DIR/note.org")
+assert "org file: an import is a create"          "$BACK" '"format":"org"'
+assert "org file: …reading #+TITLE: as the title" "$BACK" '"title":"Interchange note"'
+BACKID=$(printf '%s' "$BACK" | grep -oP '"id":\s*"\K[^"]+')
+# `assert` is a GREP, so it cannot say "these two strings are equal" — `differ()`
+# exists for the opposite question and a prefix would satisfy it. So the one real
+# property of this interchange is checked by a helper that compares the two
+# bodies and nothing else. The suite `cd`s to the impl root on line 6, so the
+# path is from there.
+RT=$(python3 -I test/org-roundtrip.py "$B" "$OP" "$IXID" "$BACKID" 2>&1); RTS=$?
+echo "$RT"
+[ $RTS -eq 0 ] || fail=1
+
+# ORG-12 — the BODY is the source of truth for an org note's tags, so a `tags`
+# field against one is REFUSED BY NAME rather than stored and then quietly undone
+# by the next body save. Two homes for one fact is the drift this tree names
+# everywhere, and the home that must win is the one the author can SEE.
+assert "org tags: #+FILETAGS: is what sets them" \
+  "$(curl -s -X PUT $B/api/notes/$IXID -H "Authorization: Bearer $OP" \
+      -d '{"body":"#+FILETAGS: :Levee 7: SURVEY :\n\nthe body\n"}')" \
+  '"tags":["levee 7","survey"]'
+assert "org tags: a tags field is refused by name" \
+  "$(curl -s -X PUT $B/api/notes/$IXID -H "Authorization: Bearer $OP" -d '{"tags":["nope"]}')" \
+  '#+FILETAGS:'
+# an EXPLICIT CLEAR is still `tags` in the request, and honouring it would put a
+# second home behind the body
+assert "org tags: …including an explicit []" \
+  "$(curl -s -X PUT $B/api/notes/$IXID -H "Authorization: Bearer $OP" -d '{"tags":[]}')" \
+  '#+FILETAGS:'
+assert "org tags: …and the stored set survives the refusal" \
+  "$(curl -s $B/api/notes/$IXID -H "Authorization: Bearer $OP")" '"tags":["levee 7","survey"]'
+# an empty keyword line is how a body CLEARS them — the absent/present split the
+# whole decision rests on
+assert "org tags: an empty #+FILETAGS: clears them" \
+  "$(curl -s -X PUT $B/api/notes/$IXID -H "Authorization: Bearer $OP" -d '{"body":"#+FILETAGS:\n\nx\n"}')" \
+  '"tags":[]'
+
+# 🔑 CONVERTING A TAGGED MARKDOWN NOTE TO ORG KEEPS ITS TAGS. ORG-2 says a
+# conversion never rewrites the body, so a converted note has no keyword line —
+# and if an absent line meant "no tags" the conversion would destroy the set.
+CVN=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"tagged md","body":"# hi","tags":["keep me","and me"]}')
+CVID=$(printf '%s' "$CVN" | grep -oP '"id":\s*"\K[^"]+')
+assert "org tags: converting keeps what the body does not mention" \
+  "$(curl -s -X PUT $B/api/notes/$CVID -H "Authorization: Bearer $OP" -d '{"format":"org"}')" \
+  '"tags":["and me","keep me"]'
+
+# ORG-12's STATED COST: #245's auto-tagger cannot write an org note's tags,
+# because its write path is `notes-set-tags!`. It refuses BEFORE the model call,
+# or an org note would spend the team's AI budget on an answer nothing can store.
+assert "org tags: autotag refuses an org note by name" \
+  "$(curl -s -X POST $B/api/notes/$CVID/autotag -H "Authorization: Bearer $OP" -d '{}')" \
+  '#+FILETAGS:'
+
+# the import's own refusals
+assert "org file: an empty body is a named 400" \
+  "$(curl -s -X POST "$B/api/notes/import" -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: text/plain' --data-binary '')" \
+  'the org text to import'
+assert "org file: a viewer cannot import" \
+  "$(curl -s -X POST "$B/api/notes/import" -H "Authorization: Bearer $VERA" \
+      -H 'Content-Type: text/plain' --data-binary 'x')" \
+  'Forbidden: notes:write'
+# a file with no #+TITLE: imports UNTITLED rather than this inventing one — and
+# the cost is worth stating: a link resolves a TITLE, so it is reachable by id
+assert "org file: no #+TITLE: imports untitled" \
+  "$(curl -s -X POST "$B/api/notes/import" -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: text/plain' --data-binary '* just a headline')" \
+  '"title":""'
+assert "org file: ?visibility= is honoured" \
+  "$(curl -s -X POST "$B/api/notes/import?visibility=private" -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: text/plain' --data-binary '#+TITLE: priv')" \
+  '"visibility":"private"'
+# ANY format is exportable: refusing would make "give me this note as a file"
+# depend on a declaration that says nothing about whether somebody wants one
+assert "org file: a markdown note exports too" \
+  "$(curl -s "$B/api/notes/$MDLID?as=org" -H "Authorization: Bearer $OP")" '#+TITLE: md with brackets'
+
 # ---- email delivery and notifications --------------------------------------------
 # THE BLOCK IS LAST, and this file's own notes are why: a fixture that changes
 # GLOBAL state breaks a distant block, and this one configures an INSTANCE-wide

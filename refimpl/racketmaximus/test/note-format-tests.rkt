@@ -159,12 +159,24 @@
   (check-equal? (hash-ref (notes-update c mp id #:format "markdown") 'format) "markdown")
   (close-db! c))
 
-(test-case "tags and the format are independent"
-  ;; ORG-12 makes the body authoritative for an org note's tags and that is
-  ;; SLICE 2's refusal; in this slice they do not interact, and saying so is what
-  ;; makes the next slice's change visible as a change.
+(test-case "tags and the format DO interact now, and ORG-12 is why"
+  ;; THIS CASE USED TO ASSERT THE OPPOSITE, and its own comment said that saying
+  ;; so was what would make the next slice's change visible as a change. It did:
+  ;; slice 3 makes an org note's `#+FILETAGS:` line authoritative, so a `tags`
+  ;; field against one is refused by name rather than stored and then quietly
+  ;; undone by the next body save. The failing test is what said the behaviour
+  ;; had moved, which is the whole point of having written it.
   (define-values (c p tid) (setup))
-  (define n (notes-create c p #:title "both" #:body "* h" #:format "org" #:tags '("Levee" "q3")))
-  (check-equal? (hash-ref n 'tags) '("levee" "q3"))
+  (check-exn exn:fail?
+             (lambda () (notes-create c p #:title "both" #:body "* h"
+                                      #:format "org" #:tags '("Levee" "q3"))))
+  ;; …and an EMPTY list asks for nothing, so there is nothing to refuse: `#:tags`
+  ;; defaults to `'()` and the endpoint maps an absent key to it, which makes a
+  ;; caller who said nothing indistinguishable from one who sent `[]`.
+  (define n (notes-create c p #:title "both" #:body "* h" #:format "org"))
+  (check-equal? (hash-ref n 'tags) '())
   (check-equal? (hash-ref n 'format) "org")
+  ;; a MARKDOWN note is untouched by any of it — #245 works exactly as it did
+  (define m (notes-create c p #:title "md" #:body "x" #:tags '("Levee" "q3")))
+  (check-equal? (hash-ref m 'tags) '("levee" "q3"))
   (close-db! c))

@@ -309,7 +309,12 @@
   (define-values (c p tid) (setup))
   (define body (string-join (for/list ([i (in-range (add1 MAX-NOTE-LINKS))])
                               (format "[[t~a]]" i)) " "))
-  (check-exn exn:fail? (lambda () (org c p "too many" body)))
+  ;; THE MESSAGE, NOT MERELY `exn:fail?`. A bare `exn:fail?` passed against a
+  ;; version whose refusal could not even be COMPOSED — a parameter named
+  ;; `format` shadowed the procedure, so the raise died with a contract error
+  ;; and this case agreed with it. Slice 3 found that; naming the message is
+  ;; what stops it coming back.
+  (check-exn #px"at most 500 distinct links" (lambda () (org c p "too many" body)))
   (check-equal? (length (notes-list c p)) 0 "the note itself is not left behind")
   (check-equal? (query-value c "SELECT COUNT(*) FROM note_links") 0)
   ;; one under the cap is fine

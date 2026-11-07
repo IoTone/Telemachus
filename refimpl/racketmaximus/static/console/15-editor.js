@@ -397,6 +397,16 @@ function edSetFormat(key, fmt){
     x.textContent = t(org ? 'edexportorg' : 'edexport');
     x.title = t(org ? 'edexportorghint' : 'edexporthint');
   }
+  // …and anything the SURROUNDING FORM shows because of the format. ORG-12 makes
+  // the Notes form's tags field depend on it, and that field is the tab's rather
+  // than the editor's — so the editor announces the change and does not reach
+  // into it. Looked up by name because a later file may hook it, which is the
+  // same seam `paletteKey` and `helpKey` already use in `01-base.js`.
+  //
+  // The e2e gate is what asked for this: slice 1 made this a PARTIAL update to
+  // stop a render pass discarding a typed title, which also meant the field no
+  // longer followed the switch.
+  if (typeof edFormatChanged === 'function') edFormatChanged(key, fmt);
 }
 function edCount(v){
   const chars = v.length;

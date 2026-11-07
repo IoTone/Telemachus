@@ -534,6 +534,65 @@
   (check-true (string-contains? panel "${org?col(t('orglinks'), out):''}")
               "…and no outgoing column where the syntax does not apply"))
 
+(test-case "an org note is not offered a tags field, and its write omits the key"
+  ;; 🔑 ORG-12 ON THE CONSOLE'S SIDE. The server refuses a `tags` field against an
+  ;; org note BY NAME, which is right for an API caller and a poor way for a
+  ;; person to find out — so the field is not offered and the line that IS
+  ;; authoritative is named where it used to be. The author can SEE that line,
+  ;; which is the whole argument for the body winning.
+  (define tabs (console-code "03-tabs.js"))
+  (check-true (string-contains? tabs "function tagsFieldInner") "the field is composed once")
+  (check-true (string-contains? (fn-body "tagsFieldInner") "edFormat('note') === 'org'"))
+  (check-true (string-contains? (fn-body "tagsFieldInner") "orgtagshint"))
+  ;; …and it FOLLOWS the format switch, which `edSetFormat` cannot do by
+  ;; re-rendering: slice 1 made that a partial update precisely so a render pass
+  ;; could not discard a typed title. So the editor ANNOUNCES the change — looked
+  ;; up by name, which is `01-base.js`'s own `paletteKey` seam — and the tab
+  ;; repaints its own field. The e2e gate is what asked for it.
+  (check-true (string-contains? (fn-body "edSetFormat")
+                                "typeof edFormatChanged === 'function'"))
+  (check-true (string-contains? tabs "function edFormatChanged"))
+  (check-true (string-contains? (fn-body "edFormatChanged") "tagsFieldInner"))
+  ;; the key is OMITTED rather than sent empty: the server refuses its PRESENCE,
+  ;; and `[]` would also be a request to clear tags the body may be asserting
+  (check-true (string-contains? (fn-body "noteWriteBody") "if (b.format !== 'org') b.tags = readTags();"))
+  (check-equal? (length (regexp-match* #px"tags:readTags\\(\\)" tabs)) 0
+                "no write site builds its own body any more")
+  ;; …and `readTags` survives the field being absent, or it throws on the missing
+  ;; element — `val()` does not tolerate one
+  (check-true (string-contains? (fn-body "readTags") "el ? el.value"))
+  ;; ORG-12's stated COST, made visible rather than left to a refusal: #245's
+  ;; auto-tagger cannot write an org note's tags, so the button says so
+  (check-true (string-contains? tabs "n.format==='org'?t('autotagorg')"))
+  (check-true (string-contains? tabs "||n.format==='org')?' disabled'"))
+  (for ([k '("orgtagshint" "autotagorg")])
+    (check-true (string-contains? ui-strings (string-append "\"ui." k "\"")))))
+
+(test-case "the .org download asks the SERVER, and the import posts the file itself"
+  ;; ORG-11 — `edExport` writes what is in the BOX and composes no keywords;
+  ;; this asks for the SAVED note, so what lands on disk is what the import
+  ;; round-trips byte for byte. The two are named differently for that reason.
+  (define dl (fn-body "noteDownloadOrg"))
+  (check-true (and dl #t) "there is a download")
+  (check-true (string-contains? dl "?as=org"))
+  ;; A FETCH AND A BLOB, NOT A NAVIGATION: a navigation carries no bearer and
+  ;; this API deliberately has no session cookie (#27; #43's ticket exists for
+  ;; exactly that gap).
+  (check-true (string-contains? dl "'Bearer ' + S.token"))
+  (check-true (string-contains? dl "content-disposition")
+              "the filename comes from the server, so the two cannot disagree")
+  ;; the import goes through `api()` rather than a bare fetch, so it still
+  ;; stamps the idle clock (#38) and carries the bearer
+  (define im (fn-body "doImportOrg"))
+  (check-true (string-contains? im "api('/api/notes/import"))
+  (check-true (string-contains? im "raw: text"))
+  (check-true (string-contains? (fn-body "api") "if (raw != null)")
+              "api() takes a raw text body")
+  (check-true (string-contains? im "el.value = ''")
+              "…and picking the same file twice works")
+  (for ([k '("orgdownload" "orgdownloadhint" "orgimport" "orgimporthint" "orgimported")])
+    (check-true (string-contains? ui-strings (string-append "\"ui." k "\"")))))
+
 (test-case "the console's note formats are the SERVER's, in both directions"
   ;; ORG-1's vocabulary is closed and it lives in `notes.rkt`: a console offering
   ;; a third option would produce a refusal naming a format whose origin nobody
@@ -578,10 +637,13 @@
   (check-equal? (length (regexp-match* #px"function linkResolution" html)) 1)
   (check-true (string-contains? (fn-body "linkResolution") "esc(l.target)")
               "the keys are escaped once, where the map is built")
-  ;; the writes carry it, or a note created as org is stored as Markdown
+  ;; The writes carry it, or a note created as org is stored as Markdown — and
+  ;; since slice 3 both go through ONE body builder, so there is one place to
+  ;; forget rather than two.
+  (check-true (string-contains? (fn-body "noteWriteBody") "format: edFormat('note')"))
   (for ([f '("doCreateNote" "doSaveNote")])
-    (check-true (string-contains? (fn-body f) "format:edFormat('note')")
-                (format "~a sends the format" f)))
+    (check-true (string-contains? (fn-body f) "noteWriteBody()")
+                (format "~a writes through the one builder" f)))
   ;; …and `editorHTML` seeds the format rather than re-asserting it on every
   ;; pass, or `edSetFormat`'s own re-render would put the stored one straight
   ;; back and the control would be unusable
@@ -1408,9 +1470,13 @@
   ;; and the one a person sees is the wrong one
   (check-false (and (regexp-match? #rx"toLowerCase" src) #t)
                "lower-casing is the server's rule, in one place")
-  ;; both forms send them, and both read the same id
-  (check-equal? (length (regexp-match* #px"tags:readTags\\(\\)" src)) 2
-                "the create form and the edit form")
+  ;; BOTH FORMS SEND THEM THROUGH ONE BODY BUILDER NOW (#246 slice 3). They used
+  ;; to spell the write out twice, which is where the format and then the ORG-12
+  ;; omission would have had to be remembered twice — `noteWriteBody` is the one
+  ;; place, and the two call sites are asserted to use it.
+  (check-equal? (length (regexp-match* #px"noteWriteBody\\(\\)" src)) 3
+                "the builder and its two callers")
+  (check-true (string-contains? (fn-body "noteWriteBody") "b.tags = readTags()"))
   (check-true (and (regexp-match? #rx"id=\"ntags\"" src) #t)))
 
 (test-case "auto-tag is ONE send, with a visible pending state"

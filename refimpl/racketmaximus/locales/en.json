@@ -7,6 +7,10 @@
       "text": "Which categories this instance sends. A category nobody has named is OFF — this decides whether the instance mails people at all, so it is named rather than assumed. A person may turn one off for themselves; nobody below this may turn one on.",
       "hash": "906ea6ec92723a88ad451c8a25536b61fea8389b"
     },
+    "ui.orgdownload": {
+      "text": "Download .org",
+      "hash": "4081c27038af0b3f08894b8c010ff3a3cd75c666"
+    },
     "doc.route.get.api.beta.challenge": {
       "text": "A proof-of-work challenge the funnel solves before signing up.",
       "hash": "0532400b4f879f7ff40b6c8e0cc827e3c16ed708"
@@ -406,6 +410,10 @@
     "doc.tool.repo_extract_text.id": {
       "text": "The repository object id",
       "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
+    "ui.orgtagshint": {
+      "text": "an org note's tags come from its own #+FILETAGS: line — edit that line in the body",
+      "hash": "f4eb17ac6c7806978a251bd527cb102d4421d12c"
     },
     "doc.tool.create_note.body": {
       "text": "Note body text",
@@ -1259,6 +1267,10 @@
       "text": "Steps",
       "hash": "cdde4f20ba31a24db2cc7ae71135c8353631907b"
     },
+    "ui.orgdownloadhint": {
+      "text": "the saved note as an org file, which imports back unchanged",
+      "hash": "58c3582c9d43c97188b2735ff84e8478302569d7"
+    },
     "ui.featlocked": {
       "text": "a layer above does not allow it",
       "hash": "39ab2edd8a83117aacf9242f9272be4ce052083e"
@@ -1419,6 +1431,10 @@
       "text": "This team has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
       "hash": "66b9019ebeec34d2bca09f92ab6d5030f9759227"
     },
+    "ui.autotagorg": {
+      "text": "an org note's tags come from its #+FILETAGS: line, so this cannot write them",
+      "hash": "2c80238f24016ca86dda4bbec395ae8eba7fa558"
+    },
     "ui.praddrneeded": {
       "text": "An address is needed.",
       "hash": "d0eeda4f2eef1fba466675586dfbd9eafa78fd91"
@@ -1547,6 +1563,14 @@
       "text": "Purge a settled job's payload and result, keeping the row. Your own; somebody else's needs jobs:purge. For `infer.chat` and the document pipeline the payload IS the document's text and the result is the model's reply, so this is the lever a caller honouring a deletion request needs. Refused on a queued, running or canceling job — cancel it first, because its payload is the input a handler is about to read. Status, timings, attempt counts and the audit trail all survive; `purged_at` is reported on the job so an empty payload and a purged one can be told apart.",
       "hash": "9d189ecf693750416b1c4e3cb6036348589dbe1c"
     },
+    "ui.orgimported": {
+      "text": "imported",
+      "hash": "a671a412ad5a5208f0c3501753914eea14efc15f"
+    },
+    "doc.tool.feed_queue_put.skills": {
+      "text": "Routing hints in the team's own words, e.g. [\"racket\",\"ops\"]",
+      "hash": "e8d5c44545ccca3af2573bc5fe383aff33e54a28"
+    },
     "doc.perm.instance:read": {
       "text": "Read-only instance operations: status, metrics, the worker fleet, the queue, and verifying the audit chain. Not the audit EXPORT, which hands over the log itself.",
       "hash": "8b3e4319de14d9acdc7262dc02ad685abd3332c6"
@@ -1554,10 +1578,6 @@
     "doc.route.post.api.instance.suspend": {
       "text": "Hosted mode: suspend the tenant (writes are refused with 402).",
       "hash": "486b39af0ee101cada5503b8d09206cb4beaf703"
-    },
-    "doc.tool.feed_queue_put.skills": {
-      "text": "Routing hints in the team's own words, e.g. [\"racket\",\"ops\"]",
-      "hash": "e8d5c44545ccca3af2573bc5fe383aff33e54a28"
     },
     "ui.brandtagline": {
       "text": "Tagline",
@@ -1719,6 +1739,10 @@
       "text": "2FA code (if enabled)",
       "hash": "358e4e500cfb799457f845c6479fdbd0d549fe8b"
     },
+    "doc.route.post.api.notes.import": {
+      "text": "Import an org file as a note (#246). The request BODY is the org text itself, not JSON, so `curl --data-binary @note.org` is the whole of it; `?visibility=` sets the note's visibility. `#+TITLE:` becomes the title and `#+FILETAGS:` the tags, through the same normalization a typed tag gets; everything else is the body, verbatim. A file with no `#+TITLE:` imports untitled — it is then reachable by id and not by name, because a link resolves a title. Capped well under the control plane's own body limit; a larger document belongs in the repository.",
+      "hash": "de0212801c62ee16f528a3212d561288ffaa0e51"
+    },
     "doc.route.get.api.beta.asset.id": {
       "text": "Serve one onboarding asset. Public: the funnel and the branding logo load it without a token.",
       "hash": "fac8d41e29fc24770c6447eb425859743bafbc89"
@@ -1780,8 +1804,8 @@
       "hash": "b0a01b6a2d7731507d231b069b5f06516c9d0112"
     },
     "doc.route.get.api.notes.id": {
-      "text": "One note.",
-      "hash": "6abde483f234c866cac4d76f42dcdbf4cd86bfd4"
+      "text": "One note. `?as=org` answers it as an org FILE instead — `#+TITLE:` and `#+FILETAGS:` composed in front of the body, as an attachment. The body round-trips byte for byte through `POST /api/notes/import`. Any format is exportable: a Markdown note in an org envelope is still a readable file, and refusing would make \"give me this note as a file\" depend on a declaration that says nothing about whether somebody wants one.",
+      "hash": "f1daece95fe2b3c12cb3f5616c4c936ed407a151"
     },
     "ui.kg_type": {
       "text": "Type",
@@ -2811,6 +2835,14 @@
       "text": "What to look at first, for the whole team or one scope: counts by state, open items by severity, how long the oldest open one has waited, and the top few. ?scope= one exact label, ?scope_prefix= a subtree. Resolved items are not counted.",
       "hash": "9704a7af3a86e6e47f3e7d3e1058f4cea694c253"
     },
+    "doc.perm.features:manage": {
+      "text": "Turn features on and off for teams.",
+      "hash": "3fd875d2a2bc213bb34b68678dc4352354e6861a"
+    },
+    "ui.orgimport": {
+      "text": "Import .org…",
+      "hash": "66aac63702c0551eab3303516b3b20b07b3f728b"
+    },
     "ui.bxrestart": {
       "text": "could not start — please reload",
       "hash": "758c3cc13d0a610de94c2c6cc15111253e964f8b"
@@ -2818,10 +2850,6 @@
     "doc.route.get.api.org.features": {
       "text": "Which features the caller's own company allows.",
       "hash": "0f8d84053a35eb9b4b0a15ad065a894d132f1be9"
-    },
-    "doc.perm.features:manage": {
-      "text": "Turn features on and off for teams.",
-      "hash": "3fd875d2a2bc213bb34b68678dc4352354e6861a"
     },
     "doc.perm.reviews:read": {
       "text": "See the team's review queue and the decisions already recorded.",
@@ -4570,6 +4598,10 @@
     "ui.edsaved": {
       "text": "Saved to the repository",
       "hash": "2d86aa9503b2392baca3c4d153ef475a270900b8"
+    },
+    "ui.orgimporthint": {
+      "text": "#+TITLE: becomes the title and #+FILETAGS: the tags; the rest is the body",
+      "hash": "ce7baff5e2bc818d954274f27bda9eb832251539"
     },
     "ui.rationale": {
       "text": "Reason",

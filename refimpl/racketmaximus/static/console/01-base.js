@@ -443,7 +443,12 @@ function canPerm(perm){
 S.l10n = {locale:'ja', status:'', ns:'', q:'', offset:0};
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-async function api(path, {method='GET', body=null}={}){
+// `raw` is a body that is already TEXT and goes out as-is with its own content
+// type — `POST /api/notes/import`, whose entire input IS an org file (ORG-11), is
+// the one route in this plane shaped that way. It goes through `api()` rather
+// than a bare `fetch` so it still stamps the idle clock (#38), carries the
+// bearer and the locale, and is read back the same way as everything else.
+async function api(path, {method='GET', body=null, raw=null, contentType=null}={}){
   // issue #38: the client's idle clock counts from the last REQUEST, never from
   // the last mouse move. The server measures requests, so a timer driven by
   // pointer activity would cheerfully show a live session the server had already
@@ -452,7 +457,9 @@ async function api(path, {method='GET', body=null}={}){
   const headers = {'X-Telemachus-Locale': S.lang};
   if (S.token) headers['Authorization'] = 'Bearer '+S.token;
   if (body) headers['Content-Type'] = 'application/json';
-  const res = await fetch(path, {method, headers, body: body?JSON.stringify(body):null});
+  if (raw != null) headers['Content-Type'] = contentType || 'text/plain; charset=utf-8';
+  const res = await fetch(path, {method, headers,
+    body: raw != null ? raw : (body ? JSON.stringify(body) : null)});
   let json={}; try{ json = await res.json(); }catch(e){}
   return {ok:res.ok, status:res.status, json};
 }
