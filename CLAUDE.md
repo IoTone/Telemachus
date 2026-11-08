@@ -503,9 +503,108 @@ raco test test/translate-tests.rkt    # 13 cases, eight controls
   glossary), because the tab reports it before anybody has chosen a target. Being
   allowed more than the counter showed is fine; being refused below it is the
   failure #231 was reported for.
-- **Still synchronous, and that is #233's.** `translate` has been a registered
-  scheduler job kind since slice 17, so the non-blocking path exists; whether the
-  console should use it is a decision, not a gap in this slice.
+- ~~Still synchronous, and that is #233's.~~ **IT IS A JOB NOW (TR‑9…TR‑12,
+  #233, 8 Nov 2026)** — see the section below. `POST /api/translate` is
+  untouched and still answers a translation inside the request, which is what an
+  integrator's script wants; the CONSOLE enqueues instead.
+
+## A translation is a job, and a job says how far through it is (TR‑9…TR‑12, #233)
+
+Built 8 Nov 2026, which **closes #233**. Migration `0075-job-progress`;
+`job-progress!` in `domain/sched/scheduler.rkt`; `translate-metering` and
+`#:progress!` in `domain/apps/translate.rkt`; `POST /api/translate/job`; the
+Translate tab's follow card. **No new permission, no new environment variable.**
+
+```sh
+raco test test/translate-tests.rkt test/scheduler-tests.rkt   # 39 cases, six controls
+raco test test/console-tests.rkt                               # 84 cases, five controls
+bash test/server-smoke.sh                                      # the "trjob" block, 16 assertions
+bash test/e2e/validate.sh                                      # §6c — the idle criterion, in a browser
+```
+
+- 🔑 **THE TRADE GOES THE OTHER WAY FROM HELP‑23, AND THAT IS WHY THIS ONE IS A
+  JOB AND HELP IS NOT.** #238 asked the same question about the `⌘/` panel and
+  the answer was no: 0.9–3.8 s warm, and `ai.concurrency` defaults to **2**, so
+  queueing it behind two running jobs is worse than the call it replaced. #233
+  measured the other end of the same curve — **20.1 s at 8,000 characters**, with
+  a cap of 24 model calls — where no request budget survives. One mechanism,
+  asked about two callers, decided from each caller's own measurement.
+- 🔑 **A KIND THAT METERS ITS OWN MODEL CALLS SAYS SO (`metered`), AND THE BILLER
+  LEAVES IT ALONE.** main.rkt's one biller charges one `ai.requests` per JOB and
+  `tokens_used` once at the end — right for every kind that is one model call,
+  wrong twice for a translation: it under-counts a 24-section document as a
+  single request, and because it bills only a job that FINISHES, a run cancelled
+  at section 20 of 24 would cost the team **nothing**. The job fills
+  `#:admit`/`#:record!` itself, so a translation is metered identically whether
+  it ran in the request or in the queue. `eq? … #t`, not truthiness — a jsexpr
+  `'null` is TRUE in Racket.
+- **`translate-metering` IS ONE RULE WITH TWO ASKERS**, built in the domain
+  rather than written out twice: a team billed differently for the same work
+  depending on which button they pressed is `executor-can-run?`'s drift in the
+  worst place available.
+- **`jobs.progress_done`/`progress_total` ARE NULLABLE AND THE PROJECTION
+  WITHDRAWS THE PAIR.** NULL means "this kind does not report progress"; `0 of 0`
+  would be a field a reader learns to distrust (PULL‑11e, RED‑20), and the
+  absence is also the compatibility guarantee — every kind that existed before
+  migration 0075 is untouched. **The write is FENCED on the attempt's
+  `claim_token`** (issue #24; `current-job` carries it now) **and on
+  `status='running'`**: a reaped attempt would otherwise keep writing 10, 11, 12
+  over a new attempt that restarted at 1, and a figure still climbing after a
+  cancel reads as a cancel that did not take.
+- **THE LEADING `0 of N` REPORT IS LOAD-BEARING**, not cosmetic: without it the
+  unit count is unknown until the first section lands, which on a 24-section
+  document is a minute of showing nothing but a clock.
+- **ITS OWN ROUTE, AND THE GENERIC ENQUEUE IS THE ARGUMENT.**
+  `POST /api/jobs {"kind":"translate"}` has worked since slice 17 and is the
+  wrong door three ways: it carries no `#:feature "translate"`, so it is a way
+  past the feature switch for the app the switch is named after; it admits ONE
+  request where a long document is 24; and it cannot refuse a text past the cap
+  at all, because only `translate!` runs the plan — by which time there is a job
+  row and a failure instead of a 400 somebody can read.
+- **AND THE JOB KIND TOOK TWO FIELDS FOR A YEAR.** It passed `text` and
+  `target_lang` only, so a translation enqueued from the Jobs tab silently
+  ignored the team's glossary and the declared source language — for the one app
+  whose whole point is agreed terminology.
+- **THE GUARD MOVED RATHER THAN BEING REMOVED** (#174's shape): `S.trBusy`
+  covered the whole 20-second call, **which is what made a second submission
+  impossible**; `S.trSending` covers the enqueue, where two activations in one
+  tick would still enqueue two jobs. No `await` between the check and the set,
+  and a `finally` so one network error cannot leave the button dead.
+- **THE FOLLOW POLL TICKS ONLY WHILE SOMETHING IS LIVE** (QVIZ‑6): #38's clock
+  counts from the last REQUEST, so a self-refreshing tab holds a session open.
+  **That is the one acceptance criterion no source assertion can establish**, so
+  the e2e gate counts requests over six seconds after the work settles; the
+  control names the three polls it finds.
+- **ONE REQUEST FOR THE WHOLE CARD** — `GET /api/jobs` filtered by the followed
+  ids — because a poll per row multiplies with the number of translations this
+  screen now invites somebody to queue. **A page of it swaps the CARD, not the
+  tab**: `renderTab()` re-fires all four of the tab's requests and would throw
+  away the next translation being typed (ORG‑1, CARD‑1, NPG‑10, each of which
+  paid for this).
+- **`ui.jobscope` SAID SOMETHING THAT IS NOW FALSE** and changed, which made its
+  Japanese stale. `docs/ui/jobs.md` QUOTES it, which is UIDOC‑2's rule working —
+  a paraphrase would have gone stale invisibly.
+- **IT FOUND THREE DEAD USER-FACING STRINGS.** `ui.trworking`, `ui.trdone` and
+  `ui.trsections` belonged to the elapsed clock and the done toast the job row
+  replaced, and a one-directional catalog check cannot see a string nothing asks
+  for. Both directions now, over the whole `ui.tr*` family.
+- **`pregexp` HAS NO `\n` ESCAPE — FOURTH APPEARANCE, and it cost a run here
+  too.** A `"\\n"` in the string literal reaches the engine as backslash-then-n
+  and is `read-syntax: illegal alphabetic escape`, at READ time. A SINGLE
+  backslash in the literal is a real newline and is what the pattern wants.
+- **A CONTROL WITH AN INLINE `;;` COMMENT BEFORE THE CLOSING PARENS DOES NOT
+  RUN.** The comment swallows the rest of the line, including `)))` — the trap
+  this file records for editing a `provide`, met in a control harness. A control
+  that will not read has not bitten; use a value, not a comment.
+- **`cardSwap` REPLACES THE ELEMENT'S `outerHTML`, so the BUILT card must carry
+  the id.** A placeholder `<div id="x">` with a built card that has no id swaps
+  the id out of the DOM: the first refresh works and every one after it finds
+  nothing. The e2e gate caught it as a locator timeout.
+- **`build-l10n-review.py` IS ALREADY BROKEN AND IS NOT A CI GATE.** It refuses
+  any console key in no review group and reports **~600** of them — the state it
+  has been in since the console's strings moved into the catalogs, so nobody has
+  run it in a year. Recorded rather than fixed: auditing 600 keys into review
+  groups is the Japanese review's slice, and that review is held.
 
 ## Multi-tenancy (several companies on one instance)
 

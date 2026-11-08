@@ -3944,6 +3944,124 @@ else
   echo "  note   'untrusted egress refuses every address this suite can listen on, which is"
   echo "  note   the policy working; the store path is test/research-tests.rkt's."
 fi
+echo "== translate as a job: the Translate tab stops blocking (#233) =="
+# THIS BLOCK IS NEAR THE END because it spends the team's `ai.requests` and
+# creates jobs — this file's own repeated lesson about a fixture that changes
+# global state and breaks a distant block.
+#
+# THE JOB KIND AND THE BILLER LIVE IN `server/main.rkt`, so this is where they
+# are testable at all: a unit test cannot require that module (it instantiates
+# the pool, and #123 records what that costs in CI's sqlite leg). The seams
+# below it — the progress reports, the metering pair — are covered in
+# `test/translate-tests.rkt`, and the fenced progress write in
+# `test/scheduler-tests.rkt`.
+
+# A JOB'S STATUS IS READ AS JSON, NOT GREPPED. `ocr-smoke.sh` records why: a run
+# document embeds every step with a `status` of its own, so `*'"status":"done"'*`
+# matches while the thing you asked about is still running.
+wait_job(){ # <token> <job-id> -> prints the job JSON once it settles
+  local tok="$1" id="$2" i=0 body
+  while [ $i -lt 60 ]; do
+    body=$(curl -s "$B/api/jobs/$id" -H "Authorization: Bearer $tok")
+    if printf '%s' "$body" | python3 -c "
+import json,sys
+j=json.load(sys.stdin)
+sys.exit(0 if j.get('status') in ('done','error','canceled') else 1)
+" 2>/dev/null; then printf '%s' "$body"; return 0; fi
+    i=$((i+1)); sleep 0.5
+  done
+  printf '%s' "$body"; return 1
+}
+jq_field(){ printf '%s' "$2" | python3 -c "
+import json,sys
+j=json.load(sys.stdin)
+for k in sys.argv[1].split('.'):
+    j = (j or {}).get(k) if isinstance(j,dict) else None
+print('' if j is None else j)
+" "$1"; }
+reqs_used(){ curl -s "$B/api/usage" -H "Authorization: Bearer $OP" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for r in d.get('quota', []):
+    if r.get('dimension')=='ai.requests': print(r.get('used',0)); break
+else: print(0)
+"; }
+
+# A LONG TEXT, SO THE SECTION COUNT IS MORE THAN ONE. The whole point of the
+# move is a translation that is several model calls, and a one-section fixture
+# cannot tell the per-section metering from the single `ai.requests` the
+# scheduler bills a job.
+python3 - <<'PYLONG' > /tmp/tmx-trlong.json
+import json
+s = "The quick brown fox jumps over the lazy dog. " * 150      # ~6,750 chars
+print(json.dumps({"text": s, "target_lang": "ja", "use_glossary": False}))
+PYLONG
+
+TRQ0=$(reqs_used)
+TRJ=$(curl -s -X POST "$B/api/translate/job" -H "Authorization: Bearer $OP" \
+        -H 'Content-Type: application/json' --data-binary @/tmp/tmx-trlong.json)
+assert "trjob: accepted as a job"      "$TRJ" '"status":"queued"'
+assert "trjob: …with a job id"         "$TRJ" '"job_id"'
+assert "trjob: …and the section count" "$TRJ" '"sections"'
+TRID=$(jq_field job_id "$TRJ")
+TRSEC=$(jq_field sections "$TRJ")
+if [ "$TRSEC" -gt 1 ] 2>/dev/null; then ok "trjob: the fixture is more than one section ($TRSEC)"
+else bad "trjob: the fixture is only $TRSEC section(s) — the metering assertion below cannot discriminate"; fi
+
+TRDONE=$(wait_job "$OP" "$TRID")
+assert "trjob: it finishes"             "$TRDONE" '"status":"done"'
+assert "trjob: the translation is in the job's result" "$TRDONE" 'THE QUICK BROWN FOX'
+# TR-9: the row says how far through it got, against the plan it was given
+assert "trjob: the row reports its progress" "$TRDONE" "\"total\":$TRSEC"
+PDONE=$(jq_field progress.done "$TRDONE")
+if [ "$PDONE" = "$TRSEC" ]; then ok "trjob: …and every section is accounted for"
+else bad "trjob: progress.done=$PDONE, expected $TRSEC"; fi
+
+# TR-11: METERED SECTION BY SECTION, NOT ONCE PER JOB. This is the assertion the
+# whole metering change exists for: the scheduler bills one `ai.requests` per
+# JOB, which under-counts a multi-section document and bills NOTHING at all for
+# one somebody cancels half way. The job says `metered` and the biller leaves it
+# alone, so the figure here is the same one the synchronous route produces.
+TRQ1=$(reqs_used)
+TRDELTA=$((TRQ1 - TRQ0))
+if [ "$TRDELTA" = "$TRSEC" ]; then ok "trjob: ai.requests moved by $TRSEC — one per section, not one per job"
+else bad "trjob: ai.requests moved by $TRDELTA, expected $TRSEC (a job billed once would move it by 1)"; fi
+assert "trjob: the result says it metered itself" "$TRDONE" '"metered":true'
+
+# THE PRE-FLIGHT IS THE SYNCHRONOUS ROUTE'S, AND THAT IS THE ARGUMENT FOR A
+# DEDICATED ROUTE RATHER THAN `POST /api/jobs {"kind":"translate"}`: a text past
+# the section cap is a 400 somebody can read, BEFORE a row exists. Through the
+# generic enqueue it would be accepted and then fail as a job.
+python3 - <<'PYHUGE' > /tmp/tmx-trhuge.json
+import json
+s = "The quick brown fox jumps over the lazy dog. " * 2600     # ~117,000 chars
+print(json.dumps({"text": s, "target_lang": "ja", "use_glossary": False}))
+PYHUGE
+JOBS0=$(curl -s "$B/api/jobs" -H "Authorization: Bearer $OP" | grep -o '"kind":"translate"' | wc -l | tr -d ' ')
+HUGE=$(curl -s -X POST "$B/api/translate/job" -H "Authorization: Bearer $OP" \
+         -H 'Content-Type: application/json' --data-binary @/tmp/tmx-trhuge.json)
+assert "trjob: past the section cap is refused by name" "$HUGE" 'sections'
+refute "trjob: …and no job id comes back"              "$HUGE" '"job_id"'
+JOBS1=$(curl -s "$B/api/jobs" -H "Authorization: Bearer $OP" | grep -o '"kind":"translate"' | wc -l | tr -d ' ')
+if [ "$JOBS0" = "$JOBS1" ]; then ok "trjob: …and nothing was enqueued"
+else bad "trjob: a refused translation left a job row ($JOBS0 -> $JOBS1)"; fi
+
+# text and target are both required, as on the synchronous route
+assert "trjob: text is required" \
+  "$(curl -s -X POST "$B/api/translate/job" -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/json' -d '{"target_lang":"ja"}')" 'required'
+
+# THE PERMISSION IS PINNED WITH A VIEWER, not with a member: a member holds
+# `chat:use`, so the same assertion against one passes against a server that
+# checks nothing — HELP-7's lesson, and this is its sixth place.
+assert "trjob: a viewer may not spend the team's model budget" \
+  "$(curl -s -X POST "$B/api/translate/job" -H "Authorization: Bearer $VERA" \
+      -H 'Content-Type: application/json' -d '{"text":"hi","target_lang":"ja"}')" 'Forbidden: chat:use'
+assert "trjob: and a stranger gets 401" \
+  "$(curl -s -X POST "$B/api/translate/job" -H 'Content-Type: application/json' \
+      -d '{"text":"hi","target_lang":"ja"}')" 'Authentication required'
+rm -f /tmp/tmx-trlong.json /tmp/tmx-trhuge.json
+
 echo "== redeem: a mailed token's redemption is throttled (SEC-13) =="
 # THIS BLOCK IS LAST, for the reason the reset-request throttle above is last: it
 # EXHAUSTS the per-address allowance for fifteen minutes, so no redemption after

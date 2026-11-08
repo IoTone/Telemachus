@@ -33,7 +33,7 @@
          (only-in "../domain/db/migrations.rkt" all-migrations)
          (only-in "../domain/authz/authz.rkt" exn:fail:forbidden-permission exn:fail:forbidden? principal-org-id principal-team-id principal-user-id require-perm team-org)
          (only-in "../domain/authz/passwords.rkt" kdf-name)
-         (only-in "../domain/apps/translate.rkt" translate!)
+         (only-in "../domain/apps/translate.rkt" translate! translate-metering)
          (only-in "../domain/beta/beta.rkt" parse-verdict prospect-field prospect-get set-prospect-judge!)
          (only-in "../domain/beta/experience.rkt" experience-judge-system resolve-experience)
          (only-in "../domain/i18n/manager.rkt" draft-acceptable? l10n-message-ref l10n-submit!)
@@ -41,7 +41,7 @@
          (only-in "plugin-route.rkt" headers->hash plugin-route-response)
          (only-in "../domain/saas/onboarding.rkt" provision! resume! suspend!)
          (only-in "../domain/quota/quota.rkt" get-limit quota-record!)
-         (only-in "../domain/sched/scheduler.rkt" current-job drain-scheduler! drain-seconds register-job-kind! set-reaper! start-scheduler!)
+         (only-in "../domain/sched/scheduler.rkt" current-job drain-scheduler! drain-seconds job-progress! register-job-kind! set-reaper! start-scheduler!)
          (only-in "../domain/sched/schedules.rkt" fire-due-schedules!)
          ;; #85: the event sink and the delivery sweep
          (only-in "../domain/hooks/webhooks.rkt" deliver-due! enqueue-event!)
@@ -323,6 +323,7 @@
    'staged-begin ep-staged-begin 'staged-get ep-staged-get 'staged-part ep-staged-part
    'staged-complete ep-staged-complete 'staged-abort ep-staged-abort
    'translate-catalog ep-translate-catalog 'translate ep-translate 'translate-list ep-translate-list
+   'translate-job ep-translate-job
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors 'admin-workers ep-admin-workers
    'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
@@ -1018,12 +1019,41 @@
                                #:response-format rf))
              (list reply tokens jid)))))
   ;; async job kinds + the worker pool
+  ;; TR-11/TR-12 (#233) — THE FULL REQUEST, METERED LIKE THE SYNCHRONOUS ONE.
+  ;;
+  ;; This kind has existed since slice 17 and took two fields: a text and a
+  ;; target. So the Jobs tab could enqueue a translation that silently ignored
+  ;; the team's glossary and the declared source language — which for the one
+  ;; app whose whole point is agreed terminology is worse than not offering it.
+  ;;
+  ;; IT METERS ITSELF, section by section, through the SAME pair the endpoint
+  ;; fills (`translate-metering`), and says so with `metered`. Three things
+  ;; follow from that and none of them is cosmetic: a long document costs N
+  ;; `ai.requests` here exactly as it does in the request, rather than the one
+  ;; the scheduler bills a job; a team that crosses its budget mid-document
+  ;; stops with the named reason instead of half a translation; and a job
+  ;; somebody CANCELS has paid for the sections it already spent, where the
+  ;; scheduler bills only a job that finishes.
+  ;;
+  ;; `#:progress!` writes `done`/`total` onto the row, fenced on this attempt's
+  ;; claim token (TR-9), so the console can follow a 24-section document rather
+  ;; than watching a clock.
   (register-job-kind! "translate"
     (lambda (conn p payload)
+      (define-values (admit record-chunk!) (translate-metering conn p))
+      (define job-row (current-job))
       (define-values (job tokens)
         (translate! conn p #:text (format "~a" (hash-ref payload 'text ""))
-                    #:target-lang (format "~a" (hash-ref payload 'target_lang "en"))))
-      (hash-set job 'tokens_used tokens)))
+                    #:target-lang (format "~a" (hash-ref payload 'target_lang "en"))
+                    #:source-lang (format "~a" (hash-ref payload 'source_lang "auto"))
+                    #:use-glossary (and (hash-ref payload 'use_glossary #t) #t)
+                    #:admit admit #:record! record-chunk!
+                    #:progress!
+                    (lambda (done total)
+                      (when job-row
+                        (job-progress! conn (hash-ref job-row 'id) done total
+                                       #:token (hash-ref job-row 'token #f))))))
+      (hash-set* job 'tokens_used tokens 'metered #t)))
   (register-job-kind! "chat"
     (lambda (conn p payload)
       (define-values (reply tokens) (run-chat (format "~a" (hash-ref payload 'prompt ""))))
@@ -1164,7 +1194,25 @@
                           ;; deferral names the limit that holds them (issue #55)
                           #:hold-reason quota-hold-reason
                           #:on-hold note-deferred!
+                          ;; TR-11 (#233): A KIND THAT METERS ITS OWN MODEL
+                          ;; CALLS SAYS SO, AND IS NOT BILLED AGAIN. This
+                          ;; biller charges one `ai.requests` per JOB and the
+                          ;; result's `tokens_used` once at the end, which is
+                          ;; right for every kind that is one model call and
+                          ;; wrong in two ways for a translation: it under-counts
+                          ;; a 24-section document as a single request, and it
+                          ;; bills NOTHING for a job that was cancelled after
+                          ;; spending twenty of them. A kind that has already
+                          ;; recorded each call at the tool tier sets `metered`;
+                          ;; every other kind reports nothing and is billed
+                          ;; exactly as before.
+                          ;;
+                          ;; `eq? ... #t`, not truthiness: a jsexpr `'null` is
+                          ;; TRUE in Racket, the trap this tree has paid for
+                          ;; three times.
                           #:record! (lambda (conn team result)   ; bill the run at both tiers
+                                      (define self-metered?
+                                        (and (hash? result) (eq? (hash-ref result 'metered #f) #t)))
                                       (define toks (let ([t (and (hash? result) (hash-ref result 'tokens_used #f))])
                                                      (if (number? t) t 0)))
                                       (define org (team-org conn team))
@@ -1172,13 +1220,15 @@
                                       ;; question answered — output_tokens is 0 on that wire, so
                                       ;; the token meter cannot see it
                                       (define judgments (judgments-in-result result))
-                                      (quota-record! conn "team" team "ai.requests" 1)
-                                      (quota-record! conn "team" team "ai.tokens.total" toks)
+                                      (unless self-metered?
+                                        (quota-record! conn "team" team "ai.requests" 1)
+                                        (quota-record! conn "team" team "ai.tokens.total" toks))
                                       (when judgments
                                         (quota-record! conn "team" team "ai.judgments.total" judgments))
                                       (when org
-                                        (quota-record! conn "org" org "ai.requests" 1)
-                                        (quota-record! conn "org" org "ai.tokens.total" toks)
+                                        (unless self-metered?
+                                          (quota-record! conn "org" org "ai.requests" 1)
+                                          (quota-record! conn "org" org "ai.tokens.total" toks))
                                         (when judgments
                                           (quota-record! conn "org" org "ai.judgments.total" judgments))))))
   (printf "scheduler: 2 worker(s), per-team cap = ai.concurrency, quota-metered\n")

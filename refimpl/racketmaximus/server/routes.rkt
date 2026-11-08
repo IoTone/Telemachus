@@ -239,6 +239,9 @@
    (R "POST" "/api/agent" 'agent #:perm "chat:use" #:feature "agent" #:doc "Run the tool-using agent loop over the team's enabled tools; every tool call is RBAC-checked and metered.")
    (R "POST" "/api/translate/catalog" 'translate-catalog #:perm "chat:use" #:feature "translate" #:doc "Translate a whole locale catalog, placeholders preserved.")
    (R "POST" "/api/translate" 'translate #:perm "chat:use" #:feature "translate" #:doc "Translate text into a target language, applying the team glossary.")
+   ;; ABOVE the bare "/api/translate" POST is not needed — the paths differ by a
+   ;; segment — but it sits beside it so the pair reads as one surface.
+   (R "POST" "/api/translate/job" 'translate-job #:perm "chat:use" #:feature "translate" #:doc "Translate text as a scheduler job instead of inside the request (#233). Answers 202 with the job id and `sections`, the number of model calls the text was planned into; follow it with GET /api/jobs/:id, which carries `progress` once it starts and the translation in its result when it is done, and cancel it with POST /api/jobs/:id/cancel. The pre-flight is the synchronous route's — a text past the cap and an exhausted budget are both refused before a row exists — and the work is metered section by section exactly as the synchronous route meters it, so a run somebody cancels half way has still paid for the half it spent.")
    (R "GET" "/api/translate" 'translate-list #:perm "chat:use" #:doc "The team's translation history.")
    (R "POST" "/api/glossary" 'glossary-add #:perm "settings:manage" #:doc "Add or update a glossary term for a target language.")
    (R "GET" "/api/glossary" 'glossary-list #:perm "chat:use" #:doc "The team glossary.")

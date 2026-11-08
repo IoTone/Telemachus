@@ -139,6 +139,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/agent` | bearer | `chat:use` | role | `agent` | Run the tool-using agent loop over the team's enabled tools; every tool call is RBAC-checked and metered. |
 | POST | `/api/translate/catalog` | bearer | `chat:use` | role | `translate` | Translate a whole locale catalog, placeholders preserved. |
 | POST | `/api/translate` | bearer | `chat:use` | role | `translate` | Translate text into a target language, applying the team glossary. |
+| POST | `/api/translate/job` | bearer | `chat:use` | role | `translate` | Translate text as a scheduler job instead of inside the request (#233). Answers 202 with the job id and `sections`, the number of model calls the text was planned into; follow it with GET /api/jobs/:id, which carries `progress` once it starts and the translation in its result when it is done, and cancel it with POST /api/jobs/:id/cancel. The pre-flight is the synchronous route's — a text past the cap and an exhausted budget are both refused before a row exists — and the work is metered section by section exactly as the synchronous route meters it, so a run somebody cancels half way has still paid for the half it spent. |
 | GET | `/api/translate` | bearer | `chat:use` | role | — | The team's translation history. |
 | POST | `/api/glossary` | bearer | `settings:manage` | role | — | Add or update a glossary term for a target language. |
 | GET | `/api/glossary` | bearer | `chat:use` | role | — | The team glossary. |

@@ -41,6 +41,12 @@ async function translateView(){
   const manage=canManage();
   const opts=langs.map(([c,n])=>`<option value="${c}">${esc(n)}</option>`).join('');
   const termRows=terms.map(x=>`<tr><td class="mono muted">${esc(x.target_lang)}</td><td>${esc(x.term)}</td><td>${esc(x.translation)}</td></tr>`).join('');
+  // THE CARD CAN ONLY BE FILLED ONCE ITS MARKUP IS IN THE DOM, and a view
+  // returns a string. So the follow is kicked after this pass paints —
+  // `cardSwap` finds no `#trjobs` and does nothing if the pass was superseded
+  // or the tab changed, which is the whole guard it needs. Coming back to the
+  // tab with a job still running therefore picks it up again.
+  if((S.trJobs||[]).length) setTimeout(trFollow, 0);
   const histRows=hist.map(x=>`<tr><td class="mono muted">${esc(x.target_lang)}</td><td>${esc((x.source_text||'').slice(0,40))}</td><td>${esc((x.result||'').slice(0,70))}</td></tr>`).join('');
   return `<h2>${t('translate')}</h2>
    <div class="card">
@@ -51,10 +57,11 @@ async function translateView(){
      <div class="row" style="margin-top:8px;align-items:end">
        <div><label>${t('target')}</label><select id="trtgt">${opts}</select></div>
        <div><label><input type="checkbox" id="trgl" checked> ${t('useglossary')}</label></div>
-       <div><button class="btn" data-h-click="${H((el,ev)=>doTranslate())}">${t('translate')}</button></div>
+       <div><button id="trgo" class="btn" data-h-click="${H((el,ev)=>doTranslate())}">${t('translate')}</button></div>
      </div>
      <div id="trout" class="mono" style="margin-top:12px;white-space:pre-wrap"></div>
    </div>
+   ${trJobsCard(null)}
    <div class="card" style="margin-top:14px"><h3>${t('glossary')} <span class="muted" style="font-size:13px">— team terminology</span></h3>
      ${manage?`<div class="row" style="align-items:end;margin-bottom:8px">
         <div><label>${t('target')}</label><select id="gltgt">${opts}</select></div>
@@ -87,33 +94,124 @@ function trCount(){ charCount('trsrc', 'trcount', S.trMax || 0); }
 // two remedies — and a toast scrolls away in 2.6 seconds with no second chance.
 // It is the one thing the person needs to read.
 async function doTranslate(){
-  if(S.trBusy) return;
+  // THE GUARD IS AROUND THE ENQUEUE, NOT AROUND THE TRANSLATION. #174's flag
+  // covered the whole 20-second call, which is exactly what made a second
+  // submission impossible — the complaint #233 was filed about. What still
+  // needs guarding is the POST itself: two activations in one tick would
+  // enqueue two jobs, and a focused button fires on Enter and Space, so it
+  // takes no deliberate double-click. Nothing awaits between the check and the
+  // set, and the `finally` is what stops one network error leaving the button
+  // dead.
+  if(S.trSending) return;
   const text=val('trsrc'), target_lang=val('trtgt'), use_glossary=document.getElementById('trgl').checked;
   if(!text){toast(t('empty'));return;}
+  S.trSending=true;
   const out=document.getElementById('trout');
-  S.trBusy=true;
-  const t0=Date.now();
-  const paint=()=>{ out.textContent = t('trworking').replace('{s}', Math.round((Date.now()-t0)/1000)); };
-  paint();
-  const tick=setInterval(paint, 1000);
   try {
-    const r=await api('/api/translate',{method:'POST',body:{text,target_lang,use_glossary}});
-    const secs=Math.round((Date.now()-t0)/1000);
-    out.style.color = r.ok ? '' : 'var(--bad)';
-    if(r.ok){ out.textContent=r.json.result; out.dataset.took=secs;
-              // #232: a long text is translated in SECTIONS, and the count is
-              // what explains the longer wait. Only said when there was more
-              // than one — a message that always carries "in 1 sections" tells a
-              // reader nothing and is the shape #178 objects to.
-              const c=r.json.chunks||1;
-              toast(c>1 ? t('trsections').replace('{s}', secs).replace('{c}', c)
-                        : t('trdone').replace('{s}', secs), true); }
-    else out.textContent=(r.json && r.json.error) || t('trfailed');
-  } finally {
-    clearInterval(tick);
-    S.trBusy=false;
-  }
+    const r=await api('/api/translate/job',{method:'POST',body:{text,target_lang,use_glossary}});
+    if(r.ok){
+      // newest first, and the form is left exactly as it was: the person may
+      // edit it and send the next one while this runs, which is the acceptance
+      // criterion that could not be met while the answer arrived in the request
+      S.trJobs=[r.json.job_id].concat(S.trJobs||[]);
+      const c=r.json.sections||1;
+      toast(t('traccepted').replace('{c}', c), true);
+      trFollow();
+    } else {
+      // A REFUSAL GOES IN THE OUTPUT PANE, NOT IN A TOAST (#231): the
+      // over-the-limit message is several sentences — the length sent, the
+      // limit, why longer comes back wrong, and the two remedies — and a toast
+      // scrolls away in 2.6 seconds with no second chance.
+      out.style.color='var(--bad)';
+      out.textContent=(r.json && r.json.error) || t('trfailed');
+    }
+  } finally { S.trSending=false; }
 }
+
+// ---- following the jobs this session submitted (#233) -----------------------
+//
+// ONE REQUEST FOR THE WHOLE CARD, not one per job: `GET /api/jobs` is the
+// team's list and the followed ids are a filter on it. A poll per row would
+// multiply with the number of translations somebody queues, which is the thing
+// this screen now invites them to do.
+//
+// REFRESHES WHILE A STATUS IS ACTUALLY CHANGING AND NOT A MOMENT LONGER —
+// QVIZ-6, the rule the Jobs and Queue cards already follow. The idle clock
+// counts from the last REQUEST (#38), so a tab that polled for as long as it
+// was open would hold a session alive indefinitely: an idle Translate tab must
+// issue nothing, which is #233's fifth acceptance criterion and is why this is
+// a generation-counted `setTimeout` rather than an interval.
+async function trFollow(){
+  return cardSwap('trjobs', async () => {
+    const ids=S.trJobs||[];
+    if(!ids.length) return trJobsCard(null);
+    const r=await api('/api/jobs');
+    if(!r.ok) return null;                      // leave the card alone
+    const by={}; (r.json.jobs||[]).forEach(j=>{ by[j.id]=j; });
+    const jobs=ids.map(id=>by[id]).filter(Boolean);
+    const live=jobs.some(j=>j.status==='queued'||j.status==='running'||j.status==='canceling');
+    // THE NEWEST SETTLED JOB GOES IN THE OUTPUT PANE, which is where this tab
+    // has always painted an answer — and a FAILURE goes there too, for #231's
+    // reason: the refusal a translation can meet is several sentences (which
+    // section stopped, that nothing was stored, and the two remedies), and the
+    // row's `error` badge alone leaves the one thing the person needs to read
+    // nowhere on the screen.
+    const settled=jobs.find(j=>j.status==='done'||j.status==='error');
+    if(settled){
+      const out=document.getElementById('trout');
+      const res=settled.result && settled.result.result;
+      const err=settled.error;
+      if(out && typeof res==='string'){ out.style.color=''; out.textContent=res; }
+      else if(out && typeof err==='string' && err){ out.style.color='var(--bad)'; out.textContent=err; }
+    }
+    if(live){ const gen=++S.trPoll;
+              setTimeout(()=>{ if(S.tab==='translate'&&S.trPoll===gen) trFollow(); },2000); }
+    return trJobsCard(jobs);
+  });
+}
+
+// `null` is the first paint, before anything has been submitted: the card is
+// omitted entirely rather than drawn empty, because a heading over no rows is
+// a promise about a feature the person has not used yet.
+function trJobsCard(jobs){
+  // THE ID IS ON THE CARD ITSELF, not on a wrapper: `cardSwap` replaces the
+  // element's `outerHTML`, so a built card without it swaps the id out of the
+  // DOM and the next refresh finds nothing — `jobsListCard`'s own shape.
+  // The empty form is a bare div rather than '' for the same reason: there has
+  // to be something for the first swap to find.
+  if(!jobs || !jobs.length) return '<div id="trjobs"></div>';
+  const rows=jobs.map(j=>`<tr><td class="mono muted">${esc(j.id.slice(0,8))}</td>`
+    + `<td>${jobStatusBadge(j.status)}${jobWaitBadge(j)}</td>`
+    + `<td>${trProgress(j)}</td>`
+    + `<td style="white-space:nowrap">${jobTook(j)}</td>`
+    + `<td>${(j.status==='queued'||j.status==='running')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doTrCancel((j.id)))}">${t('cancel')}</button>`:''}</td></tr>`).join('');
+  return `<div class="card" id="trjobs" style="margin-top:14px"><h3>${t('trjobs')}</h3>
+    <table><thead><tr><th>job</th><th>status</th><th>${t('trcolsections')}</th><th>${t('trcolelapsed')}</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+// SAID ONLY WHEN THERE IS MORE THAN ONE UNIT OF WORK. The pair is withdrawn by
+// the server for a kind that does not report it (TR-9), and "1 of 1 sections"
+// tells a reader nothing — #178's rule about a figure that decorates rather
+// than informs.
+function trProgress(j){
+  const pr=j.progress;
+  if(!pr || pr==='null' || !(pr.total>1)) return '';
+  const pct=Math.round(100*Math.min(pr.done,pr.total)/pr.total);
+  return `<span class="muted">${esc(t('trprogress').replace('{d}', pr.done).replace('{n}', pr.total))}</span>`
+    + `<div style="height:4px;background:var(--line);border-radius:2px;margin-top:4px">`
+    + `<div style="height:4px;width:${pct}%;background:var(--accent3);border-radius:2px"></div></div>`;
+}
+
+// Cancel refreshes THIS card, not the Jobs tab's — `doCancelJob` calls
+// `jobsRefresh()`, which on this tab would find no `jobscard` and do nothing,
+// leaving a cancelled row still saying `running` until the next poll.
+async function doTrCancel(id){
+  const r=await api('/api/jobs/'+id+'/cancel',{method:'POST'});
+  if(r.ok) toast(t('canceled'),true); else toast((r.json&&r.json.error)||t('error'));
+  trFollow();
+}
+
 async function doAddTerm(){
   const r=await api('/api/glossary',{method:'POST',body:{target_lang:val('gltgt'),term:val('glterm'),translation:val('gltr')}});
   if(r.ok){ toast('added',true); renderTab(); } else toast(r.json.error||'error');

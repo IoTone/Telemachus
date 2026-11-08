@@ -478,3 +478,50 @@
   (check-false (purge-job-content! c j "some-other-team"))
   (check-false (purge-job-content! c "no-such-job" tid))
   (close-db! c))
+
+;; ---- #233 / TR-9: how far through is this job? ------------------------------
+
+(test-case "TR-9: a handler reports progress, and the pair is WITHDRAWN for a kind that does not"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  ;; a kind with units: it reports from inside its own run, where the claim is
+  ;; live and the token is in `current-job`
+  (register-job-kind! "unitwork"
+    (lambda (conn p payload)
+      (define j (current-job))
+      (for ([i (in-range 1 4)])
+        (job-progress! conn (hash-ref j 'id) i 3 #:token (hash-ref j 'token #f)))
+      (hasheq 'ok #t)))
+  (register-job-kind! "unitless" (lambda (conn p payload) (hasheq 'ok #t)))
+  (define a (enqueue-job! c #:team tid #:user uid #:kind "unitwork"))
+  (define b (enqueue-job! c #:team tid #:user uid #:kind "unitless"))
+  (process-one! c) (process-one! c)
+  (check-equal? (hash-ref (get-job c a tid) 'progress) (hasheq 'done 3 'total 3))
+  ;; A KIND THAT SAYS NOTHING REPORTS NOTHING, rather than `0 of 0`: a field a
+  ;; reader learns to distrust is worse than an honest absence (PULL-11e), and
+  ;; it is also the compatibility guarantee — every kind that existed before
+  ;; migration 0075 is untouched.
+  (check-equal? (hash-ref (get-job c b tid) 'progress) 'null))
+
+(test-case "TR-9: the progress write is FENCED on the attempt, and on the job still running"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define id (enqueue-job! c #:team tid #:user uid #:kind "unitwork"))
+  ;; claimed by hand, so the test holds the token the row is fenced on
+  (define token (claim-job! c id #:lease 120))
+  (check-true (string? token))
+  (job-progress! c id 1 5 #:token token)
+  (check-equal? (hash-ref (get-job c id tid) 'progress) (hasheq 'done 1 'total 5))
+  ;; A STALE ATTEMPT WRITES NOTHING. A job whose lease lapsed at section 9 of 24
+  ;; is re-queued and the new attempt starts at 1 — the old handler is still
+  ;; running and would otherwise keep writing 10, 11, 12 over it.
+  (job-progress! c id 99 5 #:token "a-different-attempt")
+  (check-equal? (hash-ref (get-job c id tid) 'progress) (hasheq 'done 1 'total 5)
+                "a write from another attempt must not land")
+  ;; AND A JOB SOMEBODY HAS CANCELLED STOPS ADVANCING. Cancellation is
+  ;; cooperative (SCHED-8), so the handler may not have noticed yet; a figure
+  ;; still climbing after a cancel reads as a cancel that did not take.
+  (check-true (cancel-job! c id tid))
+  (job-progress! c id 4 5 #:token token)
+  (check-equal? (hash-ref (get-job c id tid) 'progress) (hasheq 'done 1 'total 5)
+                "a cancelled job's progress is frozen where it stopped"))

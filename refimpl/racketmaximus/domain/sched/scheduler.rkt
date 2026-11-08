@@ -61,7 +61,7 @@
          remote-kind? remote-kinds remote-kind-validator
          scheduler-cap-for scheduler-hold-reason scheduler-on-hold scheduler-record!
          team-hold
-         set-reaper! current-job
+         set-reaper! current-job job-progress!
          claim-job! finish! reap-orphans! POOL-LEASE-SECONDS
          drain-scheduler! scheduler-inflight-count drain-seconds
          ;; exported FOR the two other plugin-owned registries (extractors, feed
@@ -298,7 +298,16 @@
           ;; purged one are the same thing to a reader (issue #59). A caller that
           ;; honoured a deletion request needs to be able to show that it was
           ;; honoured, and `payload = '{}'` cannot show that on its own.
-          'purged_at (nz (vr r 12))))
+          'purged_at (nz (vr r 12))
+          ;; TR-9 — THE PAIR IS WITHDRAWN RATHER THAN DEFAULTED. A kind that
+          ;; does not report progress leaves both NULL, and `progress: 0 of 0`
+          ;; would be a field a reader learns to distrust (PULL-11e) — so the
+          ;; key is ABSENT, which is the rule `waiting` already follows
+          ;; (QUOTA-3): present only when it says something.
+          'progress (let ([d (vr r 17)] [n (vr r 18)])
+                      (if (or (sql-null? d) (sql-null? n))
+                          'null
+                          (hasheq 'done d 'total n)))))
 
 ;; The executor's NAME is joined, not just its id. `executor_id` is a uuid, which
 ;; answers nothing a person can act on — "which worker ran my job" is the
@@ -313,7 +322,8 @@
 (define JSELECT
   (string-append "SELECT j.id, j.kind, j.status, j.priority, j.result, j.error, j.created_at, "
                  "j.started_at, j.finished_at, j.executor_id, j.attempt, j.parent_job_id, "
-                 "j.purged_at, x.name, j.created_epoch, j.started_epoch, j.finished_epoch "
+                 "j.purged_at, x.name, j.created_epoch, j.started_epoch, j.finished_epoch, "
+                 "j.progress_done, j.progress_total "
                  "FROM jobs j LEFT JOIN executors x ON x.id = j.executor_id"))
 
 (define (get-job conn id team)
@@ -430,6 +440,31 @@
 ;; that runs in steps (an agent loop, a batch) polls this at a step boundary and
 ;; returns early. It is an optimization — it saves CPU and tokens — never a
 ;; correctness requirement, because the result is fenced out either way.
+;; ---- how far through is it? (TR-9, #233) ------------------------------------
+;;
+;; A handler whose work has UNITS says so, and nothing else changes: the pair is
+;; nullable (migration 0075) and the projection withdraws it, so every kind that
+;; does not call this is untouched.
+;;
+;; FENCED ON THE ATTEMPT'S `claim_token`, like every other post-claim write
+;; (issue #24). A progress write is not terminal, so getting this wrong costs
+;; nobody their result — what it costs is the row reporting the PREVIOUS
+;; attempt's position: a job whose lease lapsed at section 9 of 24 has been
+;; re-queued and the new attempt starts at 1, and the old handler is still
+;; running and would keep writing 10, 11, 12 over it. `current-job` carries the
+;; token for this reason.
+;;
+;; `status='running'` as well, so a job somebody has CANCELLED stops advancing a
+;; figure the console is drawing — the handler may not have noticed yet
+;; (cancellation is cooperative, SCHED-8), and a bar still climbing after a
+;; cancel reads as a cancel that did not take.
+(define (job-progress! conn id done total #:token [token #f])
+  (void (apply query-exec conn
+          (string-append "UPDATE jobs SET progress_done = ?, progress_total = ? "
+                         "WHERE id = ? AND status = 'running'"
+                         (if token " AND claim_token = ?" ""))
+          (append (list done total id) (if token (list token) '())))))
+
 (define (job-canceled? conn id)
   (define st (query-maybe-value conn "SELECT status FROM jobs WHERE id = ?" id))
   (and st (member st '("canceling" "canceled")) #t))
@@ -682,7 +717,7 @@
         [else
          (define result (with-lease conn id token
                           (lambda ()
-                            (parameterize ([current-job (hasheq 'id id 'team team 'user user)])
+                            (parameterize ([current-job (hasheq 'id id 'team team 'user user 'token token)])
                               (handler conn (user-principal conn user team) payload)))))
          ;; bill only what we actually recorded: a run whose lease lapsed mid-flight
          ;; has been re-queued, and the new attempt will bill its own usage.

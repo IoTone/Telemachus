@@ -5,12 +5,14 @@ under it that is the most important thing on the screen.
 
 ## What appears here, and what does not
 
-> This list is the SCHEDULER queue. Chat streams its answer, and Translate and
-> Ask are answered in the request itself — none of the three creates a job, so
-> using them leaves nothing here. What appears: what you submit above, a
+> This list is the SCHEDULER queue. Chat streams its answer and Ask is answered
+> in the request itself, so neither leaves anything here. A translation IS a job
+> now, so it does. What appears: what you submit above, every translation, a
 > workflow's steps, a trigger's run, and any work a fleet worker claims.
 
-An empty Jobs screen after a busy afternoon of chatting is correct.
+An empty Jobs screen after a busy afternoon of chatting is correct. An empty one
+after a translation is not — a translation is a job, and it has a row here with
+its status, how long it took and how many sections it was split into.
 
 ## Submitting one
 
@@ -40,6 +42,12 @@ own timezone on hover. After it, a **duration**:
   on every refresh — because `14s` and `14s so far` are different facts, and a
   reader who cannot tell them apart will read a stalled job as a fast one;
 - a **queued** job shows nothing. It has not started, so it has no duration.
+
+A job that was split into units of work — a translation, which is one model call
+per section — reports how many of them are done, and this table does not draw
+it: every other kind is a single call, so a column reading `1 of 1` on every row
+but one would say less than nothing. The figure is on the
+[Translate](translate.md) screen, beside the job that is producing it.
 
 **worker** — which host ran it. Two absences, each of which says which:
 
