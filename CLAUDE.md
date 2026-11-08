@@ -4263,6 +4263,43 @@ TMACH_EMBED_URL=… racket cli/telemachus-help.rkt ingest   # from a CHECKOUT (H
   more for them to undo, not less — #227 slice 3's call. The cost is visible
   where a reader meets it: the panel says `helplocaleempty` rather than
   silently answering in another language.
+**THE MEASUREMENT, which is half of #237's scope.** Two throwaway instances on
+the demo box, one per corpus, same embedder (`bge-m3`) and same chat model
+(`qwen2.5:7b`), bootstrapped fresh so no live corpus was touched. Baseline: 98
+documents, 1,842 chunks. With the tree: **121 documents, 1,947 chunks, 23 extra
+embedding requests** — and a re-ingest after editing five pages cost **17
+requests with 116 documents reported `unchanged`**, which is the sha1 rule doing
+exactly what #237 predicted the marginal cost would be.
+
+| question | baseline | with `docs/ui/` |
+|---|---|---|
+| how do I ask the documentation a question in the console? | *"you would use the `POST /api/help` route"*, cited to `docs/design/in-product-help.md` | the `Docs` button, its position, `⌘/`, the five steps |
+| which tab shows the worker fleet? | **"the Queue card"** | *"the `Workers` card, on two tabs: `Health` and `Admin`"* |
+| how do I share a note with a colleague? | the HTTP endpoint and `notes:manage`, `unfocused` | the row's dropdown and `Share`, and that it grants READ only |
+| where is the character count on the chat screen? | declines, `uncited` | under the prompt box, and what M is |
+| what does the Details button on a document do? | declines | what the panel holds, and that it changes nothing |
+
+🔑 **THE BASELINE WAS WORSE THAN #237 RECORDED, in the one row that had been
+called roughly right.** "which tab shows the worker fleet" answered *"the Queue
+card"* — the wrong card, confidently, with no refusal — where the issue's run
+had it answered out of `README.md`. The corpus had moved on (the demo embedder
+is `bge-m3` now, not `nomic-embed-text`), which is the argument for
+**re-measuring rather than quoting a measurement**: a figure from a live box is
+evidence of what that box was doing, not of what the code does.
+
+🔑 **AND THE RE-MEASUREMENT FOUND THREE REAL DEFECTS IN THE PAGES, which is why
+it is a step and not a formality.** A note's **`Share` control was missing from
+`notes.md` outright** — each row carries a colleague dropdown and a Share
+button granting READ only, with no capability picker, and the page did not
+mention it, so the answer came back as the endpoint. `workers.md` opened by
+saying the cards *appear on* Health and Admin, and the model read the README's
+tab list instead and answered **"the Workflows tab"** — it says *which tab*
+first now. And `repository.md`'s heading was `## Details`, which without the
+word **button** retrieved `documents.md` and `editor.md` and declined; **the
+heading is embedded with its chunk**, so a heading that does not contain the
+question's own noun is a page that cannot be found by it. Each fix was one
+sentence, and none would have been written without asking.
+
 - **Two user-facing strings are stale and were NOT fixed here**, because each
   makes its Japanese stale and so is a catalog edit: `ui.simulatedwhy` and
   `ui.s3off` name operator variables in the OLD `TELEMACHUS_*` spelling while
