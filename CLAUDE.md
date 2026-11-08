@@ -4215,6 +4215,61 @@ the require to the CLI as well as to main.rkt.
   precedent), and a hand-written spec uses the WIRE grammar
   `${steps.<id>.output.*}`, not the macro's sugar.
 
+## The documentation covers the console now (UIDOC‑1…8, issue #237)
+
+Built 7 Nov 2026, which **closes #237**. `docs/ui/`, twenty-two pages, English.
+**No code at all** — `help-markdown-files` already walks `docs/` for any `.md`,
+so the tree is indexed by re-running `telemachus-help ingest` and nothing else.
+
+```sh
+bash scripts/check-config-reference.sh           # docs/ui is in PROSE_DOCS now
+bash scripts/build-site.sh                       # + the workflow's own link check
+TMACH_EMBED_URL=… racket cli/telemachus-help.rkt ingest   # from a CHECKOUT (HELP‑2)
+```
+
+- 🔑 **THE FAILURE IT CLOSES IS ONE NO VERIFICATION CAN REACH.** Asked *"how do
+  I ask the documentation a question in the console?"*, the live corpus answered
+  **"you would use the `doc_translate` tool"**, cited to
+  `docs/reference/tools.md` — and **the citation was GENUINE**. HELP‑16 checks
+  that a cited path was among the retrieved passages, which that answer
+  satisfies; the passage simply does not answer the question. So the fix is not
+  a stricter verifier, it is pages about the console. Measured before and after
+  on the same box, which is the only thing that establishes it.
+- 🔑 **`static/ui-strings.json` IS THE SOURCE, NOT THE VIEWS.** 617 keys, and
+  most of them are already the sentence a reader needs: this console has been
+  putting its reasoning in the hint under the card for a year
+  (`wkexpiredhint`, `jobscope`, `qvstuckhint`, `vishint`, `wkmodelshint`). Each
+  page QUOTES the string the reader will see rather than paraphrasing it — a
+  paraphrase goes stale invisibly, where a quotation that stops matching is one
+  somebody notices. Write a page from the catalog plus the view that renders it.
+- **NOT generated from the tour captions**, which was #237's one open question.
+  `run-tour.mjs`'s captions and `captions.ja.json` are source-hash gated, so
+  generating from them is the drift-free option and the wrong artifact: a
+  caption is one sentence about a picture. No page quotes one, so there is
+  nothing to drift.
+- **A SHARED PART IS DESCRIBED ONCE**: `editor.md` (Notes and Documents) and
+  `workers.md` (the two cards Health and Admin compose), because the console
+  composes them rather than drawing them twice — QVIZ‑5 and HEALTH‑1's rule
+  applied to prose.
+- **THE SITE BUILDER ENUMERATES DIRECTORIES BY NAME**, so a new tree is
+  silently unpublished and every link into it is rewritten to a GitHub blob URL.
+  `docs/ui/` needed its own loop plus a landing-page section generated from what
+  is on disk (the design and ops lists' rule). Verified by running
+  `build-site.sh` and the workflow's own python: **85 pages, 0 broken links.**
+- **ENGLISH ONLY, DELIBERATELY.** HELP‑10 already reads `docs/ui/ja/` as a
+  locale, so the Japanese needs no code the day somebody writes it. It is
+  deferred because a native reviewer is starting on the machine-assisted `ja`
+  book and catalog this week and twenty-two fresh machine-translated pages are
+  more for them to undo, not less — #227 slice 3's call. The cost is visible
+  where a reader meets it: the panel says `helplocaleempty` rather than
+  silently answering in another language.
+- **Two user-facing strings are stale and were NOT fixed here**, because each
+  makes its Japanese stale and so is a catalog edit: `ui.simulatedwhy` and
+  `ui.s3off` name operator variables in the OLD `TELEMACHUS_*` spelling while
+  `ui.helpunconfigured` beside them says `TMACH_EMBED_URL`, and `agentView`'s
+  subtitle is still an English literal — `doSearch`'s shape, which #178 fixed
+  for that function and not for this one.
+
 ## In-product help: the corpus and its read (HELP‑1…14, issue #183 slice 1)
 
 Built 29 Oct 2026, the first thing to pick up #189's retrieval. Migration

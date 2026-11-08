@@ -103,6 +103,12 @@ for f in "$ROOT"/docs/emacs/*.md; do
   t="$(sed -n 's/^# //p' "$f" | head -1)"; [ -n "$t" ] || t="$b"
   page "$f" "docs/emacs/$b.html" "$t"
 done
+for f in "$ROOT"/docs/ui/*.md; do
+  [ -e "$f" ] || continue
+  b="$(basename "$f" .md)"
+  t="$(sed -n 's/^# //p' "$f" | head -1)"; [ -n "$t" ] || t="$b"
+  page "$f" "docs/ui/$b.html" "$t"
+done
 for f in "$ROOT"/docs/design/*.md; do
   b="$(basename "$f" .md)"; page "$f" "docs/design/$b.html" "Design — $b"
 done
@@ -115,6 +121,14 @@ for f in "$ROOT"/docs/design/*.md; do
   b="$(basename "$f" .md)"
   t="$(sed -n 's/^# //p' "$f" | head -1)"; [ -n "$t" ] || t="$b"
   design_items="$design_items      <li><a href=\"docs/design/$b.html\">$t</a></li>\n"
+done
+ui_items=""
+for f in "$ROOT"/docs/ui/*.md; do
+  [ -e "$f" ] || continue
+  b="$(basename "$f" .md)"
+  [ "$b" = "README" ] && continue
+  t="$(sed -n 's/^# //p' "$f" | head -1)"; [ -n "$t" ] || t="$b"
+  ui_items="$ui_items      <li><a href=\"docs/ui/$b.html\">$t</a></li>\n"
 done
 ops_items=""
 for f in "$ROOT"/docs/ops/*.md; do
@@ -149,6 +163,7 @@ cat > "$OUT/index.html" <<HTML
     <li><h3><a href="readme.html">Read me first</a></h3><p>What it is, what runs today, and how to get it running. <a href="README.ja.html">日本語</a></p></li>
     <li><h3><a href="docs/reference/README.html">Reference</a></h3><p>Generated from the source: every route, tool, workflow, permission and plugin seam.</p></li>
     <li><h3><a href="docs/emacs/README.html">Editing in Emacs</a></h3><p>A live Racket REPL over this tree: Geiser and racket-mode, their keys, and the two things that bite on this repo.</p></li>
+    <li><h3><a href="docs/ui/README.html">The console</a></h3><p>The web UI, screen by screen: what is on it, what the controls do, and what the figures mean.</p></li>
   </ul>
 
   <h2>Reference</h2>
@@ -162,6 +177,11 @@ cat > "$OUT/index.html" <<HTML
     <li><a href="docs/reference/sdk.html">SDK</a> — the authoring surfaces</li>
     <li><a href="docs/reference/ja/README.html">日本語版</a></li>
   </ul>
+
+  <h2>The console</h2>
+  <p class="meta">What is on each screen, what the controls do, and what the figures mean. <a href="docs/ui/README.html">Start here</a>.</p>
+  <ul>
+$(printf "$ui_items")  </ul>
 
   <h2>Operating</h2>
   <ul>
