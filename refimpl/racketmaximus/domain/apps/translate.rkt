@@ -22,7 +22,12 @@
          (only-in "../ai/chunk.rkt" chunk-text)
          ;; issue #83 r1: these two columns hold derived document content whenever
          ;; the pipeline translates
-         (only-in "../authz/sealed.rkt" define-sealed-column))
+         (only-in "../authz/sealed.rkt" define-sealed-column)
+         ;; TR-10 (#233): the per-chunk metering pair has two askers now — the
+         ;; synchronous endpoint and the `translate` job kind — so it is built
+         ;; here rather than twice. No cycle: orgs.rkt requires only db, authz
+         ;; and quota.
+         (only-in "../orgs/orgs.rkt" tenant-quota-check tenant-quota-record!))
 
 (define-sealed-column "translations.source_text" (seal-source unseal-source) (id))
 (define-sealed-column "translations.result_text" (seal-result unseal-result) (id))
@@ -37,6 +42,8 @@
          ;; before it starts, and for the tests, which must not depend on
          ;; today's window (`help-answer`'s `#:floor`, for its reason)
          translate-chunk-chars translate-plan TRANSLATE-MAX-CHUNKS
+         ;; TR-10 (#233): the admit/record pair, built once for both callers
+         translate-metering
          ;; the composed prompt the budget is CHARGED against. Exported for the
          ;; tests, which must charge the same thing the code does — a test that
          ;; re-derived it would agree with any change to it.
@@ -220,6 +227,37 @@
   (* TRANSLATE-MAX-CHUNKS
      (translate-chunk-chars #:target "ja" #:system (system-prompt "ja" "auto" '()))))
 
+;; ---- the per-chunk metering pair (TR-10, #233) ------------------------------
+;;
+;; ONE RULE, TWO ASKERS: `POST /api/translate` and the `translate` job kind. Both
+;; bill at the tool tier, so the pair is built here rather than written out twice
+;; — the drift `executor-can-run?` was extracted to stop, in a place where a
+;; divergence would be a team billed differently for the same work depending on
+;; which button they pressed.
+;;
+;; `admit` answers a REASON STRING naming the section, because that is the half
+;; a person can act on: "nothing was stored, raise the limit or wait" beats a
+;; refusal that only says the budget is gone. `record!` charges BOTH dimensions
+;; per section (FEED-9), so a run that stops at section 20 of 24 has paid for
+;; twenty and a cancelled job is not free.
+;;
+;; It takes no HTTP: a refusal is a string, and rendering it as a 429 or as a job
+;; error is each caller's own business.
+(define (translate-metering conn p)
+  (values
+   (lambda (i n)
+     (define rq (tenant-quota-check conn p "ai.requests" 1))
+     (cond
+       [(hash-ref rq 'allowed) #f]
+       [else (format (string-append "section ~a of ~a could not be translated: the team's"
+                                    " ai.requests budget is exhausted. Nothing was stored —"
+                                    " raise the limit, or wait for the window to reset, and"
+                                    " run it again.")
+                     i n)]))
+   (lambda (tokens)
+     (tenant-quota-record! conn p "ai.requests" 1)
+     (tenant-quota-record! conn p "ai.tokens.total" tokens))))
+
 ;; returns (values job-hash tokens-used)
 ;;
 ;; `#:admit` and `#:record!` are the per-chunk metering seams (#232). Each chunk
@@ -229,13 +267,22 @@
 ;; makes a failing run free and metering at the end makes a run that stops
 ;; halfway look free.
 ;;
-;; THE DEFAULTS ARE TODAY'S BEHAVIOUR EXACTLY — admit everything, record nothing —
-;; so every existing caller and every test is unchanged. The ENDPOINT fills them,
-;; because only the caller knows which tier it bills at: `ai.requests` counts
-;; scheduler jobs at the job tier and model calls at the tool tier, which
-;; CLAUDE.md records and deliberately declines to change. Inside the `translate`
-;; JOB kind the scheduler bills the job's own `tokens_used`, so the job passes
-;; neither seam and is metered as it always was.
+;; THE DEFAULTS ARE TODAY'S BEHAVIOUR EXACTLY — admit everything, record nothing,
+;; report no progress — so every existing caller and every test is unchanged. The
+;; CALLER fills them, and since #233 there are two: the synchronous endpoint and
+;; the `translate` job kind. Both are at the TOOL tier, which is why
+;; `translate-metering` below builds the pair once for both rather than letting
+;; them drift (`executor-can-run?`'s lesson) — and why a translation run as a job
+;; is metered IDENTICALLY to one run inside the request, section by section,
+;; rather than as the single `ai.requests` the scheduler bills a job. A job that
+;; meters itself says so in its result (`metered`) and the biller does not bill
+;; it again; without that, cancelling at section 20 of 24 would cost the team
+;; nothing at all, because the scheduler bills only a job that FINISHES.
+;;
+;; `#:progress!` is called with `(done total)` — once with 0 before any model
+;; call, so the total is known from the first poll, and once after each section
+;; lands. It is a seam for the same reason the other two are: `translate!` knows
+;; the unit count and nothing about where a caller would record it.
 ;;
 ;; `#:admit` answers #f to admit, or a REASON STRING to stop. A refusal mid-way
 ;; raises and nothing is stored — the acceptance criterion is "a named reason
@@ -244,7 +291,8 @@
 (define (translate! conn p #:text text #:target-lang tgt
                     #:source-lang [src "auto"] #:use-glossary [gl? #t] #:chat [chat default-chat]
                     #:admit [admit (lambda (i n) #f)]
-                    #:record! [record! (lambda (tokens) (void))])
+                    #:record! [record! (lambda (tokens) (void))]
+                    #:progress! [progress! (lambda (done total) (void))])
   (require-perm conn p "chat:use")
   (define terms (if gl? (glossary-list conn p #:target-lang tgt) '()))
   (define sys (system-prompt tgt src terms))
@@ -258,6 +306,10 @@
   ;; acceptance criterion and is what the single-chunk case gives for free — the
   ;; loop below runs once and `string-append` of one element is that element.
   (define total (box 0))
+  ;; 0 of N before anything is spent: a caller following this along learns the
+  ;; unit count from its first look rather than after the first section, which
+  ;; on a 24-section document is a minute of showing nothing but a clock.
+  (progress! 0 (length chunks))
   (define parts
     (for/list ([c (in-list chunks)] [i (in-naturals 1)])
       (let ([stop (admit i (length chunks))])
@@ -269,6 +321,7 @@
       (define-values (reply tokens) (chat (hash-ref c 'text) sys))
       (set-box! total (+ (unbox total) (if (number? tokens) tokens 0)))
       (record! (if (number? tokens) tokens 0))
+      (progress! i (length chunks))
       reply))
   (define reply (apply string-append parts))
   (define tokens (unbox total))

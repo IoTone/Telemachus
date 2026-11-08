@@ -1284,7 +1284,7 @@
   (check-true (and (regexp-match? #px"r\\.ok" help) #t) "the status has to be read")
   (check-true (and (regexp-match? #rx"toast" help) #t) "…and a failure says so"))
 
-(test-case "#231: the Translate field grows, counts, and shows its clock"
+(test-case "#231: the Translate field grows and counts against the server's own limit"
   (define rv (console-code "07-render.js"))
   ;; the field was `rows="4"` and fixed, in the one place in this console where
   ;; people paste a document
@@ -1298,8 +1298,11 @@
   (check-false (regexp-match? #rx"7680" rv) "the limit must not be spelled in the console")
   ;; #174's shape, which this call never had: one send, the flag IS the guard
   ;; and the pending state, and a `finally` so one network error cannot leave it
-  ;; dead.
-  (check-true (and (regexp-match? #px"if\\s*\\(S\\.trBusy\\)\\s*return" rv) #t))
+  ;; dead. #233 MOVED WHAT THE FLAG COVERS — `S.trBusy` wrapped the whole
+  ;; 20-second call, which is what made a second submission impossible; the
+  ;; guard is now `S.trSending` around the ENQUEUE, and the case that pins the
+  ;; no-await rule is below.
+  (check-true (and (regexp-match? #px"if\\(S\\.trSending\\) return" rv) #t))
   (check-true (and (regexp-match? #rx"finally" rv) #t))
   ;; a refusal goes in the OUTPUT pane, not a toast that scrolls away in 2.6s —
   ;; #231's message is the several sentences the person needs to read
@@ -1693,3 +1696,111 @@
   ;; rule added here needs a RESTART where console/*.js does not
   (check-true (and (regexp-match? #rx"console/21-notegraph.js" shell) #t)
               "the file is loaded, or none of it runs"))
+
+;; ---- #233: the Translate tab enqueues and follows ---------------------------
+
+(test-case "the translation is a JOB now, and the form is never held open"
+  ;; THE DEFECT #233 WAS FILED ABOUT: `doTranslate` awaited a synchronous
+  ;; `POST /api/translate` — 20 s at 8,000 characters, measured on the issue —
+  ;; and #174's flag covered the whole call, which is what made a second
+  ;; submission impossible rather than merely slow.
+  (define src (console-code "07-render.js"))
+  (check-true (and (regexp-match? #rx"/api/translate/job" src) #t)
+              "it enqueues rather than awaiting the translation")
+  (check-false (regexp-match? #px"api\\('/api/translate'\\s*,\\s*\\{method:'POST'" src)
+               "the synchronous POST is gone from the tab")
+  ;; THE GUARD IS AROUND THE ENQUEUE ONLY, and it is still #174's shape: the
+  ;; flag IS the guard and the pending state, nothing awaits between the check
+  ;; and the set, and the `finally` is what stops one network error leaving the
+  ;; button dead.
+  (check-true (and (regexp-match? #px"if\\(S\\.trSending\\) return;" src) #t))
+  (check-true (and (regexp-match? #px"finally\\s*\\{\\s*S\\.trSending=false;\\s*\\}" src) #t)
+              "the flag is cleared in a finally")
+  (define body
+    (let ([m (regexp-match #px"(?s:async function doTranslate\\(\\)\\{(.*?)
+\\}
+)" src)])
+      (and m (cadr m))))
+  (check-true (string? body) "doTranslate is findable")
+  (define before-set
+    (let ([m (regexp-match #px"(?s:^(.*?)S\\.trSending=true;)" body)]) (and m (cadr m))))
+  (check-true (string? before-set))
+  (check-false (regexp-match? #rx"await" before-set)
+               "nothing may await between the guard and the flag — two activations in one tick"))
+
+(test-case "the follow poll ticks only while there is live work, and drops with the tab"
+  ;; QVIZ-6, the rule the Jobs and Queue cards already follow: the idle clock
+  ;; counts from the last REQUEST (#38), so a tab that polled for as long as it
+  ;; was open would hold a session alive indefinitely — an idle Translate tab
+  ;; must issue nothing, which is #233's fifth acceptance criterion.
+  (define src (console-code "07-render.js"))
+  (check-false (regexp-match? #rx"setInterval" src)
+               "no interval: the old elapsed clock was one, and it outlived nothing but it is the wrong shape here")
+  (check-true (and (regexp-match? #px"const gen=\\+\\+S\\.trPoll;" src) #t))
+  (check-true (and (regexp-match? #px"S\\.tab==='translate'&&S\\.trPoll===gen" src) #t)
+              "the tick checks both the tab and its own generation")
+  ;; the reschedule is INSIDE the live branch, so a settled queue schedules nothing
+  (check-true (and (regexp-match? #px"(?s:if\\(live\\)\\{[^}]*setTimeout)" src) #t))
+  ;; leaving the tab drops the tick, as it already drops a run poll and the jobs one
+  (check-true (and (regexp-match? #rx"S\\.trPoll\\+\\+" (console-code "02-auth.js")) #t)))
+
+(test-case "a page change swaps the card, not the tab"
+  ;; `renderTab()` paints a `…` placeholder and re-fires all four of this tab's
+  ;; requests, and the create form's title is a plain input — so following a job
+  ;; through a tab render would throw away a half-written next translation.
+  ;; `edSetFormat` (ORG-1) and `qSet`/`nGo` (CARD-1, NPG-10) each paid for this.
+  (define src (console-code "07-render.js"))
+  (define body
+    (let ([m (regexp-match #px"(?s:async function trFollow\\(\\)\\{(.*?)
+\\}
+)" src)])
+      (and m (cadr m))))
+  (check-true (string? body) "trFollow is findable")
+  (check-true (and (regexp-match? #rx"cardSwap\\('trjobs'" body) #t))
+  (check-false (regexp-match? #rx"renderTab" body)
+               "a refresh must not re-render the tab"))
+
+(test-case "progress is drawn only when there is more than one unit of it"
+  ;; #178's rule: a figure that always reads "1 of 1" decorates rather than
+  ;; informs — and the server WITHDRAWS the pair for a kind that reports none
+  ;; (TR-9), so the console must cope with it being absent as well as with
+  ;; jsexpr `'null`, which is TRUE in JavaScript's terms too (it arrives as the
+  ;; string "null" through JSON only if something stringified it).
+  (define src (console-code "07-render.js"))
+  (define body
+    (let ([m (regexp-match #px"(?s:function trProgress\\(j\\)\\{(.*?)
+\\}
+)" src)])
+      (and m (cadr m))))
+  (check-true (string? body) "trProgress is findable")
+  (check-true (and (regexp-match? #px"pr==='null'" body) #t) "the withdrawn pair is handled")
+  (check-true (and (regexp-match? #px"pr\\.total>1" body) #t) "and a single unit draws nothing"))
+
+(test-case "every ui.tr* string the Translate tab shows is in the catalogs, both ways"
+  ;; QVIZ-13's rule. The reverse direction is what found that moving to a job
+  ;; left `ui.trworking`, `ui.trdone` and `ui.trsections` shipped and asked for
+  ;; by nothing — the elapsed clock and the done toast they belonged to. A
+  ;; one-directional check cannot see that, and a dead user-facing string is a
+  ;; translation somebody maintains for a screen that no longer exists.
+  ;;
+  ;; THE SCAN IS THE CALL FORM, deliberately narrower than the `ngraph` one: no
+  ;; `ui.tr*` key is reached through a variable here, and a bare `'tr…'` scan
+  ;; would take `trsrc`, `trtgt`, `trout` and `trgl`, which are element ids.
+  (define src (string-append (console-code "07-render.js") "\n" (console-code "01-base.js")))
+  (define keys
+    (remove-duplicates
+     (map cadr (regexp-match* #px"t\\('(tr[a-z0-9_]+)'\\)" src #:match-select values))))
+  (check-true (> (length keys) 4) "the tab draws several of them")
+  (define en (file->string (build-path console-dir "../ui-strings.json")))
+  (for ([k (in-list keys)])
+    (check-true (and (regexp-match? (regexp (string-append "\"ui\\." (regexp-quote k) "\"")) en) #t)
+                (format "ui.~a is missing from static/ui-strings.json" k)))
+  (define shipped
+    (map cadr (regexp-match* #px"\"ui[.](tr[a-z0-9_]+)\"" en #:match-select values)))
+  ;; `translate`, `translation` and the `trigger_*` family are this tab's and the
+  ;; Workflows tab's own labels, asked for elsewhere — the family prefix is not
+  ;; the feature boundary, so they are named rather than matched away
+  (define elsewhere '("translate" "translation" "trigger_attrs" "trigger_derived"
+                      "trigger_input" "trigger_prefix" "trigger_types" "triggeradded"))
+  (check-equal? (remove* (append keys elsewhere) shipped) '()
+                "a ui.tr* string nothing asks for means a label was typed in place, or a screen was removed"))

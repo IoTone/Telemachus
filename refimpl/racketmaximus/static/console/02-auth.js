@@ -266,6 +266,10 @@ function go(tab){ S.tab=tab; S.newToken=null;
   S.wfPoll++;
   // leaving the Jobs tab drops its live poll, the same way it drops a run poll
   S.jobPoll++;
+  // …and leaving Translate drops its follow poll (#233). The submitted ids stay
+  // in `S.trJobs`, so coming back picks the jobs up again — it is the TICK that
+  // is dropped, not the following.
+  S.trPoll++;
   // …and leaving Admin or Health drops the queue card's. The tick also checks
   // that #qcard is still on screen, which covers a render that removed it; this
   // covers the one it does not, a tick already scheduled when the tab changed.

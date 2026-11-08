@@ -39,6 +39,14 @@
       "text": "{age} ago",
       "hash": "1ebef83b6f3881bed47f04d4eabef9ee2108c73d"
     },
+    "doc.route.get.api.repo-obj.id.form-fields": {
+      "text": "The AcroForm fields a PDF carries — name, kind, current value and, for a choice field, its options — which is what a caller needs before sending `doc_fill_form` any values (#88 req 2). A document that is not a form answers an empty list, because whether it is one is the question being asked; a box without pdfcpu answers 501, since the question is fine and this instance cannot answer it. `can_flatten` says whether `flatten: true` will work here, flattening being a second binary.",
+      "hash": "73c99d2a62d3623714b2ff633415089de4ebc3f5"
+    },
+    "ui.trcolsections": {
+      "text": "sections",
+      "hash": "063b11410c63284d9ce0b8af865543896912913a"
+    },
     "ui.ngraphscan": {
       "text": "Not every link in the team was read, so an edge may be missing.",
       "hash": "526835a7e592e1762515966560e64c07f843cb07"
@@ -58,10 +66,6 @@
     "doc.route.get.api.admin.email-deliveries": {
       "text": "Every email delivery on the instance, newest first, including the two transactional messages — a confirmation and a transport test — which belong to no team. `?status=dead` is the dead-letter list an operator watches. `instance:read` rather than `:manage`, so a monitoring credential can see that mail is failing without being able to rewrite the relay's password.",
       "hash": "63d99c2efddfbe3ad2701cf78784907188139f1a"
-    },
-    "doc.route.get.api.repo-obj.id.form-fields": {
-      "text": "The AcroForm fields a PDF carries — name, kind, current value and, for a choice field, its options — which is what a caller needs before sending `doc_fill_form` any values (#88 req 2). A document that is not a form answers an empty list, because whether it is one is the question being asked; a box without pdfcpu answers 501, since the question is fine and this instance cannot answer it. `can_flatten` says whether `flatten: true` will work here, flattening being a second binary.",
-      "hash": "73c99d2a62d3623714b2ff633415089de4ebc3f5"
     },
     "ui.edzenhint": {
       "text": "full width, Esc to leave",
@@ -914,6 +918,10 @@
     "ui.idlestay": {
       "text": "Stay signed in",
       "hash": "e5f5f70f7283fadfeab321814dc11434ed17d688"
+    },
+    "ui.trprogress": {
+      "text": "{d} of {n}",
+      "hash": "f0209bf5d33971e13a03d6f5d9dfa99c9eaa5582"
     },
     "ui.trigger_derived": {
       "text": "also on derived documents",
@@ -1987,6 +1995,10 @@
       "text": "Nothing in the documentation is close to that question.",
       "hash": "c7f3ca885c6d94efd37d9641e8de577f51b6aba6"
     },
+    "ui.trjobs": {
+      "text": "Submitted in this session",
+      "hash": "a34563ff79ecb1d62e6729f062f2bd6961cb1c61"
+    },
     "ui.prhint": {
       "text": "Enter the address on your account. If it has one, a link to set a new password is sent there. Nothing is sent to an address that has not been confirmed.",
       "hash": "f25f7e7722ec06e653e3d61d40b9a51b0c58d169"
@@ -2082,10 +2094,6 @@
     "ui.stepsused": {
       "text": "steps used",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
-    },
-    "ui.trdone": {
-      "text": "translated in {s}s",
-      "hash": "fa2b3cefb8c4bbb9d8065bb953518d72fefe0aa9"
     },
     "doc.route.post.api.beta.signup": {
       "text": "Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured.",
@@ -2627,6 +2635,10 @@
       "text": "Workflow",
       "hash": "d7a484140f5f9f7f5427e1f2c44dbfc1d3ad9eea"
     },
+    "ui.traccepted": {
+      "text": "accepted — {c} section(s); the form is free",
+      "hash": "83fefadaa44e2e7524a7973f5a33cec9ddbc85f7"
+    },
     "ui.buildstarted": {
       "text": "started",
       "hash": "da7153ee73f1131089a979c73ad72c9c7725d658"
@@ -2999,10 +3011,6 @@
       "text": "verification failed — reload the page",
       "hash": "e85f65e55efd349c5030eae9e315402cdc7571f4"
     },
-    "ui.trsections": {
-      "text": "translated in {s}s, in {c} sections",
-      "hash": "4397ad064bb9a0fbb1816f1495c689c55ad61f0e"
-    },
     "ui.wklocalhint": {
       "text": "the model this instance calls itself, in process — it claims nothing and cannot be drained",
       "hash": "86c4c4eb2c336125df1fcb5739eadf5cbd38b723"
@@ -3022,10 +3030,6 @@
     "doc.perm.org:read": {
       "text": "See the company, its teams, members and audit trail.",
       "hash": "05279417b614668317d0b96f13b779958ddfcdda"
-    },
-    "ui.trworking": {
-      "text": "translating… {s}s",
-      "hash": "9556fa9dee7834f8de0a91f7ceacb1cb2f66e058"
     },
     "doc.route.post.api.admin.seed-tenants": {
       "text": "Seed Acme and Globex with known dev passwords — demo fixture only.",
@@ -3195,6 +3199,14 @@
       "text": "no worker can run",
       "hash": "a857f59c856ab5b3b401c3e20f5a599694377503"
     },
+    "ui.trcolelapsed": {
+      "text": "elapsed",
+      "hash": "0a6837cc712831d7d6959981ee510cbeec95be0b"
+    },
+    "ui.wkoldest": {
+      "text": "oldest wait",
+      "hash": "cc4efe854cfcc0888cf273842d580e8d78d05956"
+    },
     "ui.featon": {
       "text": "on",
       "hash": "db3d405b10675998c030223177d42e71b4e7a312"
@@ -3206,10 +3218,6 @@
     "doc.plugin.rs3": {
       "text": "Stores document bytes on the local filesystem, addressed by their SHA-256. The default backing store for the document repository.",
       "hash": "ccaae7c2bb64d6e3a39dd4ba7c4102a99efc94a8"
-    },
-    "ui.wkoldest": {
-      "text": "oldest wait",
-      "hash": "cc4efe854cfcc0888cf273842d580e8d78d05956"
     },
     "ui.palhtitle": {
       "text": "Keyboard shortcuts",
@@ -3654,6 +3662,10 @@
     "doc.tool.doc_translate.step": {
       "text": "The workflow step id, for provenance",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "doc.route.post.api.translate.job": {
+      "text": "Translate text as a scheduler job instead of inside the request (#233). Answers 202 with the job id and `sections`, the number of model calls the text was planned into; follow it with GET /api/jobs/:id, which carries `progress` once it starts and the translation in its result when it is done, and cancel it with POST /api/jobs/:id/cancel. The pre-flight is the synchronous route's — a text past the cap and an exhausted budget are both refused before a row exists — and the work is metered section by section exactly as the synchronous route meters it, so a run somebody cancels half way has still paid for the half it spent.",
+      "hash": "97a92633cc41df66d9c20606a0826c134772a77d"
     },
     "ui.wkheldpaused": {
       "text": "waiting on a paused host",
@@ -4632,8 +4644,8 @@
       "hash": "7cbf68872016efd24eec9befddf94a66fe1a34ad"
     },
     "ui.jobscope": {
-      "text": "This list is the SCHEDULER queue. Chat streams its answer, and Translate and Ask are answered in the request itself — none of the three creates a job, so using them leaves nothing here. What appears: what you submit above, a workflow's steps, a trigger's run, and any work a fleet worker claims.",
-      "hash": "027c00bf23be5832dadfa4da5d3bca8fe122a132"
+      "text": "This list is the SCHEDULER queue. Chat streams its answer and Ask is answered in the request itself, so neither leaves anything here. A translation IS a job now, so it does. What appears: what you submit above, every translation, a workflow's steps, a trigger's run, and any work a fleet worker claims.",
+      "hash": "f0d18f08c1e59dbf143bb6c68825cb5eaa14c9a3"
     },
     "doc.route.get.api.reviews": {
       "text": "The team's review queue, newest first. ?status=pending (the default), decided, canceled or all.",

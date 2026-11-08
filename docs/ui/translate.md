@@ -61,12 +61,28 @@ otherwise translate differently on two pages.
 The last translations for this team, with the first part of the source and the
 result. It is a record, not an editable history.
 
-## What it does not leave behind
+## Submitted in this session
 
-**Translate is answered in the request**, so it creates no scheduler job and
-leaves nothing on the [Jobs](jobs.md) screen. The screen is blocked while it
-works. A `translate` job kind exists and the queue can carry one — whether this
-screen should use it is an open question rather than a missing part, because the
-trade turns on how long a real translation takes on the instance's own model.
+**A translation is a scheduler job**, so pressing `Translate` does not hold the
+screen: the request comes straight back, a row appears under the form, and the
+source field is yours again — you can edit it and send the next one while the
+first is still running.
+
+The row carries the job's status, how long it has been running, how many
+**sections** the text was split into and how many of them are done, and a
+`Cancel` button while it is still queued or running. When it finishes, the
+translation appears in the pane under the form. Each row is also an ordinary job
+on the [Jobs](jobs.md) screen, with everything that screen offers.
+
+The list is what you submitted **in this session** — reloading the page clears
+it. The durable records are the Recent table below and the Jobs screen.
+
+While a translation is running, the screen asks the server for its status every
+couple of seconds; once nothing is live it asks for nothing at all, so leaving
+this tab open does not keep your session alive.
+
+Cancelling does not refund what has already been spent: a run stopped at section
+twenty of twenty-four has paid for twenty. Nothing is stored for a cancelled or
+refused translation — there is no half-translated document.
 
 Translate can be turned off for the instance, a company or a team.

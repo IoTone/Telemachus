@@ -2555,6 +2555,28 @@
       (exec* conn (string-append "CREATE UNIQUE INDEX IF NOT EXISTS idx_note_links_unique "
                                  "ON note_links (src_note_id, target_fold)")))))
 
+(define m-0075-job-progress
+  (migration "0075-job-progress"
+    (lambda (conn)
+      ;; TR-9 (#233) — HOW FAR THROUGH IS THIS JOB? A job row has said what it
+      ;; IS and whether it is live since migration 0009, and nothing has ever
+      ;; said how much of it is done. For every kind that is one model call
+      ;; there was nothing to say; a translation of a long document is up to 24
+      ;; sequential calls (#232), so "running" covers a minute during which the
+      ;; only honest thing the console could show was a clock.
+      ;;
+      ;; TWO NULLABLE COLUMNS AND NO BACKFILL, which is what keeps the field
+      ;; honest rather than merely present: NULL means this kind does not
+      ;; report progress, and the projection WITHDRAWS the pair rather than
+      ;; reporting 0 of 0 (PULL-11e, RED-20). A kind that knows its unit count
+      ;; says so; every other kind is untouched and reads exactly as before.
+      ;;
+      ;; INTEGER, not a percentage: the units are the work's own (sections
+      ;; here), and a percentage computed in the handler is a number nothing
+      ;; can check against the thing it describes.
+      (exec* conn "ALTER TABLE jobs ADD COLUMN progress_done INTEGER")
+      (exec* conn "ALTER TABLE jobs ADD COLUMN progress_total INTEGER"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2566,4 +2588,4 @@
                              m-0068-note-tags m-0069-email
                              m-0070-token-purpose m-0071-research-sources
                              m-0072-mail-verify-tls m-0073-note-format
-                             m-0074-note-links))
+                             m-0074-note-links m-0075-job-progress))

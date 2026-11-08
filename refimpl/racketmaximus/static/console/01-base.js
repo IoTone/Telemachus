@@ -299,7 +299,7 @@ for (const evname of H_EVENTS) {
 }
 
 const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en',
-  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, featRows:[], instFeat:null, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0, jobPoll:0, qPoll:0, qTotal:0, qKinds:[],
+  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, featRows:[], instFeat:null, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0, jobPoll:0, trPoll:0, trJobs:[], trSending:false, qPoll:0, qTotal:0, qKinds:[],
   // the AbortController of a stream in flight, or null: the guard and the
   // pending state in one, as S.signingIn is for the sign-in button (#174)
   chatAbort:null, agentAbort:null,

@@ -1724,6 +1724,78 @@ try {
       return !!el && el.innerText.includes('inbox/auto/scan-001.txt'); }, { timeout: 10000 }));
   }
 
+  // ── 6c. a translation is a job, and the form is never held open (#233) ──────
+  //
+  // Reported from outside: "it sort of blocks the UI … let you continue to input
+  // the next job … it should show time to process." Source assertions in
+  // test/console-tests.rkt prove the tab ENQUEUES and that its poll stops; only
+  // a browser can say what a person can do while one is running, which is the
+  // whole of what was wrong.
+  //
+  // PLACED LATE and it puts the tab back, because it submits jobs and leaves
+  // `S.trJobs` set — this file's own repeated lesson about a fixture that
+  // changes global state (§3c5 paid for it in the Notes tab).
+  step('a translation runs as a job and the form stays free');
+  await goTab(page, 'translate', '#trsrc');
+  await page.fill('#trsrc', 'the first paragraph');
+  await page.click('#trgo');
+  // the follow card is painted from the 202, before anything has been translated
+  await page.locator('#trjobs table').waitFor({ timeout: 15000 });
+  ok('the submission is acknowledged at once, with a row of its own',
+    await page.evaluate(() => document.querySelectorAll('#trjobs tbody tr').length === 1));
+
+  // THE ACCEPTANCE CRITERION THAT COULD NOT BE MET BEFORE: the form is usable
+  // while the work runs. It is not merely enabled — its handler has to still be
+  // bound, which is the distinction §3h2 was filed over.
+  ok('…and the source field is still editable',
+    await page.evaluate(() => {
+      const el = document.getElementById('trsrc');
+      return !!el && !el.disabled && !el.readOnly;
+    }));
+  await page.fill('#trsrc', 'the second paragraph');
+  ok('…so the next translation can be typed while the first one runs',
+    (await page.inputValue('#trsrc')) === 'the second paragraph');
+  ok('…and the Translate button is still bound',
+    await page.evaluate(() => {
+      const b = document.getElementById('trgo');
+      return !!b && typeof HANDLERS[+b.getAttribute('data-h-click')] === 'function';
+    }));
+
+  // it finishes, and the translation lands in the pane this tab has always used
+  await page.locator('#trjobs .badge.ok').waitFor({ timeout: 30000 });
+  // THE ASSERTION IS AGAINST THE JOB'S OWN RESULT, not against what the model
+  // said: this gate boots the scripted mock (§6b), which answers any
+  // translation prompt with the same line, so a needle taken from the model's
+  // script would couple this case to that fixture. What is being tested is
+  // that the pane carries the finished job's result.
+  const trPainted = await page.evaluate(async () => {
+    const r = await api('/api/jobs');
+    const j = (r.json.jobs || []).find(x => x.kind === 'translate' && x.status === 'done');
+    const out = document.getElementById('trout');
+    return { res: j && j.result && j.result.result, pane: out && out.textContent };
+  });
+  ok('the job finishes and its translation is painted',
+    typeof trPainted.res === 'string' && trPainted.res.length > 0
+      && trPainted.pane === trPainted.res,
+    JSON.stringify(trPainted));
+
+  // AN IDLE TRANSLATE TAB ISSUES NOTHING — #233's fifth criterion, and the one
+  // that cannot be asserted from the source: QVIZ-6's objection is that a tab
+  // which polls for as long as it is open holds the session alive (#38's clock
+  // counts from the last REQUEST), so the tick has to STOP when the work does.
+  const idleReqs = [];
+  const countIdle = (r) => { if (r.url().includes('/api/')) idleReqs.push(r.url()); };
+  page.on('request', countIdle);
+  await page.waitForTimeout(6000);                  // three ticks' worth
+  page.off('request', countIdle);
+  ok('a settled Translate tab issues no further requests', idleReqs.length === 0,
+    idleReqs.join(' | '));
+
+  // put it back: the ids live in `S`, so leaving them set would paint this
+  // card on every later visit to the tab
+  await page.evaluate(() => { S.trJobs = []; });
+  await goTab(page, 'chat', '#cp');
+
   // ── 7. the remaining tabs render at all ─────────────────────────────────────
   step('workflows, jobs, usage render');
   for (const tab of ['workflows', 'jobs', 'usage']) {

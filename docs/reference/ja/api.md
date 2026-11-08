@@ -139,6 +139,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/agent` | bearer | `chat:use` | role | `agent` | チームの有効なツールに対してツールを使用するエージェントループを実行；すべてのツール呼び出しはRBACチェックとメーター処理が行われます。 |
 | POST | `/api/translate/catalog` | bearer | `chat:use` | role | `translate` | ロケールカタログ全体を、プレースホルダーを保ったまま翻訳する。 |
 | POST | `/api/translate` | bearer | `chat:use` | role | `translate` | 目標言語にテキストを翻訳し、チーム用語集を使用します。 |
+| POST | `/api/translate/job` | bearer | `chat:use` | role | `translate` | リクエストの中で翻訳する代わりに、スケジューラのジョブとして翻訳します（#233）。202 を返し、ジョブ ID と `sections`（そのテキストが何回のモデル呼び出しに分割されたか）を伝えます。進捗は GET /api/jobs/:id で追えます — 開始後は `progress` を、完了後は結果に翻訳文を含みます。中止は POST /api/jobs/:id/cancel です。事前確認は同期ルートと同じで、上限を超えるテキストと予算の尽きたチームはどちらも行が作られる前に拒否されます。計測も同期ルートと同じくセクション単位なので、途中で中止されたジョブもすでに使った分はきちんと課金されます。 |
 | GET | `/api/translate` | bearer | `chat:use` | role | — | チームの翻訳履歴 |
 | POST | `/api/glossary` | bearer | `settings:manage` | role | — | 対象言語の用語集に用語を追加または更新する。 |
 | GET | `/api/glossary` | bearer | `chat:use` | role | — | チーム用語集. |

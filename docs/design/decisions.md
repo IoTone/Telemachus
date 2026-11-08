@@ -6017,9 +6017,13 @@ rather than a 400.
   record-nothing, so every existing caller and test is unchanged, and the
   ENDPOINT fills them — because only the caller knows which tier it bills at.
   `ai.requests` counts scheduler jobs at the job tier and model calls at the tool
-  tier, which CLAUDE.md records and deliberately declines to change, so inside
-  the `translate` JOB kind the scheduler bills the job's own `tokens_used` and
-  the job passes neither seam. **A refusal mid-document stores nothing** — the
+  tier, which CLAUDE.md records and deliberately declines to change. **This
+  paragraph used to end "so inside the `translate` JOB kind the scheduler bills
+  the job's own `tokens_used` and the job passes neither seam", and TR‑11 below
+  reverses that**: the job fills both seams and tells the biller so, because the
+  job-tier figure under-counts a 24-section document as one request and bills
+  nothing at all for a job somebody cancels half way. **A refusal mid-document
+  stores nothing** — the
   acceptance criterion is a named reason rather than a partial result — **but
   what was already spent has already been recorded**, which is FEED‑9's honest
   half: metering only successes makes a failing run free.
@@ -6040,12 +6044,102 @@ the system prompt not charged, the glossary reaching only the first section, the
 sections overlapping, the cap removed, admission checked but not obeyed, spend
 before a refusal not recorded, and the minimum-section floor removed.
 
-**What is NOT built, and it is #233's**: a long translation is still N sequential
-model calls inside one synchronous request, so sixty pages is minutes of spinner.
-The non-blocking path already exists — `translate` has been a registered scheduler
-job kind since slice 17 — and whether the console should use it is #233's
-decision, not this slice's. #232's acceptance is about the translation being
-complete and correct, and it is.
+**What was NOT built at that slice, and is the section below**: a long
+translation was N sequential model calls inside one synchronous request, so sixty
+pages was minutes of spinner. #232's acceptance is about the translation being
+complete and correct, and it was.
+
+## …and it is a job now (TR‑9…TR‑12, issue #233)
+
+Built 8 Nov 2026, which **closes #233**. Migration `0075-job-progress`;
+`job-progress!` in `domain/sched/scheduler.rkt`; `translate-metering` and a
+`#:progress!` seam in `domain/apps/translate.rkt`; `POST /api/translate/job`;
+the Translate tab's follow card. **No new permission and no new environment
+variable.**
+
+| ID | Decision | Why |
+|---|---|---|
+| TR‑9 | A job row carries **`progress_done`/`progress_total`**, nullable, and the projection WITHDRAWS the pair. | Every kind before this was one model call, so there was nothing to say. A translation is up to 24 sequential calls, and `running` covered a minute during which the only honest thing to show was a clock. NULL means "this kind does not report", where `0 of 0` would be a field a reader learns to distrust (PULL‑11e). |
+| TR‑10 | The per-section **metering pair is built once** (`translate-metering`) and filled by both callers. | Two askers at the same tier. Two copies is `executor-can-run?`'s drift in a place where the divergence is a team billed differently for the same work depending on which button they pressed. |
+| TR‑11 | The job **meters itself** and says so (`metered`); the biller does not bill it again. | The biller charges one `ai.requests` per JOB and `tokens_used` once at the end. For a multi-section document that under-counts the requests — and because it bills only a job that FINISHES, a run cancelled at section 20 of 24 would cost the team nothing at all. |
+| TR‑12 | **Its own route**, `POST /api/translate/job`, not `?async=1` and not the generic `POST /api/jobs`. | The two answer different things — a job and a translation — and FLEET‑2a settled that shape already. The generic enqueue is the sharper argument: it carries no `#:feature "translate"`, so routing the tab through it would be a way past the feature switch for the app the switch is named after; it admits ONE request where a long document is 24; and it cannot refuse a text past the cap at all. |
+
+- 🔑 **THE TRADE GOES THE OTHER WAY FROM HELP‑23, AND THAT IS THE WHOLE OF WHY
+  THIS ONE IS A JOB AND HELP IS NOT.** #238 asked the same question about the
+  in-product help panel and the answer was no: 0.9–3.8 s warm, and
+  `ai.concurrency` defaults to **2**, so queueing a `⌘/` panel behind two running
+  jobs is worse than the 3 s call it replaced. #233's own table measures the
+  other end of the same curve — **20.1 s at 8,000 characters**, and the section
+  cap allows 24 model calls — where no request budget and no reverse proxy's
+  patience survives. One mechanism, asked about two callers, answered from each
+  caller's own measurement.
+- **THE GUARD MOVED RATHER THAN BEING REMOVED.** #174's rule is that the
+  in-flight flag IS the guard and the pending state, with no `await` between the
+  check and the set and a `finally` so one network error cannot leave the button
+  dead. `S.trBusy` covered the whole 20-second call, **which is what made a
+  second submission impossible** — the substance of the report. `S.trSending`
+  covers the ENQUEUE, where two activations in one tick would still enqueue two
+  jobs, and a focused button fires on Enter and Space so it takes no deliberate
+  double-click.
+- **THE PROGRESS WRITE IS FENCED ON THE ATTEMPT (issue #24) AND ON THE JOB STILL
+  RUNNING.** Not terminal, so getting it wrong costs nobody their result — what
+  it costs is the row reporting the PREVIOUS attempt's position: a job whose
+  lease lapsed at section 9 of 24 is re-queued and the new attempt starts at 1,
+  while the old handler is still running and would keep writing 10, 11, 12 over
+  it. `current-job` carries the token for this reason. And the `status='running'`
+  clause is what stops a CANCELLED job's figure still climbing, which reads as a
+  cancel that did not take (cancellation is cooperative, SCHED‑8).
+- **THE LEADING `0 of N` REPORT IS NOT COSMETIC.** Without it the unit count is
+  unknown until the first section lands, which on a 24-section document is a
+  minute of showing nothing but a clock — the thing the field exists to replace.
+  The total never moves afterwards, because the plan is computed once; a total
+  that grew would make a bar run backwards.
+- **THE FOLLOW POLL TICKS ONLY WHILE SOMETHING IS LIVE** — QVIZ‑6, the rule the
+  Jobs and Queue cards already follow. #38's idle clock counts from the last
+  REQUEST, so a tab that polled for as long as it was open would hold a session
+  alive indefinitely: an idle Translate tab must issue nothing. **That is the one
+  acceptance criterion a source assertion cannot establish**, so the e2e gate
+  counts requests over a six-second window after the work settles, and the
+  control (an unconditional reschedule) fails it naming the three polls.
+- **ONE REQUEST FOR THE WHOLE CARD, not one per row.** `GET /api/jobs` is the
+  team's list and the followed ids are a filter on it — a poll per row would
+  multiply with the number of translations this screen now invites somebody to
+  queue.
+- **A PAGE OF THE FOLLOW CARD SWAPS THE CARD, NOT THE TAB.** `renderTab()` paints
+  a `…` placeholder and re-fires all four of this tab's requests, and the form's
+  target and glossary controls are plain inputs — so following a job through a
+  tab render would throw away the next translation somebody was typing.
+  `edSetFormat` (ORG‑1), `qSet` (CARD‑1) and `nGo` (NPG‑10) each paid for this.
+- **THE SUBMITTED IDS LIVE IN `S`, SO THEY ARE LOST ON RELOAD, and that is
+  stated rather than hidden.** The durable records are the Recent table and the
+  Jobs screen, which is where the row has always belonged; keeping the list in
+  `localStorage` would make a per-viewer convenience out of something the server
+  already answers.
+- **`ui.jobscope` SAID SOMETHING THAT IS NOW FALSE** — "Translate and Ask are
+  answered in the request itself — none of the three creates a job" — so it
+  changed, which made its Japanese stale and cost a textual ja edit and a
+  re-stamp. `docs/ui/jobs.md` QUOTES that string, which is UIDOC‑2's rule
+  working: a paraphrase would have gone stale invisibly.
+- **AND IT FOUND THREE DEAD USER-FACING STRINGS.** `ui.trworking`, `ui.trdone`
+  and `ui.trsections` belonged to the elapsed clock and the done toast the job
+  row replaced, and a one-directional "every key the tab asks for is in the
+  catalog" check cannot see a string nothing asks for. Both directions now, over
+  the whole `ui.tr*` family; the three are deleted from both catalogs.
+- **Not built, deliberately**: streaming the translation itself (RED‑14 —
+  `translate!` needs the whole reply before it can store it and apply the
+  glossary check, so "progress" here means progress over the WORK, which is what
+  the section count is); a progress field for any other kind, since every one of
+  them is a single model call and `0 of 0` is the shape TR‑9 refuses; and the
+  synchronous `POST /api/translate`, which is UNTOUCHED — it is what an
+  integrator's script wants, and the two now share their metering.
+
+**Eleven positive controls, all biting**: the leading progress report removed,
+the per-section token record dropped, the refusal no longer naming its section,
+the progress write unfenced, its status guard removed, the projection defaulting
+instead of withdrawing, the biller double-billing (which names `4` where `3` is
+right), an `await` between the guard and the flag, the poll rescheduling
+unconditionally, `trFollow` re-rendering the tab, and a label typed in place of
+`t('trjobs')`.
 
 ## INBOX: a team's inbox as a plugin
 

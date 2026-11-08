@@ -16,6 +16,10 @@
          ;; depend on today's window
          (only-in "../domain/apps/translate.rkt"
                   translate-chunk-chars translate-plan TRANSLATE-MAX-CHUNKS system-prompt)
+         ;; #233: the metering pair, and the ledger it writes to
+         (only-in "../domain/apps/translate.rkt" translate-metering)
+         (only-in "../domain/quota/quota.rkt" set-limit! quota-used)
+         racket/list
          "../domain/db/migrations.rkt"
          "db-fixture.rkt"
          "../domain/authz/authz.rkt")
@@ -335,3 +339,77 @@
       ;; …but WHAT WAS SPENT WAS RECORDED (FEED-9): metering only successes makes
       ;; a run that stops halfway look free
       (check-equal? (unbox spent) 14))))
+
+;; ---- #233: the progress seam, and the metering pair with two askers ---------
+
+(test-case "#233: progress is reported 0-of-N BEFORE any model call, then per section"
+  ;; WHY THE LEADING REPORT MATTERS: a 24-section document spends a minute in
+  ;; `running`, and without it the unit count is unknown until the first section
+  ;; lands — so the console could show nothing but a clock for exactly the wait
+  ;; the field exists to explain.
+  (with-env "TMACH_MODEL_CONTEXT" "4096"
+    (lambda ()
+      (define conn (fresh))
+      (define-values (uid tid) (bootstrap! conn #:username "alice"))
+      (define alice (user-principal conn uid tid))
+      (define seen (box '()))
+      (define calls (box 0))
+      (define (counting-chat text sys) (set-box! calls (add1 (unbox calls))) (values text 7))
+      (define sentence "The quick brown fox jumps over the lazy dog. ")
+      (define long (apply string-append (for/list ([_ (in-range 900)]) sentence)))
+      (define-values (_job _toks)
+        (translate! conn alice #:text long #:target-lang "fr" #:chat counting-chat
+                    #:progress! (lambda (d n)
+                                  ;; the model-call count AT THE MOMENT each
+                                  ;; report is made: this is what says the first
+                                  ;; one precedes every call, which a report of
+                                  ;; `done` alone cannot
+                                  (set-box! seen (cons (list d n (unbox calls)) (unbox seen))))))
+      (define reports (reverse (unbox seen)))
+      (check-true (> (length reports) 2) "the fixture has to be more than one section")
+      ;; the lead: 0 of N, with the model not yet called
+      ;; N sections produce N+1 reports — the lead, then one each
+      (define n (sub1 (length reports)))
+      (check-equal? (car reports) (list 0 n 0) "0 of N, before any model call")
+      ;; and then one per section, in order, each after its own call
+      (for ([r (in-list (cdr reports))] [i (in-naturals 1)])
+        (check-equal? r (list i n i)
+                      (format "report ~a" i)))
+      ;; THE TOTAL NEVER MOVES. A total that grew as the work went would make a
+      ;; progress bar run backwards, and the plan is computed once.
+      (check-equal? (length (remove-duplicates (map cadr reports))) 1))))
+
+(test-case "#233: the default progress seam is a no-op — every existing caller unchanged"
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (define-values (job _t) (translate! conn alice #:text "hello" #:target-lang "ja" #:chat upcase-chat))
+  (check-equal? (hash-ref job 'result) "HELLO"))
+
+(test-case "#233: translate-metering admits, then refuses BY SECTION, and records both dimensions"
+  ;; ONE RULE, TWO ASKERS (TR-10): `POST /api/translate` and the `translate` job
+  ;; kind. The pair is built in the domain so the two cannot bill differently —
+  ;; a team billed differently for the same work depending on which button they
+  ;; pressed is the drift `executor-can-run?` was extracted to stop.
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (set-limit! conn "team" tid "ai.requests" 2)
+  (define-values (admit record!) (translate-metering conn alice))
+  (check-false (admit 1 5) "nothing spent yet, so the first section is admitted")
+  (record! 7)
+  (check-false (admit 2 5))
+  (record! 7)
+  ;; the ledger is at its limit now
+  (define stop (admit 3 5))
+  (check-true (string? stop) "an exhausted budget is a reason string, not an exception")
+  (check-true (regexp-match? #rx"section 3 of 5" stop) stop)
+  ;; the remedy is in the message, because "the budget is gone" is not something
+  ;; a person can act on
+  (check-true (regexp-match? #rx"raise the limit" stop) stop)
+  (check-true (regexp-match? #rx"ai.requests" stop) stop)
+  ;; BOTH dimensions, per section (FEED-9) — a run that stops at section 20 of 24
+  ;; has paid for twenty, and metering tokens only at the end would make a
+  ;; cancelled job free
+  (check-equal? (quota-used conn "team" tid "ai.requests" "day") 2)
+  (check-equal? (quota-used conn "team" tid "ai.tokens.total" "day") 14))
