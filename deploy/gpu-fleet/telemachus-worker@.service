@@ -63,10 +63,12 @@ ExecStart=%h/.nix-profile/bin/telemachus-worker
 Restart=always
 RestartSec=10
 
-# Give the worker time to hand its job back. It releases the claim it holds from
-# a plumber flush on the way out (PULL-12's blameless hand-back, which costs the
-# job no attempt), and a SIGKILL halfway through that leaves the job to wait out
-# its 120-second lease instead.
+# Give the worker time to hand its job back. SIGTERM reaches Racket as a break,
+# and the break arm posts `release` with reason `shutdown` — PULL-12's blameless
+# hand-back, which costs the job no attempt and makes it claimable elsewhere at
+# once. The plumber flush stays as the fallback for an exit that never reaches
+# that arm. A SIGKILL halfway through either leaves the job to wait out its
+# 120-second lease instead, which is what the timeout below is sized for.
 KillSignal=SIGTERM
 TimeoutStopSec=30
 

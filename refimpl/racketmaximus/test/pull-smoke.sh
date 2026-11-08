@@ -15,12 +15,15 @@ export PORT="${PORT:-8845}"; MOCK_PORT="${MOCK_PORT:-8905}"
 # A mock that REFUSES (issue #93), and a port with nothing on it at all — the two
 # shapes of "this host cannot serve the job" that must not cost a job an attempt.
 MOCK503_PORT="${MOCK503_PORT:-8906}"; MOCK500_PORT="${MOCK500_PORT:-8908}"; DEAD_PORT="${DEAD_PORT:-8907}"
+# a mock that answers SLOWLY, so a job can still be in flight when the worker is
+# stopped (issue #61's shutdown path, which had no test at all until now)
+MOCK_DELAY_PORT="${MOCK_DELAY_PORT:-8910}"
 # issue #60: a SECOND instance, booted with a worker-token lifetime set, because
 # the knob is read from the process environment and the shipped default here —
 # and everywhere — is no expiry.
 ROT_PORT="${ROT_PORT:-8909}"
 port_busy(){ bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1; }
-for p in "$PORT" "$MOCK_PORT" "$MOCK503_PORT" "$MOCK500_PORT" "$DEAD_PORT" "$ROT_PORT"; do port_busy "$p" && { echo "port $p is in use"; exit 1; }; done
+for p in "$PORT" "$MOCK_PORT" "$MOCK503_PORT" "$MOCK500_PORT" "$DEAD_PORT" "$ROT_PORT" "$MOCK_DELAY_PORT"; do port_busy "$p" && { echo "port $p is in use"; exit 1; }; done
 export TMACH_DATA_DIR="$(mktemp -d)"
 export DATABASE_URL="${DATABASE_URL:-sqlite:///$TMACH_DATA_DIR/t.db}"
 export TMACH_BIND=127.0.0.1
@@ -32,10 +35,12 @@ MOCK_PORT="$MOCK503_PORT" MOCK_STATUS=503 MOCK_REPLY_FILE="$MOCK_REPLY_FILE" \
   racket test/mock-llm.rkt >"$TMACH_DATA_DIR/mock503.log" 2>&1 & MOCK503=$!
 MOCK_PORT="$MOCK500_PORT" MOCK_STATUS=500 MOCK_REPLY_FILE="$MOCK_REPLY_FILE" \
   racket test/mock-llm.rkt >"$TMACH_DATA_DIR/mock500.log" 2>&1 & MOCK500=$!
+MOCK_PORT="$MOCK_DELAY_PORT" MOCK_DELAY=25 MOCK_REPLY_FILE="$MOCK_REPLY_FILE" \
+  racket test/mock-llm.rkt >"$TMACH_DATA_DIR/mockdelay.log" 2>&1 & MOCKDELAY=$!
 unset TMACH_MODEL_URL TELEMACHUS_MODEL_URL
 racket server/main.rkt >"$TMACH_DATA_DIR/server.log" 2>&1 & SRV=$!
 WORKER=""; SRV2=""
-cleanup(){ kill $SRV $MOCK $MOCK503 $MOCK500 2>/dev/null; [ -n "$WORKER" ] && kill $WORKER 2>/dev/null; [ -n "$SRV2" ] && kill $SRV2 2>/dev/null; rm -rf "$TMACH_DATA_DIR" "${ROT_DIR:-/nonexistent-rot}"; }
+cleanup(){ kill $SRV $MOCK $MOCK503 $MOCK500 $MOCKDELAY 2>/dev/null; [ -n "$WORKER" ] && kill $WORKER 2>/dev/null; [ -n "$SRV2" ] && kill $SRV2 2>/dev/null; rm -rf "$TMACH_DATA_DIR" "${ROT_DIR:-/nonexistent-rot}"; }
 trap cleanup EXIT
 until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do :; done; exec 3>&- 2>/dev/null || true
 fail=0
@@ -592,6 +597,37 @@ assert "…while status still says active"             "$(G /api/executors)" '"s
 W93 TMACH_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT" \
     TMACH_WORKER_READY_URL="http://127.0.0.1:$PORT/health"
 assert "…and a ready host claims and runs it"      "$(G /api/jobs/$GJ)" '"status":"done"'
+
+echo
+echo "== 8g. issue #61: a stop mid-job hands the job back, spending no attempt =="
+# RACKET DELIVERS SIGTERM AS A BREAK, so this is the ordinary `systemctl stop`.
+# The break arm used to post /fail, which is TERMINAL: a maintenance stop spent
+# one of the job's three attempts, and the release the shutdown flush posted
+# afterwards was refused 409 because the row was already error. The unit file
+# said the opposite of all that.
+LJ=$(newjob "slow one"); LA=$(att $LJ)
+env TMACH_URL="http://127.0.0.1:$PORT" TMACH_WORKER_TOKEN="$WT" \
+    TMACH_WORKER_MODELS=mock TMACH_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_DELAY_PORT" \
+    racket cli/telemachus-worker.rkt >>"$TMACH_DATA_DIR/worker-stop.log" 2>&1 &
+SLOWPID=$!
+for i in $(seq 1 150); do
+  [ "$(G /api/jobs/$LJ | jq_ 'd["status"]')" = "running" ] && break
+  sleep 0.2
+done
+assert "the slow job is in flight before the stop" "$(G /api/jobs/$LJ)" '"status":"running"'
+kill -TERM $SLOWPID 2>/dev/null
+for i in $(seq 1 150); do kill -0 $SLOWPID 2>/dev/null || break; sleep 0.2; done
+assert "a SIGTERM mid-job requeues it"            "$(G /api/jobs/$LJ)" '"status":"queued"'
+assert "…spending no attempt"                     "$(att $LJ)" "$LA"
+assert "…recorded as a RELEASE, not a failure"    "$(lastaudit)" '"action":"job.released"'
+# the reason itself is in the audit row's `meta`, which the listing does not
+# project; the log line below is where a reason is observable
+assert "…and the worker said it handed it back"   "$(tail -20 "$TMACH_DATA_DIR/worker-stop.log")" 'handed back on the way out'
+# the process really stops rather than looping back to claim more work
+for i in $(seq 1 50); do kill -0 $SLOWPID 2>/dev/null || break; sleep 0.2; done
+if kill -0 $SLOWPID 2>/dev/null; then echo "  FAIL the stopped worker is still running"; fail=1; kill -9 $SLOWPID 2>/dev/null;
+else echo "  ok   the stopped worker exited"; fi
+curl -s -X POST $B/api/jobs/$LJ/cancel -H "Authorization: Bearer $TOK" >/dev/null
 
 echo
 echo "== 8e. issue #60: a worker token may expire, and a rotation OVERLAPS =="

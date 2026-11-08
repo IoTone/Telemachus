@@ -234,6 +234,15 @@
           (quote language) "en"
           (quote filename) fname))
 
+;; Seconds to wait before answering, so a test can stop a worker MID-JOB and see
+;; what it does on the way out (issue #61). Without a slow answer the job is
+;; finished before anything can be stopped, and the shutdown path has no test.
+;; A bad value is ignored rather than crashing the stub, the same rule
+;; MOCK_STATUS follows.
+(define delay-seconds
+  (let ([n (string->number (or (getenv "MOCK_DELAY") ""))])
+    (and n (real? n) (>= n 0) n)))
+
 (define (handle in out)
   (with-handlers ([exn:fail? (lambda (_) (void))])
     (read-line in 'return-linefeed)                     ; request line (ignored)
@@ -263,6 +272,9 @@
                          [(and reply-file (not offers-tools?)) (chat-response parsed)]
                          [has-tool? (final-response)]
                          [else (tool-call-response)]))
+    ;; the delay is AFTER the body is read, so the request is accepted and the
+    ;; worker is genuinely mid-call rather than stuck in the TCP connect
+    (when delay-seconds (sleep delay-seconds))
     (define wants-stream? (and (eq? (hash-ref parsed 'stream #f) #t) (not forced-status) (not embeddings?) (not transcribe?)))
     (define payload
       (if wants-stream?

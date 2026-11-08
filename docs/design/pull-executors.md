@@ -93,9 +93,10 @@ pull host:          POST /api/workers/claim ──▶ (the host runs it) ──�
   one flaky box three times is distinguishable from three boxes once each.
 - **Routing a model call to a pull executor.** `run-chat #:executor` today
   resolves a name to a push URL. For a pull executor it instead **enqueues an
-  `infer.chat` job and waits for it** (bounded by the caller's own job's lease),
-  so a tool inside a workflow step that says "use executor X" blocks on a
-  sub-job the host will claim. The team's concurrency cap and quota apply to the
+  `infer.chat` job and waits for it** — bounded by `WAIT-SECONDS` (300), not by
+  the caller's lease, and refusing at once when `@fleet` names no live worker
+  that can run it — so a tool inside a workflow step that says "use executor X"
+  blocks on a sub-job the host will claim. The team's concurrency cap and quota apply to the
   sub-job too — a pull host does not bypass admission.
 - **TEN‑2e falls out.** An executor with an `org_id` is offered only to that
   org's teams; a company's own inference host serves only that company. An
@@ -114,11 +115,25 @@ loop:
      thread heartbeat every lease/3:  POST /api/workers/jobs/<id>/heartbeat
      try:    result = run(job.kind, job.payload)                # e.g. call the local ollama
              POST /api/workers/jobs/<id>/complete {result}
-     except: POST /api/workers/jobs/<id>/fail {error}
+     except: POST /api/workers/jobs/<id>/release {reason}       # this host's problem: the attempt is not spent
+             POST /api/workers/jobs/<id>/fail {error}           # the job's problem: terminal
 ```
 
-The Bearer is the worker token. Every one of those four endpoints is a declared
-route with `auth: bearer`, `perm: jobs:execute`, and appears in `api.md`.
+The Bearer is the worker token. **Ten** routes answer to it — claim, state,
+token GET, token POST, heartbeat, complete, fail, release, document and derive
+(`server/routes.rkt`, the `jobs:execute` block) — and each one is a declared
+route with `auth: bearer`, `perm: jobs:execute`, appearing in `api.md`. The four
+in the loop above are the four a MINIMAL worker needs; the rest exist so a
+worker can report its own state (`state`), rotate its credential (`token`),
+read the documents its job names (`document`) and write derived objects
+(`derive`) without any other credential.
+
+**The four calls a worker must post are fenced, and a stop is not a failure.**
+SIGTERM arrives as a break, so the ordinary `systemctl stop` posts `release` with
+reason `shutdown` — no attempt spent, the job claimable elsewhere at once — and
+only a genuine failure posts `fail`. Every settle is guarded on
+`status = 'running'` plus the claim token, so a cancel that lands in the same
+microsecond is not overwritten by the worker's result.
 
 **The reference worker is PACKAGED**, so an inference host needs no checkout:
 `nix profile install github:IoTone/Telemachus` puts `telemachus-worker` on the
@@ -194,9 +209,10 @@ Model routing:
    pull executor by enqueue-and-wait. Smoke: `cli/telemachus-worker.rkt` against
    the scripted mock model, a chat routed through it end to end.
 4. TEN‑2e: `POST /api/org/executors` for an org admin; the org gate on offers.
-5. Admin › Compute lists pull executors with health; a worker that stops
-   heartbeating goes `stale`, and one that reported `paused` is shown as
-   deliberately drained rather than guessed at.
+5. The Workers card (Admin › Fleet, reused by Health) lists pull executors with
+   health; a worker that stops heartbeating goes `stale`, and one that reported
+   `paused` is shown as deliberately drained rather than guessed at. The Compute
+   table this once named was replaced by the Workers and Queue cards.
 
 ## As built
 
@@ -243,9 +259,14 @@ Model routing:
 - The `executors` table holds API-created executors (push or pull); the
   `TELEMACHUS_EXECUTORS` push entries stay in memory as before, and the two are
   merged in `GET /api/executors`. Retiring a pull executor revokes its token and
-  returns any job it holds to the queue.
+  returns any job it holds to the queue. The row also carries `prev_token_id`
+  (issue #60's rotation overlap), `admin_state` (FLEET‑3's drain/resume) and
+  `secret_key` — the three columns a reader of the data shapes below will look
+  for.
 - The reference worker's only job kind is `infer.chat`; a worker written in
-  another language needs the four calls and nothing else. It reports `ready` on
+  another language needs the claim, heartbeat and one settle call and nothing
+  else, and reports its own state through the `state` route when it wants the
+  console to say `paused` rather than `stale`. It reports `ready` on
   each claim, `busy` on each heartbeat and `paused` on the way out, the last
   best-effort — a host being torn down may have no network left.
 - **A worker whose model is down stops taking work** (PULL-14, issue #93). Two

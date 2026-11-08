@@ -9399,6 +9399,47 @@ bash test/server-smoke.sh             # the ORG-9 block, 7 assertions
   surface for one oracle. Reading the resolution before building on it is what
   turned it up, not a failing test.
 
+## A worker that stops is not a job that failed (issue #61, and the settles around it)
+
+Fixed 7 Nov 2026, in `cli/telemachus-worker.rkt` and `domain/exec/pull.rkt`. No
+migration, no route, no wire field: every change is one the protocol already
+described and the code did not do.
+
+- **SIGTERM ARRIVES AS A BREAK**, so the break arm IS the ordinary
+  `systemctl stop` path — and it posted `/fail`, which is TERMINAL. A maintenance
+  stop therefore spent one of the job's three attempts, and the release the
+  shutdown flush posted afterwards was refused 409 because the row was already
+  `error`. It releases with reason `shutdown` now, and then EXITS: handling the
+  break and looping on meant a stopped worker kept claiming work until systemd
+  escalated to SIGKILL.
+- **A HEARTBEAT THAT RAISES KILLS ONLY ITS OWN THREAD**, and the worker goes on
+  generating against a lease nobody is renewing — so the reaper re-queues the job,
+  another host runs the same model call, and this host's result is refused 409.
+  Two model calls and two bills on exactly the long jobs, with nothing in the log.
+  `beat!` retries twice inside the beat interval and never raises.
+- **THE COMPLETE POST SAT OUTSIDE EVERY HANDLER**, so one network error at the end
+  of a long generation unwound the claim loop and exited the process with the
+  result in hand. The posts inside the exit handlers had the same shape, where a
+  second exception escapes the handler entirely (`post-quietly`).
+- **SETTLING IS FENCED, NOT ONLY CHECKED.** `holder-check` reads the row and the
+  write follows as a second statement; an operator's cancel landing between them
+  was OVERWRITTEN by done/error. The guard is `status = 'running'` plus the claim
+  token — the same one `finish!` and `settle-canceling!` use.
+- **`query-exec` ANSWERS NOTHING ON THIS WRAPPER** (Racket's db library returns
+  void), so a fence cannot be counted. It is READ BACK instead: the row we meant
+  to settle is the row that now carries our status with no claim token, and
+  anything else — `canceling` with the token still there, `running` with
+  somebody else's — means the race was lost and the answer is `not-running`.
+- The comments that described all this correctly and the code that did not:
+  `pull.rkt`'s "never expires" (the lifetime is `worker-token-seconds`) and
+  `deploy/gpu-fleet/telemachus-worker@.service`'s shutdown note are corrected,
+  and `docs/design/pull-executors.md` now says ten routes rather than four, the
+  real wait bound, and the Workers card instead of the Compute table it replaced.
+- **The shutdown path had no test at all**, and now it has one that stops a real
+  worker mid-job: `test/pull-smoke.sh` §8g starts the reference worker against a
+  mock with `MOCK_DELAY`, waits for the claim, SIGTERMs it, and asserts the job is
+  `queued` again with the same attempt count and an audit row saying `released`.
+
 ## A note as a `.org` file, and whose tags win (ORG‑11/ORG‑12, issue #246 slice 3)
 
 Built 6 Nov 2026, **which completes #246** — what is left of the design is #247's
