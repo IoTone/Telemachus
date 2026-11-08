@@ -6499,3 +6499,133 @@ search is `GET /api/search`, which already covers notes under the same per-row
 listing is nowhere near and would change the wire; and `?scope=org` does not
 gain a per-team breakdown, because the window is the company's and a reader
 asking for it wants one list.
+
+## UIDOC — the documentation covers the console (issue #237, built 7 Nov 2026)
+
+`docs/ui/`, twenty-three pages. **No code at all**: the help corpus is `docs/`
+plus both READMEs, and `help-markdown-files` walks it for any `.md`, so a new
+tree is indexed by re-running `telemachus-help ingest` and nothing else.
+
+#237's measurement is the whole motive and is worth restating, because it is a
+class of failure the platform's own verification cannot reach: asked *"how do I
+ask the documentation a question in the console?"*, the answer was **"you would
+use the `doc_translate` tool"**, cited to `docs/reference/tools.md`. The
+citation was **genuine** — the passage really was retrieved and really is in
+that file; it simply does not answer the question. HELP‑16 checks that a cited
+path was retrieved, which this answer satisfies. **More verification is
+therefore not the fix. The corpus is.**
+
+- **UIDOC‑1 — a page per screen, hand-written, and NOT generated from the tour
+  captions.** #237 left that as the slice's one open question. The screenshot
+  tour carries a caption per screen and `captions.ja.json` carries the Japanese,
+  both source-hash gated — so generating from them is the drift-free option and
+  is the wrong artifact: a caption is one sentence saying what a picture shows,
+  and these pages say what a control does, what a figure means and what the
+  platform will not do. The duplication risk is answered by not restating a
+  caption rather than by generating: no page quotes one, and the captions
+  remain the README tour's own text.
+- 🔑 **UIDOC‑2 — THE CATALOG IS THE SOURCE, NOT THE CODE.** `static/ui-strings.json`
+  is 617 keys and most of them are already the sentence a reader needs — the
+  hints under a card are where this console has been putting its reasoning for a
+  year (`wkexpiredhint`, `jobscope`, `qvstuckhint`, `vishint`). So each page was
+  written from the catalog and the view that renders it, and **quotes the string
+  the reader will actually see** rather than paraphrasing it. A paraphrase is
+  what goes stale invisibly; a quotation that stops matching is a quotation
+  somebody notices.
+- **UIDOC‑3 — a shared part is described once.** `editor.md` (Notes and
+  Documents) and `workers.md` (the two cards Health and Admin compose) are their
+  own pages, because the console composes them rather than drawing them twice —
+  and two descriptions of one card is the drift this tree already refuses in
+  code (QVIZ‑5, HEALTH‑1).
+- **UIDOC‑4 — what a reader cannot infer is what each page leads with.** That a
+  Chat prompt past its character count comes back **wrong rather than refused**;
+  that `✓ ✗ ⧖` are a window's outcomes and the window is a control; that Chat,
+  Translate and Docs create **no scheduler job**, so an empty Jobs screen is
+  correct; that a queue with nothing running is almost always a budget; that a
+  link target you may not read is reported **exactly as** one that does not
+  exist; that a note's View is read-only; that leaving a tab abandons an edit.
+- **UIDOC‑5 — the page the measurement was about says the answer in its first
+  sentence.** `asking-the-documentation.md` opens with the button's label, its
+  position and its keyboard route, and then says plainly that this is **not** a
+  tool and not a workflow — because the wrong answer that provoked #237 named a
+  tool, and a corpus page that merely described the panel would still retrieve
+  beside `tools.md`.
+- **UIDOC‑6 — the site publishes it, and that needed a loop.**
+  `scripts/build-site.sh` enumerates `docs/`, `docs/reference/`, `docs/ops/`,
+  `docs/emacs/` and `docs/design/` **by name**, so a new tree is silently not
+  published and every link into it is rewritten to a GitHub blob URL — honest,
+  and not a manual. The loop takes each page's own `# ` heading as its title and
+  the landing page's list is generated from what is on disk, so it cannot go
+  stale (the design and ops lists' rule).
+- **UIDOC‑7 — `docs/ui/*.md` is in the config gate's `PROSE_DOCS`**, so the new
+  tree is held to the current operator-variable spellings in both directions. It
+  is already inside the "claim" register sweep, which scans `docs/` whole.
+- **UIDOC‑8 — ENGLISH ONLY, and the Japanese is deliberately deferred.** HELP‑10
+  already reads `docs/ui/ja/` as a locale, so the tree needs no code the day it
+  is written. It is not written now because a native reviewer is starting on the
+  machine-assisted `ja` book and catalog this week, and a fresh machine pass over
+  twenty-three new pages is more machine text for them to undo rather than less —
+  the same decision #227 slice 3 made for the e-book. What it costs is stated
+  where a reader meets it: a Japanese question falls back to the English pages
+  and the panel **says so** (`helplocaleempty`), which is the designed signal
+  rather than a silent substitution.
+
+**THE MEASUREMENT, which is half of #237's scope.** Two throwaway instances on
+the demo box, one per corpus, same embedder (`bge-m3`) and same chat model
+(`qwen2.5:7b`), bootstrapped fresh so no live corpus was touched. Baseline: 98
+documents, 1,842 chunks. With the tree: **121 documents, 1,947 chunks, 23 extra
+embedding requests** — and a re-ingest after editing five pages cost **17
+requests with 116 documents reported `unchanged`**, which is the sha1 rule doing
+exactly what #237 predicted the marginal cost would be.
+
+| question | baseline | with `docs/ui/` |
+|---|---|---|
+| how do I ask the documentation a question in the console? | *"you would use the `POST /api/help` route"*, cited to `docs/design/in-product-help.md` | the `Docs` button, its position, `⌘/`, the five steps |
+| which tab shows the worker fleet? | **"the Queue card"** | *"the `Workers` card, on two tabs: `Health` and `Admin`"* |
+| how do I share a note with a colleague? | the HTTP endpoint and `notes:manage`, `unfocused` | the row's dropdown and `Share`, and that it grants READ only |
+| where is the character count on the chat screen? | declines, `uncited` | under the prompt box, and what M is |
+| what does the Details button on a document do? | declines | what the panel holds, and that it changes nothing |
+
+🔑 **THE BASELINE WAS WORSE THAN #237 RECORDED, in the one row that had been
+called roughly right.** "which tab shows the worker fleet" answered *"the Queue
+card"* — the wrong card, confidently, with no refusal — where the issue's run
+had it answered out of `README.md`. The corpus had moved on (the demo embedder
+is `bge-m3` now, not `nomic-embed-text`), which is the argument for
+**re-measuring rather than quoting a measurement**: a figure from a live box is
+evidence of what that box was doing, not of what the code does.
+
+🔑 **AND THE RE-MEASUREMENT FOUND THREE REAL DEFECTS IN THE PAGES, which is why
+it is a step and not a formality.** A note's **`Share` control was missing from
+`notes.md` outright** — each row carries a colleague dropdown and a Share
+button granting READ only, with no capability picker, and the page did not
+mention it, so the answer came back as the endpoint. `workers.md` opened by
+saying the cards *appear on* Health and Admin, and the model read the README's
+tab list instead and answered **"the Workflows tab"** — it says *which tab*
+first now. And `repository.md`'s heading was `## Details`, which without the
+word **button** retrieved `documents.md` and `editor.md` and declined; **the
+heading is embedded with its chunk**, so a heading that does not contain the
+question's own noun is a page that cannot be found by it. Each fix was one
+sentence, and none would have been written without asking.
+
+**Two things found while writing it, recorded and NOT fixed here**, because each
+changes a user-facing English string and so makes its Japanese stale — a
+catalog edit, not a documentation slice:
+
+- **`ui.simulatedwhy` and `ui.s3off` name operator variables in their OLD
+  spelling** (`TELEMACHUS_MODEL_URL`, `TELEMACHUS_S3_PORT`) while
+  `ui.helpunconfigured` beside them says `TMACH_EMBED_URL`. The aliases are
+  permanent (#204), so neither is wrong — but the console teaches three readers
+  two different names for one convention, and new operator-facing text should
+  teach the current one (#128 job 3's rule for the prose).
+- **`agentView`'s subtitle is an English literal** — *"— the AI uses tools to
+  act on your platform"* — in a console that is otherwise entirely in the
+  catalogs. The same shape as `doSearch`'s two literals, which #178 found and
+  fixed; this one is still there.
+
+**Not built, deliberately**: screenshots in these pages (the tour owns the
+images and the README owns the tour; a second set would be a second thing to
+keep current), a page for the multi-tenancy management planes (they have no
+console UI at all, by TEN‑2g, and `docs/ops/multi-tenancy-runbook.md` is their
+home), and anything about the HTTP API — `docs/reference/api.md` is generated
+from the route table and gated, and a hand-written second account of it would
+be exactly the drift this tree keeps refusing.

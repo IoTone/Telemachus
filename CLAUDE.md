@@ -4215,6 +4215,98 @@ the require to the CLI as well as to main.rkt.
   precedent), and a hand-written spec uses the WIRE grammar
   `${steps.<id>.output.*}`, not the macro's sugar.
 
+## The documentation covers the console now (UIDOC‑1…8, issue #237)
+
+Built 7 Nov 2026, which **closes #237**. `docs/ui/`, twenty-three pages, English.
+**No code at all** — `help-markdown-files` already walks `docs/` for any `.md`,
+so the tree is indexed by re-running `telemachus-help ingest` and nothing else.
+
+```sh
+bash scripts/check-config-reference.sh           # docs/ui is in PROSE_DOCS now
+bash scripts/build-site.sh                       # + the workflow's own link check
+TMACH_EMBED_URL=… racket cli/telemachus-help.rkt ingest   # from a CHECKOUT (HELP‑2)
+```
+
+- 🔑 **THE FAILURE IT CLOSES IS ONE NO VERIFICATION CAN REACH.** Asked *"how do
+  I ask the documentation a question in the console?"*, the live corpus answered
+  **"you would use the `doc_translate` tool"**, cited to
+  `docs/reference/tools.md` — and **the citation was GENUINE**. HELP‑16 checks
+  that a cited path was among the retrieved passages, which that answer
+  satisfies; the passage simply does not answer the question. So the fix is not
+  a stricter verifier, it is pages about the console. Measured before and after
+  on the same box, which is the only thing that establishes it.
+- 🔑 **`static/ui-strings.json` IS THE SOURCE, NOT THE VIEWS.** 617 keys, and
+  most of them are already the sentence a reader needs: this console has been
+  putting its reasoning in the hint under the card for a year
+  (`wkexpiredhint`, `jobscope`, `qvstuckhint`, `vishint`, `wkmodelshint`). Each
+  page QUOTES the string the reader will see rather than paraphrasing it — a
+  paraphrase goes stale invisibly, where a quotation that stops matching is one
+  somebody notices. Write a page from the catalog plus the view that renders it.
+- **NOT generated from the tour captions**, which was #237's one open question.
+  `run-tour.mjs`'s captions and `captions.ja.json` are source-hash gated, so
+  generating from them is the drift-free option and the wrong artifact: a
+  caption is one sentence about a picture. No page quotes one, so there is
+  nothing to drift.
+- **A SHARED PART IS DESCRIBED ONCE**: `editor.md` (Notes and Documents) and
+  `workers.md` (the two cards Health and Admin compose), because the console
+  composes them rather than drawing them twice — QVIZ‑5 and HEALTH‑1's rule
+  applied to prose.
+- **THE SITE BUILDER ENUMERATES DIRECTORIES BY NAME**, so a new tree is
+  silently unpublished and every link into it is rewritten to a GitHub blob URL.
+  `docs/ui/` needed its own loop plus a landing-page section generated from what
+  is on disk (the design and ops lists' rule). Verified by running
+  `build-site.sh` and the workflow's own python: **85 pages, 0 broken links.**
+- **ENGLISH ONLY, DELIBERATELY.** HELP‑10 already reads `docs/ui/ja/` as a
+  locale, so the Japanese needs no code the day somebody writes it. It is
+  deferred because a native reviewer is starting on the machine-assisted `ja`
+  book and catalog this week and twenty-three fresh machine-translated pages are
+  more for them to undo, not less — #227 slice 3's call. The cost is visible
+  where a reader meets it: the panel says `helplocaleempty` rather than
+  silently answering in another language.
+**THE MEASUREMENT, which is half of #237's scope.** Two throwaway instances on
+the demo box, one per corpus, same embedder (`bge-m3`) and same chat model
+(`qwen2.5:7b`), bootstrapped fresh so no live corpus was touched. Baseline: 98
+documents, 1,842 chunks. With the tree: **121 documents, 1,947 chunks, 23 extra
+embedding requests** — and a re-ingest after editing five pages cost **17
+requests with 116 documents reported `unchanged`**, which is the sha1 rule doing
+exactly what #237 predicted the marginal cost would be.
+
+| question | baseline | with `docs/ui/` |
+|---|---|---|
+| how do I ask the documentation a question in the console? | *"you would use the `POST /api/help` route"*, cited to `docs/design/in-product-help.md` | the `Docs` button, its position, `⌘/`, the five steps |
+| which tab shows the worker fleet? | **"the Queue card"** | *"the `Workers` card, on two tabs: `Health` and `Admin`"* |
+| how do I share a note with a colleague? | the HTTP endpoint and `notes:manage`, `unfocused` | the row's dropdown and `Share`, and that it grants READ only |
+| where is the character count on the chat screen? | declines, `uncited` | under the prompt box, and what M is |
+| what does the Details button on a document do? | declines | what the panel holds, and that it changes nothing |
+
+🔑 **THE BASELINE WAS WORSE THAN #237 RECORDED, in the one row that had been
+called roughly right.** "which tab shows the worker fleet" answered *"the Queue
+card"* — the wrong card, confidently, with no refusal — where the issue's run
+had it answered out of `README.md`. The corpus had moved on (the demo embedder
+is `bge-m3` now, not `nomic-embed-text`), which is the argument for
+**re-measuring rather than quoting a measurement**: a figure from a live box is
+evidence of what that box was doing, not of what the code does.
+
+🔑 **AND THE RE-MEASUREMENT FOUND THREE REAL DEFECTS IN THE PAGES, which is why
+it is a step and not a formality.** A note's **`Share` control was missing from
+`notes.md` outright** — each row carries a colleague dropdown and a Share
+button granting READ only, with no capability picker, and the page did not
+mention it, so the answer came back as the endpoint. `workers.md` opened by
+saying the cards *appear on* Health and Admin, and the model read the README's
+tab list instead and answered **"the Workflows tab"** — it says *which tab*
+first now. And `repository.md`'s heading was `## Details`, which without the
+word **button** retrieved `documents.md` and `editor.md` and declined; **the
+heading is embedded with its chunk**, so a heading that does not contain the
+question's own noun is a page that cannot be found by it. Each fix was one
+sentence, and none would have been written without asking.
+
+- **Two user-facing strings are stale and were NOT fixed here**, because each
+  makes its Japanese stale and so is a catalog edit: `ui.simulatedwhy` and
+  `ui.s3off` name operator variables in the OLD `TELEMACHUS_*` spelling while
+  `ui.helpunconfigured` beside them says `TMACH_EMBED_URL`, and `agentView`'s
+  subtitle is still an English literal — `doSearch`'s shape, which #178 fixed
+  for that function and not for this one.
+
 ## In-product help: the corpus and its read (HELP‑1…14, issue #183 slice 1)
 
 Built 29 Oct 2026, the first thing to pick up #189's retrieval. Migration
