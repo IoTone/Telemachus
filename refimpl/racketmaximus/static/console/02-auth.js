@@ -261,7 +261,7 @@ function go(tab){ S.tab=tab; S.newToken=null;
   // #180: leaving a tab abandons an edit in progress, the same way it drops a
   // run poll. Keeping it would show a Save button on a card whose note is no
   // longer on screen.
-  if(tab!=='notes'){ S.noteEdit=null; S.noteShow=null; edReset('note','', 'nb'); }
+  if(tab!=='notes'){ S.noteEdit=null; S.noteShow=null; S.noteDraft=null; edReset('note','', 'nb'); }
   if(tab!=='documents'){ S.docEdit=null; edReset('doc','', 'dc'); }
   S.wfPoll++;
   // leaving the Jobs tab drops its live poll, the same way it drops a run poll

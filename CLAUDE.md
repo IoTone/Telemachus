@@ -9399,6 +9399,50 @@ bash test/server-smoke.sh             # the ORG-9 block, 7 assertions
   surface for one oracle. Reading the resolution before building on it is what
   turned it up, not a failing test.
 
+## The notes tab does what it says (reported from use, 7 Nov 2026)
+
+Three runtime defects on the Notes tab, none of which a source assertion could
+see, plus the strings and the empty state around them.
+
+- **A TOOLBAR PRESS DISCARDED THE TITLE.** `edToggle` and `edZen` call
+  `renderTab()`, and the tab rebuilt the form's plain inputs from the template,
+  so a typed title and tags vanished while the body survived (it lives in `S`) and
+  the note was then created under the placeholder. The answer is the one the body
+  already had: the fields are a DRAFT in `S`, `noteDraftRead()` is called in
+  `renderTab` BEFORE the DOM is replaced (afterwards would read an empty form),
+  and the template paints what is there.
+- **OPENING A NOTE UNDER A TAG FILTER SHOWED THE NEW-NOTE FORM.** `viewing` was
+  resolved against the FILTERED list, so a note the current `?tag=` excluded was
+  not found and the card fell through to the create form — the note you asked for
+  replaced by a blank one. It falls back to `GET /api/notes/:id`, which the
+  server had already authorized.
+- **THE VIEW CARD WAS PAINTED OFF SCREEN** when the note was opened from a row
+  low in a long tab, which reads as "nothing happened". `revealEl('notecard')`
+  after the paint is the same rule `repoRevealDetail` and the run form use.
+- **ORG-12 IN THE FORM**, which the server now enforces: an org note has no tags
+  box, and the hint names `#+FILETAGS:`. `edSetFormat` must not re-render the tab
+  (its own comment records what that cost), so `edTagsField()` swaps the two
+  fragments in place — the one place the format changes without a render.
+- **Delete asked for nothing**: one press removed somebody's note with no undo.
+  It confirms now, as `doRemoveMember` and the workers card do.
+- **Six English literals were being shown to a Japanese reader** because they sat
+  outside the `t('…')` surface: `(untitled)`, the `mine` badge, the raw
+  `team`/`private`/`shared` enum in the select AND the badge, and the
+  `created`/`deleted`/`shared` toasts. All of them already had catalog keys
+  (`ui.untitled`, `ui.vis_*`, `ui.created`…); the badge takes the short half of
+  `vis_*` at its em dash, and the select shows the whole sentence. Five are new
+  (`ui.mine`, `ui.nonotes`, `ui.notedelconfirm`, `ui.orgtagsfield`,
+  `ui.autotagorgnote`) and every one is in `static/ui-strings.json` and
+  `locales/ja.json` in the same commit.
+- **The empty state was an em dash.** It says "No notes yet" and offers the
+  create field, which was already on screen above it.
+- **The e2e tour CANNOT RUN on this workstation**: Playwright's chromium needs
+  `libatk-1.0.so.0` and seventeen other system libraries this Nix shell does not
+  provide, so `test/e2e/validate.sh` dies in `chromium.launch`. §3b2's cases are
+  written and unrun here; `test/console-tests.rkt` holds the two seams down
+  instead (the draft read before the replacement, the fallback fetch, the reveal,
+  the in-place tag field), so the local gate is at least not blind to them.
+
 ## A worker that stops is not a job that failed (issue #61, and the settles around it)
 
 Fixed 7 Nov 2026, in `cli/telemachus-worker.rkt` and `domain/exec/pull.rkt`. No

@@ -251,6 +251,70 @@ try {
   ok('the filter is reset for the blocks below',
     await page.evaluate(() => (S.noteTags || []).length === 0));
 
+  // ── 3b2. what a re-render must not take away ────────────────────────────────
+  // Two defects the static gate cannot see, both reported from use:
+  //   * a toolbar press re-rendered the tab, and the tab rebuilt the TITLE from
+  //     its template, so a typed title vanished while the body survived — and
+  //     the note was then created under the placeholder;
+  //   * opening a note while a tag filter was active found nothing in the
+  //     FILTERED list, so the card fell through to the NEW-NOTE form and the
+  //     note you asked for was replaced by a blank one.
+  step('notes: a render keeps the form, and a filter does not hide the note you opened');
+  await goTab(page, 'notes', '#nt');
+  await page.fill('#nt', 'Typed before the toolbar');
+  await page.fill('#nb', 'the body survives anyway');
+  await page.evaluate(() => window.edToggle('note', 'preview', 'side'));
+  ok('…a toolbar press keeps the typed title',
+    await page.evaluate(() => (document.getElementById('nt') || {}).value === 'Typed before the toolbar'));
+  ok('…and keeps the body', await page.evaluate(() => (S.ed.note || {}).value === 'the body survives anyway'));
+  await page.evaluate(() => window.doCreateNote());
+  ok('…and the note is created under the typed title, not the placeholder',
+    await until(page, () => document.body.innerText.includes('Typed before the toolbar')
+                         && !document.body.innerText.includes('Secret plan')));
+
+  // the draft is reset after a successful write, so the form is not a copy of
+  // what was just saved
+  ok('…and the form is cleared for the next one',
+    await page.evaluate(() => (document.getElementById('nt') || {}).value === ''));
+
+  // an org note has no tags field: the body's `#+FILETAGS:` line owns them
+  // (ORG-12), and the server refuses the write if the field is used
+  await page.evaluate(() => window.edSetFormat('note', 'org'));
+  ok('…an org note hides the tags field and names the keyword',
+    await page.evaluate(() => {
+      const box = document.getElementById('ntagsbox'), hint = document.getElementById('ntagsorg');
+      return !!box && box.style.display === 'none'
+          && !!hint && hint.style.display !== 'none'
+          && hint.innerText.includes('#+FILETAGS:');
+    }));
+  await page.evaluate(() => window.edSetFormat('note', 'markdown'));
+  ok('…and switching back shows it again',
+    await page.evaluate(() => {
+      const box = document.getElementById('ntagsbox');
+      return !!box && box.style.display !== 'none';
+    }));
+
+  // FILTER, THEN OPEN. The note this opens carries no tag, so the filtered list
+  // does not contain it — the bug was that the tab believed the list.
+  const looseId = await page.evaluate(async () => {
+    const r = await api('/api/notes');
+    const n = (r.ok ? r.json.notes : []).find(x => x.title === 'Validator note');
+    return n ? n.id : null;
+  });
+  ok('…a note the filter excludes exists', !!looseId);
+  await page.evaluate(() => window.noteTagToggle('budget'));
+  await page.evaluate(id => window.noteShow(id), looseId);
+  ok('…opening it under a filter still shows THAT note',
+    await until(page, () => {
+      const c = document.getElementById('notecard');
+      return !!c && c.innerText.includes('Validator note');
+    }));
+  ok('…and not the new-note form', await page.evaluate(() => !document.getElementById('nt')));
+  await page.evaluate(() => window.noteTagClear());
+  await page.evaluate(() => window.noteViewClose());
+  ok('…and closing it returns to the list',
+    await until(page, () => !document.getElementById('notecard') && !!document.getElementById('nt')));
+
   // ── 3c. the editor, and the Markdown preview as a sanitiser (issue #180) ────
   // A SOURCE assertion cannot establish that mdRender escapes; this runs the
   // real function on the real page. Every case here is an input somebody would

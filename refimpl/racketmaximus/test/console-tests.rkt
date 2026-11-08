@@ -1355,6 +1355,40 @@
   (check-true (and (regexp-match? #rx"countAll\\(\\)" rv) #t)
               "counted after a render, as the fields are sized after a render"))
 
+(test-case "a render keeps the note form, and a filter does not hide the opened note"
+  ;; TWO REPORTS FROM USE, both runtime behaviour a static gate can only pin the
+  ;; SEAM of:
+  ;;   * a toolbar press re-rendered the tab, and the tab rebuilt the title from
+  ;;     its template, so a typed title vanished while the body survived in S;
+  ;;   * opening a note under a tag filter found nothing in the FILTERED list, so
+  ;;     the card fell through to the NEW-NOTE form.
+  ;; The browser cases are §3b2 of `demo-validate.mjs`; what can be read here is
+  ;; that the draft is READ before the DOM is replaced and that the fallback fetch
+  ;; exists — the two seams the defects lived behind.
+  (define tabs (console-code "03-tabs.js"))
+  (define rv (console-code "07-render.js"))
+  (define ed (console-code "15-editor.js"))
+  (check-true (and (regexp-match? #px"function noteDraftRead\\(" tabs) #t))
+  (check-true (and (regexp-match? #px"function noteDraftSeed\\(" tabs) #t))
+  ;; THE READ IS BEFORE THE REPLACEMENT, which is the whole fix: reading it after
+  ;; `innerHTML=…` would read an empty form and lose exactly what it was saving.
+  (check-true
+   (and (regexp-match? #px"(?s:noteDraftRead\\(\\);\\s*el\\.innerHTML=)" rv) #t)
+   "the form is read before the tab is replaced")
+  ;; and the viewed note is fetched when the filtered list does not carry it
+  (check-true (and (regexp-match? #px"api\\('/api/notes/'\\+encodeURIComponent\\(S\\.noteShow\\)\\)" tabs) #t))
+  ;; the reveal: the view card has an id and the render reveals it
+  (check-true (and (regexp-match? #px"id=\"notecard\"" tabs) #t))
+  (check-true (and (regexp-match? #px"revealEl\\('notecard'\\)" rv) #t))
+  ;; ORG-12 in the form: the tags field is swapped in place, because `edSetFormat`
+  ;; must not re-render the tab
+  (check-true (and (regexp-match? #px"function edTagsField\\(" tabs) #t))
+  (check-true (and (regexp-match? #px"if \\(key === 'note'\\) edTagsField\\(\\);" ed) #t))
+  ;; the catalog keys the new controls use
+  (for ([k (in-list '("mine" "nonotes" "notedelconfirm" "orgtagsfield" "autotagorgnote"))])
+    (check-true (string-contains? ui-strings (format "\"ui.~a\"" k))
+                (format "ui.~a is missing from static/ui-strings.json" k))))
+
 (test-case "a note can be READ, not only edited"
   ;; Reported from outside: "the notes view should have a view button, not just
   ;; edit." The list has rendered each body since #180, so what was missing is a

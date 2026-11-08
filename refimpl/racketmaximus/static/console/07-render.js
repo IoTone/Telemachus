@@ -223,6 +223,13 @@ async function doAddTerm(){
 let renderSeq = 0;
 async function renderTab(){ hPassStart(); try {
   const el=document.getElementById('main'); const seq = ++renderSeq;
+  // THE FORM IS READ BEFORE IT IS REPLACED. A toolbar button, a tag chip and the
+  // view/zen toggles all end in a render, and the render rebuilds the tab from
+  // its template — so the title, the tags and the visibility were discarded by
+  // any of them while the body survived in S. Reading the draft here is the one
+  // seam every render passes through, and it no-ops when no note form is on
+  // screen. See `noteDraftRead` in 03-tabs.js.
+  noteDraftRead();
   el.innerHTML='<p class="muted">…</p>';
   const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,reviews:reviewsView,knowledge:knowledgeView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,health:healthView,localize:localizeView,admin:adminView}[S.tab]||chatView)();
   if (seq !== renderSeq) return;                    // superseded mid-flight — discard, don't clobber
@@ -235,6 +242,12 @@ async function renderTab(){ hPassStart(); try {
   // a prefilled prompt is sized on arrival; a grow-on-input handler never sees it
   growAll();
   countAll();
+  // The viewed note's card is drawn ABOVE the list, so opening a note from a row
+  // near the bottom of a long tab painted it off the top of the screen and read
+  // as "nothing happened" — the report #176/UX-1 fixed for the repository, which
+  // `revealEl` then answered for the run form. Same rule: reveal when it is not
+  // already comfortably on screen, and never animate for a reduced-motion reader.
+  revealEl('notecard');
   navigate();
   // #185: the bracket closes in a `finally` because of the early return above —
   // a range left open swallows every registration made after the pass, which is
