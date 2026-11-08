@@ -39,10 +39,18 @@ stops working if that key is revoked."* It is signed with **your own newest S3
 key**, so it can never exceed what that key may do, and revoking the key kills
 every link made with it.
 
-## Details
+## The Details button
 
-The detail panel scrolls itself into view when it is below the fold, and
-carries four things.
+**`Details` on a document's row opens that document's detail panel**: its
+versions, its visibility and who it is shared with, what has processed it, and
+the control that runs a workflow over it. It changes nothing by itself — it is
+how you look at one document rather than the list.
+
+The panel opens **below the listing**, and scrolls itself into view when it is
+under the fold, so on a long list the answer to "nothing happened" is that it
+happened off screen. `Close` dismisses it.
+
+It carries four things.
 
 ### Versions
 

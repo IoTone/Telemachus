@@ -1,8 +1,12 @@
 # Workers and the queue
 
-Two cards that appear on both [Health](health.md) and [Admin](admin.md). They
-are the same cards in both places, drawn from the same two reads — the figures
-cannot disagree between the screens because there is only one of each.
+**The worker fleet is the `Workers` card, and it is on two tabs: `Health` and
+`Admin`.** There is no tab called Workers — the queue beside it is the `Queue`
+card, on the same two tabs.
+
+They are the same two cards in both places, drawn from the same two reads, so
+the figures cannot disagree between the screens because there is only one of
+each.
 
 Both need `instance:read`, which an operator holds and which a monitoring
 credential can be scoped to on its own.

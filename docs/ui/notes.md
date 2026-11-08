@@ -23,6 +23,29 @@ on an untouched form — the format control repaints in place precisely so that 
 does *not* discard a title you have typed, but the view buttons (Write / Split /
 Preview / Focus) still re-render the tab and will.
 
+## Sharing a note with a colleague
+
+Each note in the list carries **a dropdown of the other people on your team and
+a `Share` button**. Pick a colleague, press Share, and they can read that note.
+
+Two things that are not obvious and that the button does not say:
+
+- **It grants READ, and nothing else.** There is no capability picker here as
+  there is for a [repository document](repository.md#details) — a shared note is
+  a note somebody else can read, not one they can edit.
+- **Sharing is what the `shared` visibility is for.** A `private` note is yours
+  alone and a `team` note is already readable by everybody on the team, so
+  naming a person is how `shared` comes to mean anything. The note's badge shows
+  which of the three it is.
+
+`No one else on this team` in the dropdown means there is nobody to share with
+yet, not that sharing is unavailable.
+
+To hand a note to somebody **outside** the team, there is nothing here: a note
+belongs to its team, and the thing that crosses a team boundary is a
+[repository document](repository.md), which can be shared with another team in
+the same company.
+
 ## Body format
 
 **Body format** is `Markdown` or `Org`, and it is **declared, never guessed**.

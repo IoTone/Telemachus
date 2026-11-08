@@ -6502,7 +6502,7 @@ asking for it wants one list.
 
 ## UIDOC — the documentation covers the console (issue #237, built 7 Nov 2026)
 
-`docs/ui/`, twenty-two pages. **No code at all**: the help corpus is `docs/`
+`docs/ui/`, twenty-three pages. **No code at all**: the help corpus is `docs/`
 plus both READMEs, and `help-markdown-files` walks it for any `.md`, so a new
 tree is indexed by re-running `telemachus-help ingest` and nothing else.
 
@@ -6564,7 +6564,7 @@ therefore not the fix. The corpus is.**
   already reads `docs/ui/ja/` as a locale, so the tree needs no code the day it
   is written. It is not written now because a native reviewer is starting on the
   machine-assisted `ja` book and catalog this week, and a fresh machine pass over
-  twenty-two new pages is more machine text for them to undo rather than less —
+  twenty-three new pages is more machine text for them to undo rather than less —
   the same decision #227 slice 3 made for the e-book. What it costs is stated
   where a reader meets it: a Japanese question falls back to the English pages
   and the panel **says so** (`helplocaleempty`), which is the designed signal

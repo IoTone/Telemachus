@@ -36,7 +36,9 @@ that is the gap these pages exist to close.
 Three screens are composed of parts described once:
 
 - [The editor](editor.md) — shared by Notes and Documents.
-- [Workers and the queue](workers.md) — the two cards Health and Admin share.
+- [Workers and the queue](workers.md) — the `Workers` card (the worker fleet)
+  and the `Queue` card, both of which are on the Health tab and the Admin tab.
+  There is no tab of either name.
 
 Also: [signing in](signing-in.md), the [keyboard routes](keyboard.md), and
 [asking the documentation](asking-the-documentation.md).

@@ -4217,7 +4217,7 @@ the require to the CLI as well as to main.rkt.
 
 ## The documentation covers the console now (UIDOC‑1…8, issue #237)
 
-Built 7 Nov 2026, which **closes #237**. `docs/ui/`, twenty-two pages, English.
+Built 7 Nov 2026, which **closes #237**. `docs/ui/`, twenty-three pages, English.
 **No code at all** — `help-markdown-files` already walks `docs/` for any `.md`,
 so the tree is indexed by re-running `telemachus-help ingest` and nothing else.
 
@@ -4259,7 +4259,7 @@ TMACH_EMBED_URL=… racket cli/telemachus-help.rkt ingest   # from a CHECKOUT (H
 - **ENGLISH ONLY, DELIBERATELY.** HELP‑10 already reads `docs/ui/ja/` as a
   locale, so the Japanese needs no code the day somebody writes it. It is
   deferred because a native reviewer is starting on the machine-assisted `ja`
-  book and catalog this week and twenty-two fresh machine-translated pages are
+  book and catalog this week and twenty-three fresh machine-translated pages are
   more for them to undo, not less — #227 slice 3's call. The cost is visible
   where a reader meets it: the panel says `helplocaleempty` rather than
   silently answering in another language.
