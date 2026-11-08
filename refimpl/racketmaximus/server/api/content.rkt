@@ -9,7 +9,7 @@
 (provide ep-notes-create ep-notes-list ep-documents-create ep-documents-list
          ep-documents-get ep-documents-update ep-documents-delete
          ep-notes-get ep-notes-update ep-notes-delete ep-notes-share
-         ep-note-tags ep-notes-autotag ep-note-links ep-notes-import
+         ep-note-tags ep-notes-autotag ep-note-links ep-notes-graph ep-notes-import
          ep-search ep-kg-entities ep-kg-entity ep-kg-extract)
 
 (require racket/string
@@ -20,7 +20,7 @@
          (only-in "../../config.rkt" content-encryption-enabled?)
          (only-in "../../domain/notes/notes.rkt"
                   notes-create notes-delete notes-get notes-list notes-count notes-share notes-update
-                  notes-tag-list note-links-of note-backlinks-of
+                  notes-tag-list note-links-of note-backlinks-of note-graph
                   notes-import org-text-of)
          (only-in "../../domain/notes/note-tools.rkt" note-autotag!)
          (only-in "../../domain/tools/faults.rkt" exn:fail:misconfigured?)
@@ -208,6 +208,28 @@
         (json-response (hasheq 'links out
                                'backlinks (note-backlinks-of db-conn p id)))
         (err "not found" 404)))))
+
+
+;; #247 — ORG-16's bound and its neighbourhood default. The `?note=` form is what
+;; the console asks for; the whole-team map is the explicit control.
+;;
+;; `query-param`'s default is `""` AND AN EMPTY STRING IS TRUE IN RACKET, so the
+;; absent case is tested rather than `or`-ed — the documented trap that once made
+;; every bundle sub-resource 401 on its own cookie.
+;;
+;; The DEPTH IS NOT REFUSED when it is nonsense, it is clamped in the domain
+;; beside the cap it shares a purpose with: a bad `?depth=` is a reader asking
+;; for a picture, and refusing one over a query parameter they can see the effect
+;; of is the wrong trade. `?note=` naming a note that is not there — or one the
+;; caller may not read, which is ONE answer (ORG-9a) — is a 404.
+(define (ep-notes-graph req)
+  (with-auth req (lambda (p)
+    (define asked (query-param req 'note ""))
+    (define focus (if (string=? asked "") #f asked))
+    (define n (string->number (query-param req 'depth "1")))
+    (define out (note-graph db-conn p #:note focus
+                            #:depth (if (exact-integer? n) n 1)))
+    (if out (json-response out) (err "not found" 404)))))
 
 (define (ep-notes-update req id)
   (with-auth req (lambda (p)

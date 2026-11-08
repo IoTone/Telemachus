@@ -6288,11 +6288,47 @@ built**, which is the whole of **#246**: migrations `0073-note-format` and
 `GET /api/notes/:id?as=org` and `POST /api/notes/import`. **#247 has its edge
 set.**
 
-What is left is **ORG‑13, ORG‑14 and ORG‑16 — the drawing, which is #247 and is
-slice 4.** **Read ORG‑14 before anybody draws an authored edge beside a derived
-mention**; read ORG‑8 before anybody adds a `dst_note_id` column, because the
-decision is kept and that column deliberately is not; and read ORG‑12's
-absent-vs-empty `#+FILETAGS:` split before touching an org note's tags.
+**ORG‑13, ORG‑14 and ORG‑16 — the drawing — are BUILT too** (7 Nov 2026), which
+closes **#247**: `note-graph` in `domain/notes/notes.rkt` beside the two link
+readers, `GET /api/notes/graph`, and `static/console/21-notegraph.js`. **No
+migration, no new permission and no new environment variable** — the edge set,
+the resolution and the authorization were all built by slice 2, so the drawing
+is a projection of what the links panel already answers. **Read ORG‑14 before
+anybody draws an authored edge beside a derived mention**; read ORG‑8 before
+anybody adds a `dst_note_id` column, because the decision is kept and that
+column deliberately is not; and read ORG‑12's absent-vs-empty `#+FILETAGS:`
+split before touching an org note's tags.
+
+🔑 **AND ORG‑9a IS WHAT MADE THE DRAWING POSSIBLE HONESTLY, which is why #268
+had to land first.** A target that resolves to no note is drawn as an
+unresolved node carrying the text its author typed — org-roam's and Obsidian's
+own behaviour, and the useful half of the picture. Under slice 2's resolution an
+UNREADABLE target answered differently from a nonexistent one, so that node
+would have named a colleague's private note back to a reader who had guessed its
+title: the oracle in its strongest form. Finding it came from reading
+`resolve-target` before building on it, not from a failing test.
+
+Three things the build decided that the table below does not:
+**ORG‑16a — an AMBIGUOUS target is counted and drawn as nothing, and the count
+is scoped to the VIEW.** A phantom for it would sit beside the two real notes
+that already carry that title, naming the same words three times; and a count
+reveals nothing, because every note involved is one the caller can read and the
+remedy is theirs — which is CLS‑27's line read correctly, a bound somebody can
+act on being reported where a fact about somebody else's note is not. The HTTP
+smoke is what established the SCOPING: counted over the whole team, a reader
+looking at one note's neighbourhood was told about an ambiguity in a note that
+is not in the picture, which is #178's decoration.
+**ORG‑16b — a phantom only reaches the picture when something that IS in it
+points at that target**, so the cap is spent on the team's own notes first: the
+notes exist and the phantoms are inferred.
+**ORG‑13a — WHICH SPELLING LABELS AN UNRESOLVED NODE IS DECIDED BY THE DATA.**
+Two authors who typed `[[Levee 7 survey]]` and `[[levee 7 SURVEY]]` point at one
+unwritten note (the fold is the identity), and taking whichever link row arrived
+first is `ORDER BY src_note_id` — whichever SOURCE NOTE owns the smaller random
+uuid. So the same input drew a different label on every instance. The smallest
+spelling wins: arbitrary, and a function of the targets alone. Its own test
+found it, and the control for it bit on a coin flip until the case was rewritten
+over twelve pairs.
 
 Two things decide the shape before any decision below. **Nothing in this build
 links a note to a note** — `notes` is id/team/owner/visibility/title/body/two
@@ -6339,10 +6375,10 @@ of `notes.body`, the editor's view preferences, and every #245 tool but
 `note_autotag`. **No new permission and no feature switch** — both renderers ship
 on every instance, because a format is not a capability.
 
-**Build plan**, and slice 2 is #247's prerequisite: (1) the format column and the
+**Build plan — ALL FOUR SLICES ARE BUILT**: (1) the format column and the
 renderer, no new table; (2) `note_links`, extraction inside the body write, and
 backlinks; (3) the interchange, independent of 2 and 4; (4) #247's graph. Slices
-1–3 are #246; slice 4 is #247.
+1–3 are #246; slice 4 is #247, and both issues are closed by them.
 
 **What this design does not promise:** that a force layout is more legible than a
 radial one (nobody has measured it — ORG‑13 rests on the owner having asked for

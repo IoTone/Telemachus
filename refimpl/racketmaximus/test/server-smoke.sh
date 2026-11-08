@@ -3202,6 +3202,130 @@ mail_wait(){ local n="$1" t="${2:-40}" i=0
 # assertions beside it PASSED VACUOUSLY for the same reason, which is the worse
 # half. One helper with two askers, because a second copy of this is the drift
 # that hid it.
+echo "== the note graph (#247) ===================================================="
+# ORG-13/14/16. This block runs after the PAGE block for that block's own
+# reason: it CREATES notes, and the page block counts them. A fixture that
+# changes global state breaks a distant block.
+#
+# THE ROUTE IS ABOVE `/api/notes/:id` IN THE TABLE, and this is the assertion
+# that says so: first match wins in list order, so written below it the path
+# would be read as a note whose id is the word "graph" and answer 404.
+GW="$(curl -s "$B/api/notes/graph" -H "Authorization: Bearer $OP")"
+assert "graph: /api/notes/graph is a graph and not a note id" "$GW" '"nodes":'
+refute "graph: …so it is not answered as a missing note"      "$GW" 'not found'
+assert "graph: the whole-team view carries the team's note count" "$GW" '"total":'
+# QUOTA-3's rule — the reason is ABSENT when nothing was cut, so a reader never
+# has to decide whether a stated one means anything
+assert "graph: with nothing cut, the reason is null"          "$GW" '"reason":null'
+# ORG-14 — THE NOTES GRAPH IS NOT JOINED TO THE KNOWLEDGE GRAPH. The knowledge
+# blocks above this one have extracted entities into the same team, so a read
+# that mixed them would show them here.
+refute "graph: no knowledge-graph entity is a node"           "$GW" '"entity"'
+refute "graph: …and no mention rides along"                   "$GW" '"mentions"'
+
+# ORG-16's DEFAULT — one note and what reaches it, undirected
+GH=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" -d '{"title":"Graph hub","body":"x"}')
+GHID=$(printf '%s' "$GH" | grep -oP '"id":\s*"\K[^"]+')
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"Graph inbound","format":"org","body":"[[Graph hub]]"}' >/dev/null
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"Graph far","format":"org","body":"[[Graph inbound]]"}' >/dev/null
+GN="$(curl -s "$B/api/notes/graph?note=$GHID" -H "Authorization: Bearer $OP")"
+assert "graph: a neighbourhood names its focus"       "$GN" "\"focus\":\"$GHID\""
+assert "graph: …and the hop count it walked"          "$GN" '"depth":1'
+assert "graph: …and marks exactly one node as it"     "$(printf '%s' "$GN" | grep -o '"focus":true' | wc -l | tr -d ' ')" '1'
+# UNDIRECTED: `Graph inbound` only links TO the focus, so a directed walk would
+# leave it out of a picture of the focus — the opposite of useful (ORG-15)
+assert "graph: an inbound neighbour is in the picture" "$GN" 'Graph inbound'
+refute "graph: …and a two-hop note is not, at depth 1" "$GN" 'Graph far'
+assert "graph: depth 2 reaches it"                     "$(curl -s "$B/api/notes/graph?note=$GHID&depth=2" -H "Authorization: Bearer $OP")" 'Graph far'
+# a nonsense depth is CLAMPED, not refused: a bad query parameter whose effect a
+# reader can see is not worth a 400
+assert "graph: a nonsense depth is clamped, not refused" \
+  "$(curl -s "$B/api/notes/graph?note=$GHID&depth=99" -H "Authorization: Bearer $OP")" '"depth":3'
+assert "graph: …and so is a negative one"             \
+  "$(curl -s "$B/api/notes/graph?note=$GHID&depth=-1" -H "Authorization: Bearer $OP")" '"depth":1'
+
+# ORG-8 through the drawing — an unresolved target is a NODE, carrying the text
+# its author typed, so "several notes point at a note nobody has written" is
+# visible. That is org-roam's and Obsidian's own behaviour.
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"Graph wisher","format":"org","body":"[[Graph unwritten]]"}' >/dev/null
+GU="$(curl -s "$B/api/notes/graph" -H "Authorization: Bearer $OP")"
+assert "graph: an unresolved target is a node of its own" "$GU" '"missing":true'
+assert "graph: …labelled with what its author typed"      "$GU" 'Graph unwritten'
+
+# 🔑 ORG-9a THROUGH THE DRAWING, AND THIS IS WHY #268 HAD TO LAND FIRST. A node
+# for an unresolved target would, under slice 2's resolution, have told the
+# reader which of a colleague's PRIVATE notes exist — the oracle in its
+# strongest form, since the node is labelled with the title they guessed. The
+# two answers are indistinguishable now.
+#
+# Asserted as CAROL, a plain member: the operator passes everything team-tier,
+# so the same assertion against $OP would pass against a server that checks
+# nothing (HELP-7's lesson).
+mk_gsrc(){ curl -s -X POST $B/api/notes -H "Authorization: Bearer $CAROL" \
+  -d "{\"title\":\"$1\",\"format\":\"org\",\"body\":\"[[$2]]\"}" \
+  | grep -oP '"id":\s*"\K[^"]+'; }
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"Graph sealed","body":"x","visibility":"private"}' >/dev/null
+G_PRIV=$(mk_gsrc "graph priv src" "Graph sealed")
+G_NONE=$(mk_gsrc "graph none src" "Graph vanished")
+GP="$(curl -s "$B/api/notes/graph?note=$G_PRIV" -H "Authorization: Bearer $CAROL")"
+GA="$(curl -s "$B/api/notes/graph?note=$G_NONE" -H "Authorization: Bearer $CAROL")"
+assert "graph: an unreadable target is an unresolved node" "$GP" '"missing":true'
+assert "graph: …as a genuinely absent one is"              "$GA" '"missing":true'
+refute "graph: nothing is reported as withheld"            "$GP" 'withheld'
+# THE COLLAPSE ITSELF. A grep cannot say "these two are indistinguishable",
+# which is the property ORG-9 is actually about — so the two bodies are compared
+# with the target the author typed, and their own ids, normalized out.
+# the phantom's own NODE ID embeds the fold of the target, so the folded spelling
+# has to be normalized out as well as the written one — which the first run of
+# this block reported, and which is the right way round: the id is built from
+# what the author typed and from nothing else.
+GNRM(){ printf '%s' "$1" | sed -e 's/Graph sealed/T/g' -e 's/Graph vanished/T/g' \
+  -e 's/graph sealed/t/g' -e 's/graph vanished/t/g' \
+  -e "s/$G_PRIV/S/g" -e "s/$G_NONE/S/g" -e 's/graph priv src/N/g' -e 's/graph none src/N/g'; }
+if [ "$(GNRM "$GP")" = "$(GNRM "$GA")" ]; then
+  ok "graph: the two kinds of unresolved target are indistinguishable"
+else
+  bad "graph: the two pictures differ — $(GNRM "$GP") vs $(GNRM "$GA")"
+fi
+# …and the OWNER's own view resolves it, which is what says the edge was really
+# extracted rather than never having been there
+assert "graph: the owner's own view resolves the same target" \
+  "$(curl -s "$B/api/notes/graph?note=$G_PRIV" -H "Authorization: Bearer $OP")" '"missing":false'
+
+# A FOCUS THAT IS NOT THERE AND ONE THE CALLER MAY NOT READ ARE ONE ANSWER —
+# `repo-get`'s collapse, so a graph read is not an existence oracle on a note id
+GSEALED=$(curl -s "$B/api/notes?limit=200" -H "Authorization: Bearer $OP" \
+  | python3 -c 'import json,sys; print([n["id"] for n in json.load(sys.stdin)["notes"] if n["title"]=="Graph sealed"][0])')
+assert "graph: a focus the caller may not read is 404" \
+  "$(curl -s "$B/api/notes/graph?note=$GSEALED" -H "Authorization: Bearer $CAROL")" 'not found'
+assert "graph: …exactly as a focus that does not exist is" \
+  "$(curl -s "$B/api/notes/graph?note=no-such-note" -H "Authorization: Bearer $CAROL")" 'not found'
+assert "graph: …while the owner's own read of it is a graph" \
+  "$(curl -s "$B/api/notes/graph?note=$GSEALED" -H "Authorization: Bearer $OP")" '"nodes":'
+
+# an AMBIGUOUS target is counted and drawn as nothing: every note involved is one
+# the caller can read and the remedy is theirs, which is why a count here reveals
+# nothing where ORG-9's silence is about somebody else's note
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" -d '{"title":"Graph twin","body":"one"}' >/dev/null
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" -d '{"title":"Graph twin","body":"two"}' >/dev/null
+GT=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"Graph twinner","format":"org","body":"[[Graph twin]]"}' | grep -oP '"id":\s*"\K[^"]+')
+GTG="$(curl -s "$B/api/notes/graph?note=$GT" -H "Authorization: Bearer $OP")"
+# …and the count is SCOPED TO THIS VIEW: an ambiguous link in a note that is not
+# in the picture is not this reader's business, and telling them about it is a
+# figure with no remedy beside it
+assert "graph: an ambiguous target is counted"      "$GTG" '"ambiguous":1'
+assert "graph: …and gets no node"                   "$GTG" '"missing":false'
+refute "graph: …and no unresolved node either"      "$GTG" '"missing":true'
+assert "graph: …and is not reported as a truncation" "$GTG" '"truncated":false'
+
+assert "graph: a viewer may read it" \
+  "$(curl -s "$B/api/notes/graph" -H "Authorization: Bearer $VERA")" '"nodes":'
+
 mail_body(){ python3 - "$MS_OUT" "$1" <<'PYBODY'
 import base64, re, sys
 blob = open(sys.argv[1], encoding="utf-8", errors="replace").read()

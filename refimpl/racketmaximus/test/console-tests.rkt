@@ -1572,3 +1572,124 @@
     (map cadr (regexp-match* #px"\"ui[.](tags[a-z]*|tagclear|autotag[a-z]*)\"" en #:match-select values)))
   (check-equal? (remove* keys shipped) '()
                 "a ui.tag*/ui.autotag* string nothing asks for means a label was typed in place"))
+
+;; ---- #247: the note graph (ORG-13, ORG-14, ORG-16) -------------------------
+
+(test-case "the graph is computed ONCE and drawn still — no loop, no clock, no Math.random"
+  ;; 🔑 ORG-13's one surviving objection to a force layout is NON-DETERMINISM,
+  ;; because this project's gates are its evidence: a layout no screenshot
+  ;; reproduces and no e2e assertion can pin a node in is a feature with nothing
+  ;; behind it. A fixed seed and a fixed tick count answer it.
+  ;;
+  ;; AND THE ABSENCE OF A LOOP IS A SECURITY PROPERTY, not a performance one.
+  ;; #38's idle clock counts from the last REQUEST and QVIZ-6 is the rule: a
+  ;; canvas that kept ticking, or a card that refreshed itself, would hold a
+  ;; session open for as long as the tab was left open — an idle timeout
+  ;; switched off by something that looks like polish.
+  ;;
+  ;; `console-code` and not `file->string`, because this file's own header
+  ;; EXPLAINS that there is no `requestAnimationFrame` in it — the sixth
+  ;; appearance of a text scan reading its own comment.
+  (define g (console-code "21-notegraph.js"))
+  (check-false (regexp-match? #rx"Math.random" g) "the jitter is seeded, not random")
+  (check-false (regexp-match? #rx"requestAnimationFrame" g) "there is no animation loop")
+  (check-false (regexp-match? #rx"setInterval" g))
+  (check-false (regexp-match? #rx"setTimeout" g))
+  (check-true (and (regexp-match? #px"GRAPH_SEED\\s*=" g) #t))
+  (check-true (and (regexp-match? #px"GRAPH_TICKS\\s*=" g) #t))
+  ;; the positions are ROUNDED, so the markup a gate reads is stable across
+  ;; engines whose floating point differs in the last place
+  (check-true (and (regexp-match? #px"Math\\.round\\(x\\[i\\] \\* 10\\)" g) #t)))
+
+(test-case "the graph's constants and its query each have ONE home"
+  ;; LIVE-IN's shape. The depth the card offers and the depth it asks the server
+  ;; for must be one number, or the control offers a hop the read will clamp
+  ;; away — and the server's own clamp is then invisible to the reader.
+  (define g (console-code "21-notegraph.js"))
+  (define tabs (console-code "03-tabs.js"))
+  (check-equal? (length (regexp-match* #px"const GRAPH_W" g)) 1)
+  (check-equal? (length (regexp-match* #px"function graphQuery" g)) 1)
+  ;; the tab asks through it rather than composing a second query string
+  (check-true (and (regexp-match? #px"api\\('/api/notes/graph'\\+graphQuery\\(\\)\\)" tabs) #t))
+  (check-false (regexp-match? #px"'/api/notes/graph\\?" tabs)
+               "no second spelling of the graph query")
+  ;; …and the layout lives in its own file, not spelled again in the tab
+  (check-false (regexp-match? #rx"graphLayout" tabs)))
+
+(test-case "a depth change swaps the card, not the tab"
+  ;; NPG-10 and ORG-1's `edSetFormat`, a third time: `renderTab()` paints a `…`
+  ;; placeholder and re-fires every request this tab makes, and the create
+  ;; form's title is a plain <input> — so redrawing the graph through a tab
+  ;; render would throw away a half-written note.
+  (define g (console-code "21-notegraph.js"))
+  (define at (caar (regexp-match-positions #px"function graphSetDepth" g)))
+  (define fn (substring g at (min (string-length g) (+ at 240))))
+  (check-false (regexp-match? #rx"renderTab" fn) "a depth change must not re-render the tab")
+  (check-true (and (regexp-match? #rx"graphSwap" fn) #t))
+  (check-true (and (regexp-match? #px"cardSwap\\('ngraph'" g) #t))
+  ;; and the card's id is the one `cardSwap` is given, or the swap finds nothing
+  (check-true (and (regexp-match? #px"id=\"ngraph\"" g) #t)))
+
+(test-case "an unresolved node offers no click, and a real one does"
+  ;; A node whose click does nothing is worse than one that plainly offers
+  ;; nothing: there is no note behind an unresolved target, so it gets no
+  ;; handler, no `role="button"` and no tab stop.
+  (define g (console-code "21-notegraph.js"))
+  ;; `\s` already crosses a newline, and a literal `\\n` in a Racket string
+  ;; reaches `pregexp` as backslash-then-n — "illegal alphabetic escape", at
+  ;; READ time, before any case runs. Third appearance of that trap, and this
+  ;; file's own comment forty lines up had already recorded it.
+  (check-true (and (regexp-match? #px"nd\\.missing\\s*\\?" g) #t)
+              "the two node shapes are chosen on `missing`")
+  (check-true (and (regexp-match? #px"noteShow\\(nd\\.id\\)" g) #t))
+  ;; the only `data-h-click` on a node is in the NOT-missing arm, which is what
+  ;; the position of the two arms establishes
+  (define at (caar (regexp-match-positions #px"return nd\\.missing" g)))
+  (define arms (substring g at (min (string-length g) (+ at 400))))
+  (define phantom-arm (substring arms 0 (caar (regexp-match-positions #px"`<g class=\"ng-g ng-click" arms))))
+  (check-false (regexp-match? #rx"data-h-click" phantom-arm)
+               "an unresolved node carries no handler"))
+
+(test-case "every ui.ngraph* string the graph shows is in the catalogs, both ways"
+  ;; QVIZ-13's rule — one direction cannot catch a label typed in place, because
+  ;; replacing t('ngraph') with 'Graph' removes the key from the scan and the
+  ;; case goes on passing. `doSearch` shipped exactly that for a year.
+  (define src (string-append (file->string (build-path console-dir "21-notegraph.js"))
+                             "\n"
+                             (file->string (build-path console-dir "03-tabs.js"))))
+  ;; THE SCAN TAKES ANY QUOTED `'ngraph…'`, NOT ONLY `t('…')`, and the reverse
+  ;; direction is what forced that: the three truncation strings are reached
+  ;; through a VARIABLE (`t(key)`, where `key` comes from the server's closed
+  ;; `reason` vocabulary), so a scan for the call form alone reported them as
+  ;; shipped-and-unasked-for — which is exactly the "a label was typed in place"
+  ;; signal, raised about three strings that are used correctly.
+  (define keys
+    (remove-duplicates
+     (map cadr (regexp-match* #px"'(ngraph[a-z]*)'" src #:match-select values))))
+  (check-equal? (length keys) 14 "every label the card draws comes from the catalog")
+  (define en (file->string (build-path console-dir "../ui-strings.json")))
+  (for ([k (in-list keys)])
+    (check-true (and (regexp-match? (regexp (string-append "\"ui\\." (regexp-quote k) "\"")) en) #t)
+                (format "ui.~a is missing from static/ui-strings.json" k)))
+  (define shipped
+    (map cadr (regexp-match* #px"\"ui[.](ngraph[a-z]*)\"" en #:match-select values)))
+  (check-equal? (remove* keys shipped) '()
+                "a ui.ngraph* string nothing asks for means a label was typed in place"))
+
+(test-case "every class the graph draws has a rule in the shell"
+  ;; #178's lesson: a class that matches no rule fails nothing and ships a bare
+  ;; user-agent element. The six buttons on the Workers card were like that for
+  ;; as long as the card existed.
+  (define g (console-code "21-notegraph.js"))
+  (define shell (file->string (build-path console-dir ".." "index.html")))
+  (define used
+    (remove-duplicates
+     (map cadr (regexp-match* #px"\\b(ng-[a-z]+)\\b" g #:match-select values))))
+  (check-true (>= (length used) 6))
+  (for ([c (in-list used)])
+    (check-true (and (regexp-match? (regexp (string-append "\\." (regexp-quote c))) shell) #t)
+                (format "~a has no rule in static/index.html" c)))
+  ;; the shell is cached at startup, so this file is also the reminder that a
+  ;; rule added here needs a RESTART where console/*.js does not
+  (check-true (and (regexp-match? #rx"console/21-notegraph.js" shell) #t)
+              "the file is loaded, or none of it runs"))

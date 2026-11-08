@@ -167,12 +167,17 @@ async function notesView(){
   // the card under the reader. Viewing and editing are the same state slot, so
   // one fetch covers both.
   const focus = S.noteShow || S.noteEdit;
-  const [r, tg, mem, lk, fo] = await Promise.all([
+  // #247 — the graph rides the same round when it is open, for the reason the
+  // edges do: a fourth sequential await is 300ms a call, and the picture is
+  // computed from the response rather than fetched a second time. Closed, it
+  // costs no request at all.
+  const [r, tg, mem, lk, fo, gr] = await Promise.all([
     api('/api/notes'+notesQuery()),
     api('/api/note-tags'),
     api('/api/members'),
     S.noteShow ? api('/api/notes/'+encodeURIComponent(S.noteShow)+'/links') : Promise.resolve(null),
-    focus ? api('/api/notes/'+encodeURIComponent(focus)) : Promise.resolve(null)
+    focus ? api('/api/notes/'+encodeURIComponent(focus)) : Promise.resolve(null),
+    S.graphOpen ? api('/api/notes/graph'+graphQuery()) : Promise.resolve(null)
   ]);
   const edges = (lk && lk.ok) ? lk.json : null;
   const focused = (fo && fo.ok) ? fo.json : null;
@@ -216,7 +221,15 @@ async function notesView(){
   // full render is what keeps them current — `S.qKinds`' rule exactly
   S.noteMembers = opts;
   const list = notesListHTML(r.ok?r.json:{notes:[],total:0,offset:0}, opts);
-  return `<h2>${t('notes')}</h2>${card}${orgImportStrip()}${filter}${list}`;
+  // the graph sits under the card it is about and above the listing: it is a
+  // picture OF a note when one is focused, and a map of the team when not
+  const G = (gr && gr.ok) ? gr.json : null;
+  const graph = G
+    ? noteGraphCard(G, (G.nodes||[]).filter(n=>n.focus).map(n=>n.title)[0] || '')
+    : `<div class="row" style="margin-top:10px"><div style="flex:0 0 auto">
+        <button class="btn sm ghost" data-h-click="${H(()=>graphOpen(S.noteShow||null))}"
+          title="${esc(t('ngraphhint'))}">${t('ngraphshow')}</button></div></div>`;
+  return `<h2>${t('notes')}</h2>${card}${graph}${orgImportStrip()}${filter}${list}`;
 }
 
 // THE LIST AND ITS PAGER, as a function of the response — so `nGo` can rebuild
@@ -421,6 +434,9 @@ function noteViewCard(n, edges){
     <div class="row" style="margin-top:10px;gap:8px">
       <div style="flex:0 0 auto"><button class="btn sm"
         data-h-click="${H(()=>noteEdit(n.id, n.body, n.title, n.visibility, n.tags, n.format))}">${t('edit')}</button></div>
+      <div style="flex:0 0 auto"><button class="btn sm ghost"
+        data-h-click="${H(()=>graphOpen(n.id))}"
+        title="${esc(t('ngraphhint'))}">${t('ngraph')}</button></div>
       <div style="flex:0 0 auto"><button class="btn sm ghost"
         data-h-click="${H(()=>noteDownloadOrg(n.id))}"
         title="${esc(t('orgdownloadhint'))}">${t('orgdownload')}</button></div>
