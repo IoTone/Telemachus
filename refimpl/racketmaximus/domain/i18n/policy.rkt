@@ -75,8 +75,26 @@
 ;; the switcher stops offering a language that answers in English. The floor and
 ;; the measurement live in `catalog.rkt` (LOCALE-COVERAGE-FLOOR), because they
 ;; are a property of a catalog rather than of an instance's policy.
+;;
+;; …AND THE COVERAGE IS MEMOISED WITH THAT SCAN, because it is the expensive half
+;; and it is answered on a PUBLIC route. `advertised-locales` runs on `GET
+;; /api/config` — the sign-in screen picks its language before anybody has a
+;; token — and again on help, beta and the admin status. Unmemoised, each of those
+;; read `en.json` (242 KB) plus every target catalog and compared every id, to
+;; answer "which of these files clear the floor".
+;;
+;; Same lifetime and same reason as the scan above: the tree does not change under
+;; a running process, and a test pointing `TMACH_LOCALES` at a copy must not be
+;; answered from the tree's own directory. So a locale somebody COMPLETES while
+;; the process runs is offered after a restart — which is not a new limitation,
+;; it is the one the file scan already has (a catalog ADDED at run time is in the
+;; same position). Anything that must see a catalog move as it is written goes
+;; through `catalog.rkt`'s own reads, which are not memoised.
+(define offered (make-hash))
 (define (advertised-locales dir)
-  (filter (lambda (l) (advertised? dir l)) (available-locales dir)))
+  (define key (path->string (simplify-path (path->complete-path dir) #f)))
+  (hash-ref! offered key
+    (lambda () (filter (lambda (l) (advertised? dir l)) (available-locales dir)))))
 
 (define (normalize h dir)
   (define d (i18n-defaults))

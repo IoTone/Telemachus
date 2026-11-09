@@ -147,6 +147,26 @@
    (check-false (advertised? dir "under"))
    (check-equal? (sort (available-locales dir) string<?) '("atfloor" "en" "under"))
    (check-equal? (sort (advertised-locales dir) string<?) '("atfloor" "en"))
+   ;; …AND THE COVERAGE IS MEMOISED WITH THE FILE LIST, because it is answered on
+   ;; a PUBLIC route: `GET /api/config` is where the sign-in screen picks its
+   ;; language before anybody has a token, and each call used to read `en.json`
+   ;; plus every target catalog and compare every id.
+   ;;
+   ;; Proving a re-read does NOT happen needs the second call to answer from the
+   ;; FIRST answer while the file under it changes, so the catalog is EMPTIED by
+   ;; name — removing it would prove nothing, because the file list is memoised
+   ;; too and would have lost it either way.
+   (write-catalog (build-path dir "atfloor.json") (make-catalog "atfloor" "en" (hash)))
+   (check-equal? (locale-coverage dir "atfloor") 0 "the file really is empty now")
+   (check-equal? (sort (advertised-locales dir) string<?) '("atfloor" "en")
+                 "a cache means the emptied catalog was never re-read (it would answer 'en')")
+   ;; THE CONTROL: a directory the memo has not seen answers from the files
+   (with-locales-dir
+    (lambda (fresh-dir)
+      (write-en! fresh-dir base)
+      (write-catalog (build-path fresh-dir "atfloor.json") (make-catalog "atfloor" "en" (hash)))
+      (check-equal? (sort (advertised-locales fresh-dir) string<?) '("en")
+                    "an unseen directory is still measured")))
    ;; …and the POLICY the instance serves from uses the advertised set, so a
    ;; language too thin to answer in cannot be chosen as the default any more
    (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations)
