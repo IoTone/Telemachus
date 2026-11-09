@@ -1006,18 +1006,36 @@
   (define r (get-row conn id))
   (and r (let ([n (row->note r)])
            (require-perm conn p "notes:delete" #:resource (note->resource n))
-           ;; TAG-8 — a tag dies with its note. Rows naming a note that no longer
-           ;; exists would keep a word in the team's derived list for ever, which
-           ;; is the one way this list could lie about what is there.
-           (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
-           ;; ORG-8's PAYOFF, and the whole reason resolution is not stored: the
-           ;; note's OUTGOING rows go with it, and its INBOUND ones need nothing
-           ;; at all — they resolve to nothing on the next read and are reported
-           ;; as broken, which is exactly what a reader whose target was deleted
-           ;; should see. A stored `dst_note_id` would have needed a second
-           ;; statement here and would have been a lie until it ran.
-           (query-exec conn "DELETE FROM note_links WHERE src_note_id = ?" id)
-           (query-exec conn "DELETE FROM notes WHERE id = ?" id)
+           ;; FIVE STATEMENTS, ONE TRANSACTION. They were five autocommits, so a
+           ;; failure on the fourth left a note that still existed with its tags
+           ;; and its grants gone — visible to the team, unfilterable by tag, and
+           ;; re-shareable only from scratch. The note's own delete is LAST, so
+           ;; the row that makes the rest observable is the row that goes at the
+           ;; end; a rollback then restores a state that was never half-applied.
+           (call-with-transaction conn
+             (lambda ()
+               ;; TAG-8 — a tag dies with its note. Rows naming a note that no
+               ;; longer exists would keep a word in the team's derived list for
+               ;; ever, which is the one way this list could lie about what is
+               ;; there.
+               (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
+               ;; a GRANT row is inert once its note is gone, but leaving it
+               ;; behind is a row nobody can see and nobody can revoke —
+               ;; `repo-delete!` removes its own, so the two ownable resources
+               ;; behave alike
+               (query-exec conn
+                 (string-append "DELETE FROM resource_grants WHERE resource_type = 'notes' "
+                                "AND resource_id = ?")
+                 id)
+               ;; ORG-8's PAYOFF, and the whole reason resolution is not stored:
+               ;; the note's OUTGOING rows go with it, and its INBOUND ones need
+               ;; nothing at all — they resolve to nothing on the next read and
+               ;; are reported as broken, which is exactly what a reader whose
+               ;; target was deleted should see. A stored `dst_note_id` would
+               ;; have needed a second statement here and would have been a lie
+               ;; until it ran.
+               (query-exec conn "DELETE FROM note_links WHERE src_note_id = ?" id)
+               (query-exec conn "DELETE FROM notes WHERE id = ?" id)))
            #t)))
 
 ;; owner (or notes:manage / operator) may share the note with another user

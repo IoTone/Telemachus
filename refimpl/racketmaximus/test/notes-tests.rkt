@@ -109,3 +109,59 @@
   (check-true (and (notes-get c pbob nid) #t))              ; the owner still reaches it
   (check-exn exn:fail:forbidden? (lambda () (notes-get c pcarol nid)))
   (check-false (member nid (ids-of (notes-list c pcarol)))))
+
+;; ---- a delete is all or nothing -------------------------------------------
+;;
+;; Five statements ran as five autocommits, so a failure on the fourth left the
+;; note still THERE with its tags and its grants already gone: visible to the
+;; team, unfilterable by tag, and re-shareable only from scratch. The failure is
+;; injected with a trigger that refuses a delete on `note_links` — the third
+;; statement — because that is the only way to make a statement raise from
+;; outside, and it is dropped again immediately.
+(define (block-note-link-deletes! c)
+  (case (db-dialect c)
+    [(postgresql)
+     (query-exec c "CREATE OR REPLACE FUNCTION tmx_block_del() RETURNS trigger AS $$
+                    BEGIN RAISE EXCEPTION 'blocked by the test'; END; $$ LANGUAGE plpgsql")
+     (query-exec c (string-append "CREATE TRIGGER tmx_block BEFORE DELETE ON note_links "
+                                  "FOR EACH ROW EXECUTE FUNCTION tmx_block_del()"))]
+    [else
+     (query-exec c (string-append "CREATE TRIGGER tmx_block BEFORE DELETE ON note_links "
+                                  "BEGIN SELECT RAISE(ABORT, 'blocked by the test'); END"))]))
+
+(define (unblock-note-link-deletes! c)
+  (query-exec c "DROP TRIGGER tmx_block")
+  (when (eq? (db-dialect c) 'postgresql) (query-exec c "DROP FUNCTION tmx_block_del()")))
+
+(define (count-where c sql . args) (apply query-value c sql args))
+
+(test-case "notes: a delete that fails half way leaves the note and its rows intact"
+  (define-values (c ids) (scenario))
+  (define pbob   (user-principal c (hash-ref ids 'bob)   (hash-ref ids 't)))
+  (define pcarol (user-principal c (hash-ref ids 'carol) (hash-ref ids 't)))
+  ;; an org note with one link and one tag, so the trigger has a row to refuse
+  ;; and the tag row has something to lose
+  (define n (notes-create c pbob #:title "Doomed" #:format "org"
+                          #:body "#+FILETAGS: keep\n[[Somewhere]]"))
+  (define nid (hash-ref n 'id))
+  (notes-share c pbob nid #:user (hash-ref ids 'carol) #:permission "notes:read")
+  (block-note-link-deletes! c)
+  (check-exn exn:fail? (lambda () (notes-delete c pbob nid)))
+  (unblock-note-link-deletes! c)
+  ;; the note survived — and so did every row the earlier statements had already
+  ;; removed, which is the half a five-autocommit version lost
+  (check-true (and (notes-get c pbob nid) #t))
+  (check-equal? (count-where c "SELECT COUNT(*) FROM note_tags WHERE note_id = ?" nid) 1)
+  (check-equal? (count-where c (string-append "SELECT COUNT(*) FROM resource_grants "
+                                              "WHERE resource_type = 'notes' AND resource_id = ?")
+                             nid)
+                1)
+  (check-equal? (hash-ref (notes-get c pcarol nid) 'title) "Doomed")   ; the grant still works
+  ;; …and a delete that does land takes all five with it
+  (check-true (notes-delete c pbob nid))
+  (check-false (notes-get c pbob nid))
+  (check-equal? (count-where c "SELECT COUNT(*) FROM note_tags WHERE note_id = ?" nid) 0)
+  (check-equal? (count-where c (string-append "SELECT COUNT(*) FROM resource_grants "
+                                              "WHERE resource_type = 'notes' AND resource_id = ?")
+                             nid)
+                0))
