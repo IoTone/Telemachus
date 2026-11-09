@@ -418,22 +418,30 @@
            ;; mess rather than an error, which is honest and REVERSIBLE — where
            ;; a conversion is neither, and a conversion that got one construct
            ;; wrong would have eaten the only copy.
-           (define fmt* (and fmt (format-clean fmt)))
-           (when title (query-exec conn "UPDATE notes SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" title id))
-           (when vis   (query-exec conn "UPDATE notes SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" vis id))
-           ;; THE BODY AND THE FORMAT BOTH DECIDE THE EDGES, so either one moving
-           ;; re-extracts — and both of them do it in ONE transaction with the
-           ;; write, which is ORG-7. The format matters because only an org note
-           ;; has links at all, so converting org → markdown is what clears the
-           ;; rows and markdown → org is what fills them, with no second
-           ;; mechanism for either.
            ;;
-           ;; The TITLE is deliberately outside this: it changes what OTHER
-           ;; notes' links resolve TO, and that is read-time (migration 0074),
-           ;; so there is nothing to rewrite.
-           (when (or body fmt*)
-             (call-with-transaction conn
-               (lambda ()
+           ;; ONE TRANSACTION FOR EVERY WRITE THIS FUNCTION MAKES, and the title
+           ;; and the visibility are IN it. They were committed before the body
+           ;; was, so a body whose links overflowed `MAX-NOTE-LINKS` — a 400, and
+           ;; the commonest refusal here — left the new TITLE and the new
+           ;; VISIBILITY firmly written beside the old body. A caller who was
+           ;; told the update failed then had a note whose name changed and whose
+           ;; audience may have widened, which is the one half of this function
+           ;; nobody would think to re-check after an error.
+           ;;
+           ;; The TITLE is still outside the LINK rewrite in the sense ORG-7
+           ;; means: changing it does not rewrite any note's rows, because what
+           ;; other notes' links resolve TO is read-time (migration 0074). It
+           ;; simply lands atomically with everything else.
+           (call-with-transaction conn
+             (lambda ()
+               (when title (query-exec conn "UPDATE notes SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" title id))
+               (when vis   (query-exec conn "UPDATE notes SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" vis id))
+               ;; THE BODY AND THE FORMAT BOTH DECIDE THE EDGES, so either one
+               ;; moving re-extracts, which is ORG-7. The format matters because
+               ;; only an org note has links at all, so converting org ->
+               ;; markdown is what clears the rows and markdown -> org is what
+               ;; fills them, with no second mechanism for either.
+               (when (or body fmt*)
                  (when body (query-exec conn "UPDATE notes SET body = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" body id))
                  (when fmt* (query-exec conn "UPDATE notes SET format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" fmt* id))
                  (define b* (or body (hash-ref n 'body)))
@@ -444,15 +452,11 @@
                  ;; refused tag would leave a body claiming tags nothing stored.
                  ;; `#f` means the body asserted nothing, which is what leaves a
                  ;; converted note's existing tags alone.
-                 (let ([bt (body-tags b* f*)])
-                   (when bt
-                     (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
-                     (write-tags! conn id (hash-ref n 'team_id) bt))))))
-           (when clean
-             (call-with-transaction conn
-               (lambda ()
-                 (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
-                 (write-tags! conn id (hash-ref n 'team_id) clean))))
+                 (define bt (and (or body fmt*) (body-tags b* f*)))
+                 (define final-tags (and (or bt clean) (if bt bt clean)))
+                 (when final-tags
+                   (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
+                   (write-tags! conn id (hash-ref n 'team_id) final-tags))))
            (with-tags conn (row->note (get-row conn id))))))
 
 ;; ---- the edges a note's body declares (#246 slice 2) ------------------------

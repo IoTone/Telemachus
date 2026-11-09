@@ -381,3 +381,27 @@
   (check-false (note-links-of c p "no-such-note"))
   (check-false (note-backlinks-of c p "no-such-note"))
   (close-db! c))
+
+;; ---- a refused update changes NOTHING -------------------------------------
+;;
+;; `notes-update` committed the title and the visibility BEFORE the body, and the
+;; body is where a refusal lives: `write-links!` refuses past MAX-NOTE-LINKS, so
+;; the commonest 400 on this path left the new name — and the new AUDIENCE —
+;; written beside the old body. The caller was told the update failed and half of
+;; it had landed, which is the half nobody re-checks after an error.
+(test-case "an update refused for too many links leaves title and visibility alone"
+  (define-values (c p tid) (setup))
+  (define n (org c p "Original" "no links" #:visibility "team"))
+  (define id (hash-ref n 'id))
+  (define too-many
+    (string-join (for/list ([i (in-range (add1 MAX-NOTE-LINKS))]) (format "[[T~a]]" i)) " "))
+  (check-exn exn:fail:user?
+             (lambda () (notes-update c p id #:title "Renamed" #:visibility "private" #:body too-many)))
+  (define after (notes-get c p id))
+  (check-equal? (hash-ref after 'title) "Original")
+  (check-equal? (hash-ref after 'visibility) "team")
+  (check-equal? (hash-ref after 'body) "no links")
+  ;; …and the same for a tag write, which is the other statement that can refuse
+  (check-exn exn:fail:user?
+             (lambda () (notes-update c p id #:title "Renamed" #:tags (list (make-string 200 #\a)))))
+  (check-equal? (hash-ref (notes-get c p id) 'title) "Original"))
