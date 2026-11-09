@@ -4,6 +4,9 @@
 ;;   raco test test/notes-tests.rkt   (with pkgs on PLTCOLLECTS)
 
 (require rackunit
+         racket/file
+         racket/runtime-path
+         racket/string
          racket/list
          db-kit/portable
          db-kit/migrate
@@ -11,6 +14,8 @@
          "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/notes/notes.rkt")
+
+(define-runtime-path notes-module "../domain/notes/notes.rkt")
 
 (define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
@@ -165,3 +170,23 @@
                                               "WHERE resource_type = 'notes' AND resource_id = ?")
                              nid)
                 0))
+
+;; ---- one spelling for "who may read a note" -------------------------------
+;;
+;; The predicate was written three times in one module — inline in notes-list's
+;; `#:when`, as a local `readable?` inside note-graph, and again in the links
+;; section — so a change to how a share reaches a note had three places to land
+;; and one of them was a comprehension clause. The behaviour is unchanged by
+;; collapsing them, which is exactly why it needs a gate: nothing else can tell
+;; a fourth copy from the third.
+(test-case "notes: the read predicate is spelled once"
+  ;; comment lines are stripped: this file's own prose names the rule, and a scan
+  ;; that reads its own comments reports what it was told to look for (the
+  ;; vocabulary gate paid for that once already)
+  (define code
+    (for/list ([l (in-list (string-split (file->string notes-module) "\n"))]
+               #:unless (regexp-match? #px"^\\s*;" l))
+      l))
+  (check-equal? (length (filter (lambda (l) (regexp-match? #px"[(]can[?] conn p \"notes:read\"" l)) code))
+                1
+                "one `can? … \"notes:read\"` in the module, and it is readable-note?"))

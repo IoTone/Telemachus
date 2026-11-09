@@ -165,6 +165,18 @@
           ;; honest rather than quiet.
           'format (vector-ref r 8)))
 
+;; MAY THIS CALLER READ THIS NOTE? — one spelling, four askers.
+;;
+;; This rule was written three times in one module: inline in `notes-list`'s
+;; `#:when`, as a local `readable?` inside `note-graph`, and here in the links
+;; section. So "who may read a note" had three places to change and one of them
+;; was a `for/list` clause nobody would look at when a sharing rule moved. It is
+;; defined ABOVE all of them: a helper below its first use is a module-
+;; instantiation error, not a wrong answer, and this file has paid for that
+;; twice.
+(define (readable-note? conn p n)
+  (can? conn p "notes:read" #:resource (note->resource n)))
+
 (define (note->resource n)
   (hasheq 'resource_type "notes" 'resource_id (hash-ref n 'id)
           'team_id (hash-ref n 'team_id) 'owner_user_id (hash-ref n 'owner_user_id)
@@ -365,9 +377,9 @@
   ;; shorter than its limit with notes still behind it. That is why the count
   ;; below is the pager's authority and the length of this list is not.
   (for/list ([r (in-list rows)]
-             #:when (can? conn p "notes:read" #:resource (note->resource (row->note r))))
-    (let ([n (row->note r)])
-      (hash-set n 'tags (hash-ref idx (hash-ref n 'id) '())))))
+             #:do [(define n (row->note r))]
+             #:when (readable-note? conn p n))
+    (hash-set n 'tags (hash-ref idx (hash-ref n 'id) '()))))
 
 ;; THE SAME WINDOW WITHOUT THE `can?` FILTER — `repo-count`'s precedent, and its
 ;; stated limitation with it. It is a count and no identity, within the caller's
@@ -590,8 +602,7 @@
 ;; So there is deliberately NO `withheld` figure here, where CLS-27 and VEC-29
 ;; both report one. That is the difference between a bound somebody should know
 ;; about and a fact about somebody else's note.
-(define (readable-note? conn p n)
-  (can? conn p "notes:read" #:resource (note->resource n)))
+
 
 (define (note-links-of conn p id)
   (define r (get-row conn id))
