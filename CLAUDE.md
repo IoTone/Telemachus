@@ -1445,6 +1445,107 @@ racket cli/telemachus-docs.rkt render      # regenerate docs/reference/
 racket cli/telemachus-docs.rkt check       # the CI gate
 ```
 
+### …and it is machine-readable too (DOCGEN‑7…11, #227 slice 2a)
+
+`docs/reference/openapi.json`, OpenAPI 3.1, from the same route table as
+`api.md`. **No migration, no route, no permission, and no new localization
+string** — every description is the `doc.route.*` message `api.md` already
+renders, resolved through the same `L`, so `strings.json` is byte-identical.
+
+```sh
+raco test test/openapi-tests.rkt           # 10 cases, eight controls, all biting
+racket cli/telemachus-docs.rkt check       # the same gate; it is a PAGE, not a target
+bash scripts/build-site.sh                 # + the workflow's own link check
+```
+
+- 🔑 **IT CARRIES NO REQUEST OR RESPONSE SCHEMAS AND SAYS SO IN
+  `info.description`, and the test checks BOTH HALVES.** They exist in no
+  declarative form in this tree — they are read out of 290-odd handler bodies —
+  so emitting them is not a generation problem but a contract decision about
+  where a shape LIVES, with 259 core instances behind it (#227 slice 2b). A
+  reference that implied completeness would be worse than none, so the note must
+  be present AND no operation may carry `requestBody`, `responses` or `content`.
+  When 2b lands, both halves of that case are edited deliberately.
+- **`responses` IS OMITTED ENTIRELY RATHER THAN STUBBED.** OpenAPI 3.1 made it
+  optional where 3.0 required it, and a fabricated `"200": {"description":
+  "OK"}` on every operation is the generator asserting a status code it has not
+  read — wrong for every 202, 204 and 302, and the one claim a code generator
+  would act on.
+- **IT IS A PAGE OF `render`, NOT A SUBCOMMAND.** #227 proposed an `openapi`
+  target; a target needs its own line in `ci.yml`, and **a gate CI has to
+  remember is a gate that rots** — this file's own `check --locale` defect, where
+  the flag was parsed and then silently ignored and the Japanese reference
+  drifted through five slices. As a page it is written by `render`, diffed by
+  `check`, and `ci.yml` needed no change at all.
+- **A TEMPLATE COLLAPSE IS REFUSED BY NAME.** `paths` is keyed by template, so a
+  second operation at one (template, method) would REPLACE the first and the
+  document would describe 312 of 313 routes with nothing failing — #119's shape
+  in a generator. The table has two parameter forms where OpenAPI has one, so
+  `/a/:x` and `/a/*x` both become `/a/{x}`; **a parameter and a LITERAL of the
+  same spelling do NOT collapse**, because `{x}` keeps its braces, and that is a
+  correction the test made to the comment at the definition.
+- **THE operationId IS THE `doc.route.*` ID WITHOUT ITS PREFIX** — one
+  derivation, two askers, so an operation maps back to the catalog entry that
+  carries its prose. `route-id` is a COMMITTED key (it is in `locales/ja.json`),
+  which is why `route-key` must keep producing exactly what it always has: the
+  path `/` has no segments, so its key really is `get.`, trailing dot and all,
+  and that is pinned rather than tidied.
+- **`x-tmach-permission-checked` is #110 r2's distinction, and losing it would be
+  invisible.** `files:read` on `/api/retention` is `role` — the dispatcher
+  pre-checks it, so the declaration IS the enforcement — and on
+  `/api/repo-obj/:id/content` it is `resource`, weighed by `can?`, which also
+  admits the owner and a grant holder. Same permission, different answer; the
+  test pins both, on the two routes that paid for it.
+- **A ROUTE WITH NO PERMISSION CARRIES NO KEY, never a null** — PULL‑11e's rule.
+  And `security: []` is how "no credential" is spelled, while #43's bearer-OR-
+  ticket route gets TWO requirement objects one of which is EMPTY: that empty one
+  is the whole of what makes the bearer optional.
+- **TWO SHAPES ARE THE GENERATOR'S AND IT SAYS SO**: `x-tmach-rest` on a
+  parameter that takes the remainder of the path (OpenAPI has no multi-segment
+  form, so it is one string whose value may contain `/` — declared as a plain
+  string it would say "one segment" and mean "the remainder", the one place this
+  document could actively mislead), and `tags`, derived from the path to group
+  313 operations in a viewer. Nothing in the source declares a tag.
+- 🔑 **NO CONFORMING OPENAPI VALIDATOR HAS RUN AGAINST IT.** One is not in the
+  Nix closure and fetching one was refused, so the structural checks in
+  `test/openapi-tests.rkt` are written against the specification BY HAND — they
+  agree with a reading of it, not with an implementation. Stated at the top of
+  that file, the way the LibreOffice branch, veraPDF and the four feed adapters'
+  fixtures are. If a validator ever lands in the closure, point it at this file
+  first.
+- **A CONTROL THAT DID NOT BITE FOUND THE SORTED-KEY CASE PASSING VACUOUSLY.**
+  Substituting `write-json` for `json-out` emits the whole document on ONE LINE,
+  so the line-wise scan matched nothing and agreed — the check is over the TEXT,
+  because a hasheq's iteration order is not stable across processes and an
+  unsorted document would make the drift gate cry wolf for ever (DOCGEN‑6). It
+  COUNTS its comparisons now and fails under 500.
+- **AND A SECOND ONE WAS TESTING THE WRONG PROPERTY.** "A route silently skipped"
+  patched `oa-paths` to skip on collision — which differs from the real generator
+  only WHEN there is a collision, and there is none in the table. The control
+  that bites drops real routes (every `OPTIONS` one).
+- **`openapi.json` IS PUBLISHED AS ITSELF, and that needed TWO edits that must
+  move together.** `scripts/build-site.sh` copies it (the builder enumerates
+  `*.md`, so a `.json` is otherwise unpublished — `strings.json` deliberately
+  still is, being a localization surface) AND `scripts/site/links.lua`'s
+  `PUBLISHED` list keeps the link local. Without the second, the rewriter points
+  at a GitHub **blob** URL, which serves an HTML page — so a viewer or a
+  generator pointed at it gets markup. That is the screenshots' own lesson
+  (19 broken images for as long as the site had existed) in a form where the
+  breakage would be silent rather than visible.
+- 🔑 **`servers` IS A TEMPLATED URL, NOT A RELATIVE `/`, AND READING MY OWN
+  COMMENT IS WHAT FOUND IT.** The comment said "relative, because this document
+  is served from the instance it describes" and was false twice: **no route
+  serves it** (it is committed and copied onto the published site), and a
+  relative server URL resolves against where the DOCUMENT was loaded from — so a
+  viewer opening it from the documentation site would have aimed every request at
+  the documentation site. A self-hosted platform has no canonical origin, so the
+  honest shape is `{instance}` with a declared variable defaulting to the
+  server's own documented `http://127.0.0.1:8835`. The test asserts every `{var}`
+  in the server url is declared, which is the path template's rule at a second
+  asker.
+- **`member` ANSWERS A TAIL, NOT `#t`** — `check-true` fails while printing the
+  list that proves it right. Fifth appearance; `(and … #t)`.
+
 ## Knowledge graph (slice 61)
 
 Entities and relations from the team's documents, every fact bound to the

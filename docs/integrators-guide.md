@@ -10,6 +10,15 @@ Reference material, generated from the source and always current:
 [`docs/reference/`](reference/) — [sdk.md](reference/sdk.md) for the authoring
 surfaces, [api.md](reference/api.md) for every route, [plugins.md](reference/plugins.md)
 for the seams, [permissions.md](reference/permissions.md) for the permission catalog.
+[openapi.json](reference/openapi.json) is the same route table as `api.md` in
+OpenAPI 3.1, for a viewer or a client generator. **It carries no request or
+response schemas** — those are not declared anywhere in the source either page is
+generated from, so treat a missing body as unknown and read the route's own
+description. What the table does declare rides in `x-tmach-*` on each operation:
+how the route authenticates, the permission it enforces, and whether that
+permission is pre-checked by the dispatcher (`role`) or weighed against a
+particular document by `can?` (`resource`), which also admits the owner and
+anyone holding a grant.
 
 ---
 
@@ -503,7 +512,7 @@ TMach rather than extending it, the deployment surface is two pages:
 nix build .#container && docker load < result    # on a Linux host
 docker run -d --read-only --tmpfs /tmp -v telemachus-data:/data \
   -e DATABASE_URL='postgres://…' -e TMACH_SECRET_KEY="$(openssl rand -hex 32)" \
-  -p 8835:8835 --stop-timeout 30 telemachus:0.10.0
+  -p 8835:8835 --stop-timeout 30 telemachus:0.11.0
 ```
 
 Four things about the image are worth knowing before you plan around it:
