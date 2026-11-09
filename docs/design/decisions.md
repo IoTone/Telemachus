@@ -171,6 +171,18 @@ instance holds exactly one user (the owner); provider actions
 | **DOCGEN‑5** | Rendering | **Plain Markdown, no site generator** · vs an HTML site now | No new dependency; readable on GitHub today. |
 | **DOCGEN‑6** | Determinism | **Byte-identical output from identical sources** | The drift gate is meaningless otherwise. |
 
+**DOCGEN‑7…11 — a machine-readable description of the route table (#227 slice 2a,
+built 8 Nov 2026).** `docs/reference/openapi.json`, OpenAPI 3.1, generated from
+the same `server/routes.rkt` as `api.md`.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **DOCGEN‑7** | What it carries | **Only what the table DECLARES, and it says in `info.description` that it has no request or response schemas** · vs schemas inferred from handler bodies · vs stubbed shapes | The shapes exist in no declarative form in this tree; a reference implying completeness is worse than none. Declaring them is slice 2b, and the decision there is where a shape LIVES, not how to emit it. |
+| **DOCGEN‑8** | `responses` | **Omitted entirely; 3.1 made it optional** · vs a fabricated `200: OK` on every operation | A stub asserts a status code nothing has read — wrong for every 202, 204 and 302, and it is the one claim a code generator would act on. |
+| **DOCGEN‑9** | How it is produced | **A PAGE of `render`, not an `openapi` subcommand** · vs its own target, as #227 proposed | A target needs its own line in `ci.yml`, and a gate CI has to remember is a gate that rots — `check --locale`'s own defect. As a page it is rendered, diffed and gated by what already runs, and `ci.yml` needed no change. |
+| **DOCGEN‑10** | A template collapse | **Refused by name** · vs last-one-wins · vs skipping the duplicate | `paths` is keyed by template and the table has two parameter forms (`:x`, `*x`) where OpenAPI has one, so a collapse would describe 312 of 313 routes with nothing failing. |
+| **DOCGEN‑11** | The operationId | **The `doc.route.*` message id without its prefix — one derivation, two askers** · vs a second, prettier derivation | A reader can map an operation to the catalog entry that carries its prose, and a second spelling would drift from a key that is committed in `locales/ja.json`. |
+
 ## Knowledge graph (KG) — **decided 11 Sep 2026: recommendations adopted**, see [knowledge-graph.md](knowledge-graph.md)
 
 | # | Decision | Recommendation · alternatives | Why it matters |

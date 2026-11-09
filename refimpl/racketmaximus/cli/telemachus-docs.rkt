@@ -63,6 +63,14 @@
          "../domain/i18n/catalog.rkt"
          "../server/routes.rkt")
 
+;; Exported FOR test/openapi-tests.rkt. #110 r4's rule is that an export with a
+;; test behind it is not an over-wide export; nothing else in the tree requires
+;; this module, and `oa-paths`' refusal in particular cannot be reached any other
+;; way — the committed document is by definition one that did not collide.
+(provide describe render-openapi route-key route-id ROUTE-ID-PREFIX
+         oa-path-template oa-parameters oa-tag oa-security oa-paths
+         OPENAPI-VERSION OPENAPI-NOTE)
+
 (define (usage)
   (eprintf "usage: telemachus-docs <describe|render|check> [--out DIR] [--locale xx] [--locales DIR]\n")
   (exit 2))
@@ -187,12 +195,21 @@
 (define (json-string v) (let ([o (open-output-string)]) (json-out v o) (write-string "\n" o) (get-output-string o)))
 
 ;; ---- prose ids (the localization surface) ----------------------------------------------
-(define (route-id r)
-  (string-append "doc.route." (string-downcase (hash-ref r 'method)) "."
+;; ONE derivation with TWO askers: the `doc.route.*` message id and the OpenAPI
+;; operationId below. A second spelling of "which route is this" would drift, and
+;; what it would cost is the ability to map an operation in openapi.json back to
+;; the catalog entry that carries its prose. `route-id` is a COMMITTED catalog key
+;; (it is in locales/ja.json), so this must keep producing exactly what it always
+;; has, trailing dot and all: the path "/" has no segments and its key is "get.".
+(define (route-key r)
+  (string-append (string-downcase (hash-ref r 'method)) "."
                  (string-join (for/list ([s (in-list (string-split (hash-ref r 'path) "/"))]
                                          #:unless (string=? s ""))
                                 (regexp-replace* #px"^[:*]" s ""))
                               ".")))
+
+(define ROUTE-ID-PREFIX "doc.route.")
+(define (route-id r) (string-append ROUTE-ID-PREFIX (route-key r)))
 
 (define (strings-of model)
   (define h (make-hash))
@@ -420,6 +437,12 @@
    "for one object, which is what sharing is. A feature flag, when named, must be on "
    "for the team.\n\n"
    "Path segments written `:name` are parameters; `*name` takes the rest of the path.\n\n"
+   "A machine-readable form of this same table is "
+   "[openapi.json](openapi.json) (OpenAPI 3.1), generated from the same source and "
+   "gated by the same drift check. **It carries no request or response schemas** — "
+   "those are not declared anywhere in the source either page is generated from, so "
+   "neither page can tell you what to send. What the table declares rides in "
+   "`x-tmach-*` on each operation.\n\n"
    (table '("Method" "Path" "Auth" "Permission" "Checked" "Feature" "Description")
           (for/list ([r (in-list routes)])
             (list (hash-ref r 'method) (code (hash-ref r 'path)) (hash-ref r 'auth)
@@ -442,6 +465,208 @@
                          (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
                          (L (route-id r) (hash-ref r 'description)))))
           "\n")))))
+
+
+;; ---- OpenAPI 3.1 (issue #227 slice 2a) ------------------------------------------------
+;;
+;; A machine-readable form of what the ROUTE TABLE DECLARES, and deliberately
+;; nothing more: method, path, how a route authenticates, the permission it
+;; enforces and whether the dispatcher pre-checks it by role, the feature flag,
+;; the handler key.
+;;
+;; IT CARRIES NO REQUEST OR RESPONSE SCHEMAS, AND SAYS SO IN ITS OWN
+;; `info.description`. They do not exist in declarative form anywhere in this
+;; tree — they are read out of 290-odd handler bodies — so emitting them is not a
+;; generation problem but a contract decision about where a shape LIVES (a field
+;; on the `R` entry, a form beside the handler, a catalogue), with 259 core
+;; instances behind it. That is #227 slice 2b. A reference that implied
+;; completeness would be worse than no reference at all: the whole value of this
+;; one is that every field in it is a field somebody declared.
+;;
+;; `responses` is omitted entirely rather than stubbed. OpenAPI 3.1 made it
+;; optional — 3.0 required it — and a fabricated `"200": {"description": "OK"}` on
+;; every operation would be this generator asserting a status code it has not
+;; read, for the 202s, 204s and 302s as well as the 200s.
+;;
+;; IT IS A PAGE OF `render`, NOT A SUBCOMMAND OF ITS OWN. #227 proposed an
+;; `openapi` target; a target needs its own line in ci.yml, and a gate CI has to
+;; remember is a gate that rots — this file's own `check --locale` defect, where
+;; `--locale` was parsed and then silently ignored and the Japanese reference
+;; drifted for five slices. As a page it is written by `render`, diffed by
+;; `check` and covered by the workflow that already runs.
+;;
+;; It adds NO new localization strings: every description is the `doc.route.*`
+;; message api.md already renders, resolved through the same `L`.
+
+(define OPENAPI-VERSION "3.1.0")
+
+(define OPENAPI-NOTE
+  (string-append
+   "Generated by `telemachus-docs` from the declared route table "
+   "(`server/routes.rkt`) — do not edit by hand; `telemachus-docs check` fails CI "
+   "on drift. The Markdown form of the same table, with the prose in context, is "
+   "`api.md` beside this file.\n\n"
+   "**This document carries no request or response schemas, and no `responses` at "
+   "all.** It describes what the route table declares — the path, how the route "
+   "authenticates, the permission it enforces, the feature flag it sits behind — "
+   "and the request and response shapes are not declared anywhere in the source "
+   "it is generated from, so there is nothing here to generate them from. Treat a "
+   "missing body or response as unknown, never as absent. Supplying them is a "
+   "separate piece of work that has to decide where a shape lives before anything "
+   "can emit one.\n\n"
+   "What the table does declare rides in `x-tmach-*` on each operation. "
+   "`x-tmach-auth` is how the route authenticates: `public` needs no credential, "
+   "`bearer` a session or API token, `provision` the hosted-mode provisioning "
+   "token, `superadmin` and `org-admin` the two multi-tenancy planes (whose "
+   "feature gate answers 404 when multi-tenancy is off, so a single-tenant "
+   "instance does not admit that these routes exist), and `handler` the one route "
+   "that accepts a bearer OR a bundle ticket and decides for itself. "
+   "`x-tmach-permission` is what a caller needs, and `x-tmach-permission-checked` "
+   "says who checks it: `role` is pre-checked by the dispatcher before the handler "
+   "runs, so the declaration is the enforcement; `resource` is weighed against a "
+   "particular note or document by `can?`, which also admits the owner and anyone "
+   "holding a matching grant — so a caller whose role does not carry it may still "
+   "be admitted for one object, which is what sharing is.\n\n"
+   "Two shapes here are the generator's and not the table's. A path parameter "
+   "written `{name}` that carries `x-tmach-rest` takes the REST of the path and its "
+   "value may contain `/`: OpenAPI has no form for a multi-segment parameter, so it "
+   "is declared as one string. And `tags` are derived from the path, to group "
+   "operations in a viewer; nothing in the source declares them."))
+
+;; A route pattern becomes an OpenAPI path template: `:name` and `*name` both
+;; become `{name}`, because OpenAPI has one form and the table has two.
+(define (oa-path-segments path)
+  (for/list ([s (in-list (string-split path "/"))] #:unless (string=? s "")) s))
+
+(define (oa-path-template path)
+  (define segs
+    (for/list ([s (in-list (oa-path-segments path))])
+      (if (regexp-match #px"^[:*]" s) (string-append "{" (substring s 1) "}") s)))
+  (if (null? segs) "/" (string-append "/" (string-join segs "/"))))
+
+;; Nothing declares a description for a path parameter, so none is invented. The
+;; REST parameter is the exception and has to be: declared as a plain string it
+;; would say "one segment" and mean "the remainder", which is the one place this
+;; document would be actively misleading if it said nothing.
+(define (oa-parameters path)
+  (for/list ([s (in-list (oa-path-segments path))] #:when (regexp-match #px"^[:*]" s))
+    (define base (hasheq 'name (substring s 1) 'in "path" 'required #t
+                         'schema (hasheq 'type "string")))
+    (if (string-prefix? s "*")
+        (hash-set* base
+                   'description (string-append
+                                 "The rest of the path, slash-separated. OpenAPI has no form "
+                                 "for a multi-segment parameter, so this is one string and the "
+                                 "value may contain `/`.")
+                   'x-tmach-rest #t)
+        base)))
+
+;; Derived from the path to group operations in a viewer, and SAID to be derived
+;; in info.description — 292 ungrouped operations is a wall. `/api/<x>/…` tags as
+;; `<x>`; everything outside `/api/` is the console and its static assets.
+(define (oa-tag path)
+  (define segs (oa-path-segments path))
+  (cond
+    [(null? segs) "console"]
+    [(not (string=? (car segs) "api")) "console"]
+    [(null? (cdr segs)) "api"]
+    [else (regexp-replace* #px"^[:*]" (cadr segs) "")]))
+
+(define (oa-security auth)
+  (cond
+    ;; an explicit empty requirement list is how OpenAPI spells "no credential",
+    ;; rather than leaving the root default to be inferred
+    [(string=? auth "public") '()]
+    ;; #43's one route: a bearer OR a bundle ticket. Two requirement objects mean
+    ;; "either", and the EMPTY one is what says the bearer is optional.
+    [(string=? auth "handler") (list (hasheq 'bearerAuth '()) (hasheq))]
+    [else (list (hasheq 'bearerAuth '()))]))
+
+(define (oa-operation r L)
+  (define perm (hash-ref r 'permission))
+  (define feat (hash-ref r 'feature))
+  (define plug (hash-ref r 'plugin #f))
+  (define params (oa-parameters (hash-ref r 'path)))
+  (let* ([op (hasheq 'operationId (route-key r)
+                     'description (L (route-id r) (hash-ref r 'description))
+                     'tags (list (oa-tag (hash-ref r 'path)))
+                     'security (oa-security (hash-ref r 'auth))
+                     'x-tmach-auth (hash-ref r 'auth)
+                     'x-tmach-handler (hash-ref r 'handler))]
+         [op (if (null? params) op (hash-set op 'parameters params))]
+         [op (if (string? perm)
+                 (hash-set* op 'x-tmach-permission perm
+                            'x-tmach-permission-checked (hash-ref r 'scope "role"))
+                 op)]
+         [op (if (string? feat) (hash-set op 'x-tmach-feature feat) op)]
+         [op (if (string? plug) (hash-set op 'x-tmach-plugin plug) op)])
+    op))
+
+;; A COLLAPSE IS REFUSED, NOT RESOLVED. `paths` is keyed by template, so a second
+;; operation at one (template, method) would quietly REPLACE the first and the
+;; document would describe 312 of 313 routes with nothing failing — the shape a
+;; generated reference must never have (#119). Two patterns can collapse without
+;; being equal, because the table has two forms where OpenAPI has one: `/a/:x`
+;; and `/a/*x` both template to `/a/{x}`. (A parameter and a LITERAL of the same
+;; spelling do not — `{x}` keeps its braces — which is a correction the test made
+;; to this comment.) So it raises and names the pair rather than resolving it.
+(define (oa-paths routes L)
+  (for/fold ([acc (hasheq)]) ([r (in-list routes)])
+    (define tmpl (oa-path-template (hash-ref r 'path)))
+    (define m (string->symbol (string-downcase (hash-ref r 'method))))
+    (define cur (hash-ref acc (string->symbol tmpl) (hasheq)))
+    (when (hash-has-key? cur m)
+      (error 'telemachus-docs
+             (string-append "two routes collapse to one OpenAPI operation: ~a ~a (from ~a). "
+                            "One of them would be described and the other silently dropped — "
+                            "rename a path parameter, or the table has a duplicate entry.")
+             (hash-ref r 'method) tmpl (hash-ref r 'path)))
+    (hash-set acc (string->symbol tmpl) (hash-set cur m (oa-operation r L)))))
+
+(define (render-openapi model L)
+  (define routes (append (hash-ref model 'routes) (hash-ref model 'plugin_routes '())))
+  (define tags (sort (remove-duplicates (for/list ([r (in-list routes)]) (oa-tag (hash-ref r 'path))))
+                     string<?))
+  (json-string
+   (hasheq
+    'openapi OPENAPI-VERSION
+    'info (hasheq 'title "TMach HTTP API"
+                  'version (hash-ref model 'version)
+                  'description OPENAPI-NOTE)
+    ;; A TEMPLATED URL, NOT A RELATIVE `/`, and the comment I first wrote here —
+    ;; "relative, because this document is served from the instance it describes"
+    ;; — was false twice over. No route serves it: it is committed in the
+    ;; repository and copied onto the published site. And a relative server URL
+    ;; is resolved against where the DOCUMENT was loaded from, so a viewer
+    ;; opening it from the documentation site would have aimed every request at
+    ;; the documentation site. A self-hosted platform has no canonical origin, so
+    ;; the honest shape is to ask: the variable's default is the server's own
+    ;; documented one (config.rkt's PORT default).
+    'servers (list (hasheq 'url "{instance}"
+                           'description "The TMach instance you are calling."
+                           'variables
+                           (hasheq 'instance
+                                   (hasheq 'default "http://127.0.0.1:8835"
+                                           'description
+                                           (string-append
+                                            "Scheme, host and port of the instance, with no "
+                                            "trailing slash. This document is not served by the "
+                                            "instance — it is committed in the repository and "
+                                            "published with the documentation — so there is no "
+                                            "origin to infer and a self-hosted platform has no "
+                                            "canonical one.")))))
+    'tags (for/list ([t (in-list tags)]) (hasheq 'name t))
+    'components (hasheq 'securitySchemes
+                        (hasheq 'bearerAuth
+                                (hasheq 'type "http" 'scheme "bearer"
+                                        'description
+                                        (string-append
+                                         "A session token (POST /api/login), an API token "
+                                         "(POST /api/tokens) or a worker token. A token's SCOPES "
+                                         "cap what it may do below the permissions its holder has, "
+                                         "so a token scoped narrower than the route's permission is "
+                                         "refused."))))
+    'paths (oa-paths routes L))))
 
 (define (render-plugins model L)
   (define plugins (hash-ref model 'plugins))
@@ -624,6 +849,7 @@
    "| [workflows.md](workflows.md) | the shipped workflow specs, step by step |\n"
    "| [permissions.md](permissions.md) | the permission catalog and the role matrix |\n"
    "| [api.md](api.md) | every HTTP route with auth, permission and feature flag |\n"
+   "| [openapi.json](openapi.json) | the same routes as OpenAPI 3.1, for tooling — paths, parameters, auth and permissions, and no request or response schemas |\n"
    "| [plugins.md](plugins.md) | loaded plugins and the seams a plugin may fill |\n"
    "| [sdk.md](sdk.md) | the authoring surfaces |\n\n"
    "Prose is localizable: `strings.json` beside these pages is a JSON surface for "
@@ -638,6 +864,7 @@
           (cons "workflows.md" (render-workflows model L))
           (cons "permissions.md" (render-permissions model L))
           (cons "api.md" (render-api model L))
+          (cons "openapi.json" (render-openapi model L))
           (cons "plugins.md" (render-plugins model L))
           (cons "sdk.md" (render-sdk model L))))
   (if (or (not locale) (string=? locale "en"))

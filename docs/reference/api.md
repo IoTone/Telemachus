@@ -4,6 +4,8 @@ Every route the server dispatches, in matching order, from the declared route ta
 
 Path segments written `:name` are parameters; `*name` takes the rest of the path.
 
+A machine-readable form of this same table is [openapi.json](openapi.json) (OpenAPI 3.1), generated from the same source and gated by the same drift check. **It carries no request or response schemas** — those are not declared anywhere in the source either page is generated from, so neither page can tell you what to send. What the table declares rides in `x-tmach-*` on each operation.
+
 | Method | Path | Auth | Permission | Checked | Feature | Description |
 |---|---|---|---|---|---|---|
 | GET | `/` | public | — | — | — | The console (or the beta funnel when TMACH_HOME=beta). The HTML title is rewritten from instance branding. |
