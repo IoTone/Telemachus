@@ -304,6 +304,60 @@ try {
       return !!box && box.style.display !== 'none';
     }));
 
+  // …AND AN ORG NOTE CAN BE SAVED, which the hidden box made impossible. Hiding
+  // the wrapper is not hiding the FIELD: `#ntags` stays in the DOM (it has to,
+  // or `edSetFormat` would need the re-render that eats a typed title), so
+  // `readTags` still found it — seeded by `noteEdit` from the note's own tags —
+  // and the write was refused against a note whose format forbids the key. The
+  // `tags: []` that replaced it was worse than a 400: an empty list is a
+  // deliberate CLEAR on the server and it won over the body's `#+FILETAGS:`.
+  await goTab(page, 'notes', '#nt');
+  await page.fill('#nt', 'Org note with tags');
+  await page.fill('#nb', '* a headline\n#+FILETAGS: :levee:');
+  await page.evaluate(() => window.edSetFormat('note', 'org'));
+  await page.evaluate(() => window.doCreateNote());
+  ok('…an org note is created',
+    await until(page, () => document.body.innerText.includes('Org note with tags')));
+  const orgId = await page.evaluate(async () => {
+    const r = await api('/api/notes');
+    const n = (r.ok ? r.json.notes : []).find(x => x.title === 'Org note with tags');
+    return n ? n.id : null;
+  });
+  const created = await page.evaluate(async id => {
+    const r = await api('/api/notes/' + id);
+    return r.ok ? { format: r.json.format, tags: r.json.tags || [] } : { error: (r.json || {}).error };
+  }, orgId);
+  ok('…carrying the tag its body declares, in that one home',
+    created.format === 'org' && created.tags.length === 1 && created.tags[0] === 'levee',
+    JSON.stringify(created));
+  // the press that could not succeed: open it and save it unchanged
+  await page.evaluate(async id => {
+    const r = await api('/api/notes/' + id);
+    if (r.ok) window.noteEdit(r.json.id, r.json.body, r.json.title, r.json.visibility, r.json.tags, r.json.format);
+  }, orgId);
+  // THE WAIT IS ON THE SEEDED TITLE, not on `#nt` existing: the create form's own
+  // field is there already, so waiting for an element would let this read the
+  // PREVIOUS form and save an empty title over the note (`renderTab` paints a
+  // "…" placeholder first, and `noteEdit` seeds through it).
+  ok('…the editor opens on it',
+    await until(page, () => (document.getElementById('nt') || {}).value === 'Org note with tags'));
+  // THE ASSERTION HAS TO PROVE THE WRITE LANDED. A refused save changes nothing,
+  // so "the note still has its title and tags" is satisfied by a 400 as well —
+  // the first version of this case passed against the defect. The body is what
+  // moves here, and its edit is what says the PUT was accepted.
+  await page.fill('#nb', '* a headline\nedited in place\n#+FILETAGS: :levee:');
+  await page.evaluate(() => window.doSaveNote());
+  const saved = await page.evaluate(async id => {
+    const r = await api('/api/notes/' + id);
+    return r.ok ? { title: r.json.title, body: r.json.body, format: r.json.format,
+                    tags: r.json.tags || [] }
+                : { error: (r.json || {}).error };
+  }, orgId);
+  ok('…and saving it again is accepted, with its body tags intact',
+    String(saved.body || '').includes('edited in place') && saved.format === 'org'
+      && saved.tags.length === 1 && saved.tags[0] === 'levee',
+    JSON.stringify(saved));
+
   // FILTER, THEN OPEN. The note this opens carries no tag, so the filtered list
   // does not contain it — the bug was that the tab believed the list.
   const looseId = await page.evaluate(async () => {

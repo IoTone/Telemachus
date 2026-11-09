@@ -1439,17 +1439,26 @@
   (check-true
    (and (regexp-match? #px"(?s:noteDraftRead\\(\\);\\s*el\\.innerHTML=)" rv) #t)
    "the form is read before the tab is replaced")
+  ;; …AND A DRAFT SOMEBODY REPLACED ON PURPOSE IS NOT READ BACK OVER IT. `noteEdit`
+  ;; seeds the note's own title, and the render it triggers reads the form on
+  ;; screen — the note you are LEAVING — straight back over the seed, so opening a
+  ;; note to edit it showed a blank title and Save then stored the blank. One
+  ;; shot, consumed by the read.
+  (check-true (and (regexp-match? #px"S[.]noteDraftFresh = true;" (fn-body "noteEdit")) #t)
+              "opening a note declares the draft the source")
+  (check-true (and (regexp-match? #px"if \\(S[.]noteDraftFresh\\) \\{ S[.]noteDraftFresh = false;"
+                                 (fn-body "noteDraftRead")) #t)
+              "…and the read consumes it instead of overwriting it")
   ;; and the viewed note is fetched when the filtered list does not carry it
   (check-true (and (regexp-match? #px"api\\('/api/notes/'\\+encodeURIComponent\\(S\\.noteShow\\)\\)" tabs) #t))
   ;; the reveal: the view card has an id and the render reveals it
   (check-true (and (regexp-match? #px"id=\"notecard\"" tabs) #t))
   (check-true (and (regexp-match? #px"revealEl\\('notecard'\\)" rv) #t))
-  ;; ORG-12 in the form: the tags field is swapped in place, because `edSetFormat`
-  ;; must not re-render the tab
-  (check-true (and (regexp-match? #px"function edTagsField\\(" tabs) #t))
-  (check-true (and (regexp-match? #px"if \\(key === 'note'\\) edTagsField\\(\\);" ed) #t))
+  ;; ORG-12 in the form: the tags field follows the format through the editor's
+  ;; own announcement (`tagsField`/`edFormatChanged`), which is asserted where
+  ;; that seam lives rather than a second time here.
   ;; the catalog keys the new controls use
-  (for ([k (in-list '("mine" "nonotes" "notedelconfirm" "orgtagsfield" "autotagorgnote"))])
+  (for ([k (in-list '("mine" "nonotes" "notedelconfirm"))])
     (check-true (string-contains? ui-strings (format "\"ui.~a\"" k))
                 (format "ui.~a is missing from static/ui-strings.json" k))))
 
@@ -1633,6 +1642,33 @@
                 "the builder and its two callers")
   (check-true (string-contains? (fn-body "noteWriteBody") "b.tags = readTags()"))
   (check-true (and (regexp-match? #rx"id=\"ntags\"" src) #t)))
+
+(test-case "an org note's tags are OMITTED from the write, never emptied"
+  ;; ORG-12 IS ENFORCED BY THE SERVER against the format the note will have, and
+  ;; the console defeated it in both directions: the tags field hides the box but
+  ;; leaves `#ntags` in the DOM, and `noteEdit` seeds that input from the note's
+  ;; own tags. So an org note could not be saved at all (the refusal names a field
+  ;; a reader cannot see), and marking a note `org` in the editor sent `tags: []`
+  ;; — a deliberate CLEAR on the server, which wins over the tags the body's own
+  ;; `#+FILETAGS:` line carries.
+  (define src (console-code "03-tabs.js"))
+  (define b (fn-body "noteWriteBody"))
+  (check-true (and b #t) "the body is composed in one place")
+  (check-true (and (regexp-match? #px"b[.]format !== 'org'" b) #t)
+              "the format decides whether the key exists")
+  (check-true (and (regexp-match? #px"b[.]tags = readTags\\(\\)" b) #t)
+              "a Markdown note still sends its field")
+  ;; the KEY is absent, not empty: `tags:[]` is a clear, and the difference is the
+  ;; whole bug — `#:tags #f` is what leaves a body's own tags alone
+  (check-false (and (regexp-match? #rx"tags:" b) #t)
+               "the key is assigned conditionally, never spelled into the literal")
+  ;; and neither writer composes a body of its own, which is how the rule was
+  ;; spelled twice and wrong once
+  (for ([f '("doSaveNote" "doCreateNote")])
+    (check-false (and (regexp-match? #px"readTags\\(\\)" (fn-body f)) #t)
+                 (format "~a asks for the tags itself" f))
+    (check-false (and (regexp-match? #rx"tags:" (fn-body f)) #t)
+                 (format "~a sends a tags key" f))))
 
 (test-case "auto-tag is ONE send, with a visible pending state"
   ;; #174's shape: the flag IS the guard and the pending state, nothing awaits

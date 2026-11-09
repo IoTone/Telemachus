@@ -258,15 +258,6 @@ function noteDraftTags(d, n){
   if (d && d.tags) return String(d.tags).split(',').map(x=>x.trim()).filter(x=>x.length);
   return (n && n.tags) || [];
 }
-function noteDraftRead(){
-  const ti = document.getElementById('nt'), ta = document.getElementById('ntags'),
-        vi = document.getElementById('nv'), ea = document.getElementById('nb');
-  if (!ti || !vi) return S.noteDraft || { title: '', vis: 'team', tags: '' };
-  const d = { title: ti.value, vis: vi.value, tags: ta ? ta.value : '' };
-  if (ea) d.body = ea.value;                      // the body is already in S; this keeps them in step
-  S.noteDraft = d;
-  return d;
-}
 // CLEARING THE FORM MEANS CLEARING THE DOM TOO, and forgetting it was a bug the
 // e2e gate caught: `renderTab()` reads the form into `S.noteDraft` first — the
 // seam that keeps a typed title across a toolbar press — so seeding an EMPTY
@@ -281,6 +272,20 @@ function noteFormReset(){
   if (ta) ta.value = '';
   if (vi) vi.value = 'team';
   noteDraftSeed('', 'team', []);
+}
+function noteDraftRead(){
+  // …UNLESS SOMEBODY REPLACED THE DRAFT ON PURPOSE (`noteEdit`), which is the
+  // one caller for whom this read is the wrong job — see the flag's comment
+  // there. One shot: the read consumes it, so the next render preserves what a
+  // person typed as it always did.
+  if (S.noteDraftFresh) { S.noteDraftFresh = false; return S.noteDraft; }
+  const ti = document.getElementById('nt'), ta = document.getElementById('ntags'),
+        vi = document.getElementById('nv'), ea = document.getElementById('nb');
+  if (!ti || !vi) return S.noteDraft || { title: '', vis: 'team', tags: '' };
+  const d = { title: ti.value, vis: vi.value, tags: ta ? ta.value : '' };
+  if (ea) d.body = ea.value;                      // the body is already in S; this keeps them in step
+  S.noteDraft = d;
+  return d;
 }
 // The visibility enum is what the server stores; the catalog is what a person
 // reads. `vis_*` carries both ("Team — everyone on this team"), and both shipped
@@ -359,6 +364,24 @@ function readTags(){
   // `val()` would throw on the missing element.
   const el = document.getElementById('ntags');
   return el ? el.value.split(',').map(x=>x.trim()).filter(x=>x.length) : [];
+}
+// ORG-12 AT THE WRITE, which hiding the box could not do. `noteTagsField` hides
+// the wrapper but leaves `#ntags` in the DOM (it has to: `edSetFormat` swaps the
+// two fragments in place rather than re-rendering), and `noteEdit` SEEDS that
+// input from the note's own tags — so "an org note has no tags field" was true
+// of what a reader saw and false of what `readTags` found. An org note could not
+// be saved at all, because the server refuses a non-empty `tags` and the box
+// that would empty it is the one that is hidden. `tags: []` was worse than a
+// refusal: an empty list is a deliberate CLEAR on the server, and it wins over
+// the tags a body's own `#+FILETAGS:` line carries.
+// SO THE KEY IS OMITTED, never sent empty. Absent is the only spelling that
+// leaves a body's own tags alone (`notes.rkt` `#:tags #f`), which is the same
+// absent-versus-empty pair the tags field itself lives by.
+function noteWriteBody(){
+  const b = {title: val('nt'), body: edRead('note'), visibility: val('nv'),
+             format: edFormat('note')};
+  if (b.format !== 'org') b.tags = readTags();
+  return b;
 }
 // Export and "save to the repository" are the issue's fourth ask and they are
 // the same two buttons on both surfaces, so they are composed once here rather
@@ -509,6 +532,14 @@ function noteViewClose(){ S.noteShow=null; renderTab(); }
 function noteEdit(id, body, title, vis, tags, format){
   S.noteEdit=id; S.noteShow=null;
   noteDraftSeed(title, vis, tags);
+  // THE SEED IS THE SOURCE FOR THE RENDER IT TRIGGERS. `renderTab` reads the
+  // form into the draft before replacing it — the seam that keeps a typed title
+  // across a toolbar press — and for THIS caller that read is the wrong job: the
+  // form on screen belongs to the note you are leaving, so it put an empty title
+  // straight back over the one just seeded. Opening a note to edit it then showed
+  // a blank title, and Save STORED the blank — which is why the org-note case in
+  // `demo-validate.mjs` could not save a note without clearing its title.
+  S.noteDraftFresh = true;
   edReset('note', body, 'nb', format);
   renderTab();
 }
