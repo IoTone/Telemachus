@@ -8834,18 +8834,32 @@ instance layers, and #177 gave the instance layer a console card.
 
 ## Plugin routes and artifact results (slices 63–64, issue #15)
 
-- **A plugin may `(provide routes)`**: `(list method path perm handler doc)` per
-  entry, handler `(conn principal args) -> jsexpr` with `args` =
-  `(hasheq 'params … 'query … 'body …)`. The loader validates each entry at load
-  (a bad one fails THAT plugin, not a request later) and the server mounts them
-  at **`/api/x/<plugin-id>/<path>`** — the prefix is platform-fixed, so a plugin
-  can never shadow a core route or another plugin's. Always `with-auth`, then the
-  named permission through `require-perm`; a `raise-user-error` is the caller's
-  400. Matched AFTER the core table (`match-routes` over `PLUGIN-ROUTES`, built by
+- **A plugin may `(provide routes)`**: `(list method path perm handler [doc]
+  [auth])` per entry — five elements as it always was, with an OPTIONAL SIXTH,
+  the auth. `'bearer` is the default and is what every route was; `'public`
+  serves a caller who has no principal, which is what a calendar feed, an OPML
+  URL somebody pastes into a reader, or a webhook receiver needs and what a
+  plugin otherwise could not build. `'public` is DECLARED, never inferred from a
+  path, so a route that does not say is authenticated rather than open. The
+  handler is `(conn principal args) -> jsexpr` with `args` = `(hasheq 'params …
+  'query … 'body …)`, and a PUBLIC handler is `(conn args)` — two arguments, so
+  it cannot be handed a principal and cannot serve one team's data by accident.
+  A public route also may not name a permission: there is no principal to check
+  one against, and a declaration nothing enforces is #113's shape. Both refusals
+  fail THAT plugin's load. The loader validates each entry at load (a bad one
+  fails the plugin, not a request later) and the server mounts them at
+  **`/api/x/<plugin-id>/<path>`** — the prefix is platform-fixed, so a plugin
+  can never shadow a core route or another plugin's. A bearer route is wrapped
+  in `with-auth` and its declared permission is checked through `require-perm`
+  before the handler runs; a handler may of course check more. A
+  `raise-user-error` is the caller's 400 on either door.
+  Matched AFTER the core table (`match-routes` over `PLUGIN-ROUTES`, built by
   `install-plugin-routes!` after `load-plugins!` in main). They appear in
-  `docs/reference/api.md` under "Plugin routes" and in `GET /api/plugins`.
-  `plugins/example-tools` ships `word-count` as the worked example; the smoke
-  pins GET/POST, 401, 400 and the prefix.
+  `docs/reference/api.md` under "Plugin routes", with an Auth column, and in
+  `GET /api/plugins` (`public_routes`). `plugins/example-tools` ships
+  `word-count` as the worked example and `GET /ping` as the public one; the
+  smoke pins GET/POST, 401, 400, the prefix and that an undeclared route is
+  still 401.
 - **A tool may return an artifact** (`domain/agent/artifact.rkt`): a hash with an
   `artifact` key `{kind, title, summary, content_type?, object_id?, version_id?,
   url?}` plus any keys a workflow step should bind. The three surfaces agree by
