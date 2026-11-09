@@ -531,7 +531,10 @@
             ;; and nothing at this tier reaches a `private` resource (TEN-2a).
             (and (or (org-tier-covers? conn p required)
                      (org-data-reader? conn p required))              ; TEN-2h
-                 (member vis (list "team" "shared")))
+                 ;; `#t`, because `member` answers a TAIL: a caller that
+                 ;; decides with this must be handed a boolean (this file has the
+                 ;; `check-true`-demands-#t trap recorded twice)
+                 (and (member vis (list "team" "shared")) #t))
             (has-grant? conn res p required))]
        [(or (equal? vis "private") (equal? vis "shared"))
         (or (equal? owner (principal-user-id p))
