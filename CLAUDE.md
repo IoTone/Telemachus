@@ -1046,6 +1046,13 @@ is ROLE-scoped — `rt-perm`, before the handler runs. The table was documentati
   handler's own check found it.
 - Proven by control: with `ep-retention-get`'s own `require-perm` removed, the
   request is still refused and the whole smoke passes.
+- **SO A CONTROL ON A ROUTE WITH A DECLARED PERMISSION HAS TO REMOVE BOTH
+  LAYERS.** Asserting a member may not set the company's timezone: stripping `ep-my-org-timezone-put`'s `require-perm` changed nothing,
+  because the dispatcher's role pre-check from `routes.rkt` refused first — and
+  that is the two-layer design working, not a weak test. Removing the route's
+  `#:perm` as well is what bites: the member's PUT comes back
+  `{"ok":true,"timezone":"Asia/Tokyo"}` and the assertion names it. Worth
+  knowing before concluding an assertion is vacuous.
 
 ## The route table's `#:perm` is now GATED (code audit, 20 Oct 2026)
 
