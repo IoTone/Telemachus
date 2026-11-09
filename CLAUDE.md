@@ -601,10 +601,12 @@ bash test/e2e/validate.sh                                      # §6c — the id
   the id out of the DOM: the first refresh works and every one after it finds
   nothing. The e2e gate caught it as a locator timeout.
 - **`build-l10n-review.py` IS ALREADY BROKEN AND IS NOT A CI GATE.** It refuses
-  any console key in no review group and reports **~600** of them — the state it
-  has been in since the console's strings moved into the catalogs, so nobody has
-  run it in a year. Recorded rather than fixed: auditing 600 keys into review
-  groups is the Japanese review's slice, and that review is held.
+  any console key in no review group and reports **~600** of them. Datable: its
+  last commit is `d82ef7a`, **11 Sept 2026**, which is the commit that moved the
+  console's strings into the catalogs — so it was broken by the change it was
+  never updated for, and nobody has run it since. Recorded rather than fixed:
+  auditing 600 keys into review groups is the Japanese review's slice, and that
+  review is held.
 
 ## Multi-tenancy (several companies on one instance)
 
@@ -1796,7 +1798,7 @@ TMACH_MODEL_URL=... bash test/translate-chat-demo.sh
   An unknown extension becomes `application/octet-stream`, and every response
   carries `nosniff`, so a Tier‑B bundle shipping ES modules or wasm was REFUSED
   by the browser rather than mistyped.
-- **The `approve` gate the workflow-engine design named for a year does not
+- **The `approve` gate the workflow-engine design named for months does not
   exist and must not be built.** `docs/design/workflow-engine.md` specified an
   `approve` step kind and `POST /api/runs/<id>/approve/<step>` while `spec.rkt`'s
   own `planned_step_kinds` never listed it — the contradiction issue #54
@@ -2574,7 +2576,7 @@ bash test/server-smoke.sh                                  # the "MAIL-25" block
   reputation, which is one resource however many teams spend it, so the company
   cap is the one that matters — and orgs.rkt's own line is that a limit enforced
   and not reported is worse than one that is neither, which is the defect
-  `storage.bytes` had there for a year. **Because it is not a hold dimension
+  `storage.bytes` had there for months. **Because it is not a hold dimension
   `held` can never name it**, so the usage figure is the ONLY place a team learns
   it has stopped telling people things.
 - **`tenant-quota-check/team` / `tenant-quota-record!/team` — one rule, two
@@ -2702,7 +2704,7 @@ RESEARCH_TEST_URL=https://example.com/ bash test/server-smoke.sh   # …plus the
   and `tenant-quota-check/team` lets the org decision refuse first, so every
   metered dimension is already enforceable there — which made `feed.fetches` a
   limit an operator could set, that bit, and that they could see nowhere. The
-  defect `storage.bytes` had for a year (MAIL‑25i). Both are in `ORG-DIMENSIONS`
+  defect `storage.bytes` had for months (MAIL‑25i). Both are in `ORG-DIMENSIONS`
   and `org-usage` now.
 - **`last_error` IS SEALED AND `#:forgiving`**, under the CONTENT switch, and it
   is in `CONTENT-SECRETS` rather than left out for the reason the schedule
@@ -4336,7 +4338,7 @@ TMACH_EMBED_URL=… racket cli/telemachus-help.rkt ingest   # from a CHECKOUT (H
   on the same box, which is the only thing that establishes it.
 - 🔑 **`static/ui-strings.json` IS THE SOURCE, NOT THE VIEWS.** 617 keys, and
   most of them are already the sentence a reader needs: this console has been
-  putting its reasoning in the hint under the card for a year
+  putting its reasoning in the hint under the card for months
   (`wkexpiredhint`, `jobscope`, `qvstuckhint`, `vishint`, `wkmodelshint`). Each
   page QUOTES the string the reader will see rather than paraphrasing it — a
   paraphrase goes stale invisibly, where a quotation that stops matching is one
@@ -6104,7 +6106,7 @@ raco test test/console-tests.rkt   # 13 cases; the three new ones have five cont
   reads like a fallback and has none; the key is `ui.featon`, really in both
   catalogs.
 - **I WROTE TWO ENGLISH LITERALS INTO THE TOAST AND CAUGHT IT READING MY OWN
-  DIFF.** `doSearch` shipped exactly that for a year — a Japanese operator told
+  DIFF.** `doSearch` shipped exactly that for months — a Japanese operator told
   "no results" in English — and the new toast went in right beside the existing
   `doToggleFeature` one, which still has it. It is `ui.featallowdone` /
   `ui.featoffdone` with a `{f}`, and a case pins it.
@@ -8084,7 +8086,7 @@ bash test/e2e/validate.sh                                       # §7c — four 
 - **A ONE-DIRECTIONAL CATALOG TEST CANNOT CATCH A LITERAL TYPED IN PLACE.**
   "Every `t('…')` key is in `ui-strings.json`" passes when a label becomes an
   English string, because the key leaves the scan — which is exactly what
-  `doSearch` shipped for a year. Both directions now: every `ui.qv*` the catalog
+  `doSearch` shipped for months. Both directions now: every `ui.qv*` the catalog
   ships must also be ASKED for, so an orphan says somebody hard-coded it.
   #110 r6's `src`-tags rule, applied to strings.
 - **`extract --help` IS NOT HELP AND IT WIPED `locales/en.json`**, exactly as
@@ -9883,7 +9885,7 @@ model role at any executor name**, including another org's, because
 
 ## Tokens, `/health`, security headers, meta tags (issues #11–#13)
 
-- **Tokens expire** (#13). `api_tokens.expires_at` carried nothing for a year;
+- **Tokens expire** (#13). `api_tokens.expires_at` carried nothing for months;
   `issue-token!` now sets it (epoch seconds as text in the pre-existing TEXT
   column) and `resolve-token` refuses an expired row — the ONE place a bearer
   becomes a principal. Defaults: a session (login, bootstrap, member-add) 30

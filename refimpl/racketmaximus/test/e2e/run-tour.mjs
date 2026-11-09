@@ -107,7 +107,12 @@ try {
   await page.evaluate(() => window.doAddTerm());
   await go(page, 'translate', '#trsrc');
   await page.fill('#trsrc', 'Welcome to TMach, the team AI platform.'); await page.selectOption('#trtgt', 'ja');
+  // #233: `doTranslate` ENQUEUES now and returns at once, so the answer is not
+  // on screen when it resolves — the follow card paints it when the job
+  // settles. Waiting for the done badge is also what makes the SHOT worth
+  // taking: it photographs a finished translation rather than an empty pane.
   await model(page, () => window.doTranslate(), 'translate');
+  await page.locator('#trjobs .badge.ok').waitFor({ timeout: 45000 }).catch(() => {});
   assert((await page.locator('#trout').innerText().catch(() => '')).length > 0, 'translation produced output');
   await shot(page, '06-translate', 'Translation app',
     'The first user-facing app: live EN→JA translation with a team glossary for consistent terminology and a metered history. The same engine translates whole locale catalogs (the localization dogfood).');
