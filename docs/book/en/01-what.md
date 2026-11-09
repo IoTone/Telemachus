@@ -13,7 +13,7 @@ These are not slogans; each one has changed a design at least once.
 
 - **Racket first.** The reference implementation is Racket 9.3 CS. Non-Racket plugin authoring is explicitly not a requirement; where a data format is the contract (workflow specs, tool schemas), it is because the format earns its place, not because Racket is a barrier.
 
-- **Deterministic dependencies.** Nix is the toolchain, and there is no second one. No Homebrew, no conda, no “python spice kitchen” on the deploy host. A PDF renderer is a dependency; so is a graph-visualization library; both were declined until someone needs them.
+- **Deterministic dependencies.** Nix is the toolchain, and there is no second one. No Homebrew, no conda, no “python spice kitchen” on the deploy host. Both of this tenet’s original examples have since been decided, in opposite directions, which is what it is for: a PDF renderer *was* needed, so three arrived, pinned, each found at the moment it is called so a box without one still boots — and the marginal cost of the second was 173 MB rather than the 1.5 GB its own dependency graph advertises, because the first had already brought the font stack. A graph-visualization library is still declined: the one picture this platform draws is forty lines of arithmetic emitting inline vector graphics, which also makes it deterministic enough for a test to pin a node by name.
 
 - **Contract first, backends swappable.** The durable product is the SDK contract, the HTTP API, the security model and the protocols. A second implementation would target those, not the Racket code. The generated reference exists so that the contract is written down by the code itself.
 

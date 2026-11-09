@@ -27,7 +27,7 @@ A plugin serves its own pages from two directories, and the difference between t
 
 Assets ship inside the bundle. The console’s policy is same-origin, so a CDN font or script is blocked — deliberately.
 
-Two things about that authenticated directory are worth knowing before you build on it. Its files are served from where the LOADER found the plugin, not from a fixed path under the checkout: a plugin loaded from elsewhere used to serve its tools and routes perfectly while every page it had came back 404. And a page there cannot simply be opened in a browser, because the token lives in the console’s storage and a navigation carries no bearer — the smoke passed for a year because `curl` sends a header a browser never will. Opening one means minting a short-lived TICKET with the token you do have; the first response sets it as a cookie scoped to that plugin’s bundle path, so the page’s own script and stylesheet follow without it trailing through every URL. Not a session cookie issued at sign-in: the JSON API keeps its no-cookie, no-CSRF-surface property, and this one reaches nothing but one plugin’s static files.
+Two things about that authenticated directory are worth knowing before you build on it. Its files are served from where the LOADER found the plugin, not from a fixed path under the checkout: a plugin loaded from elsewhere used to serve its tools and routes perfectly while every page it had came back 404. And a page there cannot simply be opened in a browser, because the token lives in the console’s storage and a navigation carries no bearer — the smoke passed for months because `curl` sends a header a browser never will. Opening one means minting a short-lived TICKET with the token you do have; the first response sets it as a cookie scoped to that plugin’s bundle path, so the page’s own script and stylesheet follow without it trailing through every URL. Not a session cookie issued at sign-in: the JSON API keeps its no-cookie, no-CSRF-surface property, and this one reaches nothing but one plugin’s static files.
 
 ## Wearing the customer’s colours
 
@@ -37,7 +37,7 @@ Two rules keep it honest. An unknown token is refused rather than ignored, becau
 
 ## What is not available
 
-Stated plainly, so nobody designs around a hope: a plugin cannot add a tab to the core console — it serves its own screens instead; feature flags are per team, with no instance-wide switch, so “this deployment has no chat” means doing it for every team; and there is no hot reload, so adding a plugin means a restart.
+Stated plainly, so nobody designs around a hope: a plugin cannot add a tab to the core console — it serves its own screens instead; a plugin cannot add a feature flag of its own, or a permission, or a quota dimension, or a sealed column — each of those is a core vocabulary, and the role listing publishing a permission the server does not enforce is a promise nobody keeps; and there is no hot reload, so adding a plugin means a restart.
 
 ## Files to open
 
