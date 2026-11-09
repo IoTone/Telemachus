@@ -1,5 +1,14 @@
 # Telemachus Migration — what can be brought over from Odysseus
 
+> **HISTORICAL — a record of the tree this repository was carried over FROM.**
+> Written on 16 August 2026, while the Odysseus checkout (`src/`, `routes/`,
+> `core/`, `services/`, `mcp_servers/` and its own `racket/`) was still what the
+> port was read against. **None of those paths exist here.** The implementation in
+> this repository is `refimpl/racketmaximus/`; `racket/` below means the older
+> tree's directory, and `src/` means Python that was never carried over. Kept
+> because it is the provenance record for decisions that are still in force, not
+> as a description of what this checkout contains.
+
 **Purpose.** Decide, file by file, what may move from this repo (Odysseus) into
 the clean **MIT/X** successor **Telemachus**, and under what conditions. Companion
 to `Features.md` (what Odysseus *does*) and Telemachus's `docs/FeatureRequirements.md`
