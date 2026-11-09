@@ -1290,6 +1290,11 @@ assert "policy is public"        "$CFG" '"localization"'
 assert "…default is en"          "$CFG" '"default":"en"'
 assert "…negotiation on"         "$CFG" '"enabled":true'
 assert "…advertises its catalogs" "$CFG" '"ja"'
+# …and ADVERTISES is not "lists the files on disk": `nl` and `es-419` are drafts
+# of 190 strings each, so offering them would promise a page that answers five
+# strings of every six in English. The floor is LOCALE-COVERAGE-FLOOR in
+# domain/i18n/catalog.rkt; the file stays, the switcher does not offer it.
+assert "…and only the languages it can answer in" "$CFG" '"available":["en","ja"]'
 # with negotiation ON, the header decides
 assert "ja honoured"   "$(curl -s $B/api/whoami -H 'Accept-Language: ja')" '認証が必要です'
 assert "en honoured"   "$(curl -s $B/api/whoami -H 'Accept-Language: en')" 'Authentication required'

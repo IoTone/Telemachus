@@ -63,12 +63,19 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       `static/ui-strings.json`, folded into `en.json` by the extractor; served
       pre-auth by `GET /api/i18n/catalog`, chain-resolved server-side) — so one
       `extract`, one Manager and one CI gate cover the server and the UI alike.
-      **English and Japanese ship complete (2,123 and 2,124 keys); Dutch and Latin American
-      Spanish ship 382 keys each, with `meta.fallback` resolving the rest to English.**
+      **English and Japanese ship complete — 1,179 and 1,179 messages, so `ja`
+      covers 100% of the base; Dutch and Latin American Spanish are drafts of 190
+      messages each (16%), with `meta.fallback` resolving the rest to English.**
       `nl` and `es-419` were produced *by the Localization Manager*: AI-drafted
       through the scheduler under the team's AI quota, every string
       human-reviewed (169 of 340 UI drafts corrected), exported, and passing the
       tool's own gate. That is the proof the flagship exists for.
+      **A draft is not an advertised language.** `available` is the catalogs this
+      build can answer in, and a locale must reach the coverage floor (80% of
+      `en`, measured by `telemachus-localize check`, which reports the floor and
+      an `advertised` flag per locale) before the switcher offers it — so `ja` is
+      offered and `nl`/`es-419` are not, and a screen cannot be promised in a
+      language that answers most of it in English.
       Design: [`design/localization.md`](design/localization.md) · impl `domain/i18n/`.
 - [x] **Documentation** — generated, localizable project docs. `telemachus-docs`
       evaluates the tool registry, the plugin loader, the workflow specs, the

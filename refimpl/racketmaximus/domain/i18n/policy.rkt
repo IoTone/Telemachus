@@ -30,6 +30,7 @@
 ;; silently serves English while claiming German.
 
 (require racket/string racket/list
+         "catalog.rkt"                    ; coverage, and the floor a locale must clear
          "../settings/settings.rkt")
 
 (provide i18n-policy i18n-policy-set!
@@ -39,44 +40,65 @@
          ;; path only if this build ships a catalog for it (HELP‑10), which is
          ;; the same `available` rule — derived from the files on disk, never
          ;; stored — rather than a second list that would drift from this one.
-         available-locales)
+         available-locales
+         ;; and the list the instance OFFERS, which is a different question: the
+         ;; catalogs it ships, minus the ones too incomplete to answer in
+         advertised-locales)
 
 (define KEY "i18n")
 
 (define (i18n-defaults) (hasheq 'default "en" 'enabled #t))
 
-;; Whichever catalogs this build ships. Scanned once — the directory is part of
-;; the deployed tree and does not change under a running process.
-(define scanned (box #f))
+;; Whichever catalogs this build ships. Scanned once PER DIRECTORY — the tree
+;; does not change under a running process, but a test points this at a temp copy
+;; (`TMACH_LOCALES`), and a single memo answered the first directory it ever saw
+;; for every later one. Keyed by the path, so the runtime keeps the scan and the
+;; suite keeps its isolation.
+(define scanned (make-hash))
 (define (available-locales dir)
-  (or (unbox scanned)
+  (define key (path->string (simplify-path (path->complete-path dir) #f)))
+  (hash-ref! scanned key
+    (lambda ()
       (let ([ls (sort (for/list ([f (in-list (directory-list dir))]
                                  #:when (regexp-match? #px"\\.json$" (path->string f)))
                         (regexp-replace #px"\\.json$" (path->string f) ""))
                       string<?)])
         ;; A build with no catalogs at all still has to answer something.
-        (define final (if (null? ls) '("en") ls))
-        (set-box! scanned final)
-        final)))
+        (if (null? ls) '("en") ls)))))
+
+;; WHAT THE INSTANCE OFFERS, which is not the same as what it ships.
+;;
+;; A catalog file on disk can be opened; a locale can be OFFERED only if it is
+;; translated enough to answer in. `en` and `ja` are; `nl` and `es-419` ship 190
+;; of 1,179 messages each and are therefore not advertised — the file stays, the
+;; Localization Manager still imports it and a translator still works on it, and
+;; the switcher stops offering a language that answers in English. The floor and
+;; the measurement live in `catalog.rkt` (LOCALE-COVERAGE-FLOOR), because they
+;; are a property of a catalog rather than of an instance's policy.
+(define (advertised-locales dir)
+  (filter (lambda (l) (advertised? dir l)) (available-locales dir)))
 
 (define (normalize h dir)
   (define d (i18n-defaults))
-  (define avail (available-locales dir))
+  (define avail (advertised-locales dir))
   (define want (let ([v (hash-ref h 'default (hash-ref d 'default))])
                  (if (string? v) (string-trim v) "")))
-  (hasheq 'default (if (member want avail) want (if (member "en" avail) "en" (car avail)))
+  ;; a build can, in principle, advertise nothing above the floor — every
+  ;; catalog is a draft. Then the default is `en`, which is the source and is
+  ;; always complete by definition, rather than a locale with no file behind it.
+  (hasheq 'default (if (member want avail) want (if (member "en" avail) "en" (if (pair? avail) (car avail) "en")))
           'enabled (not (eq? (hash-ref h 'enabled #t) #f))))
 
 (define (i18n-policy conn dir)
   (define v (setting-ref conn KEY #f))
   (define p (normalize (if v v (i18n-defaults)) dir))
-  (hash-set p 'available (available-locales dir)))
+  (hash-set p 'available (advertised-locales dir)))
 
 ;; Returns the stored document plus `available`, so a caller can render the new
 ;; state without a second read. Raises on an unknown locale rather than quietly
 ;; substituting one — see the header.
 (define (i18n-policy-set! conn dir h)
-  (define avail (available-locales dir))
+  (define avail (advertised-locales dir))
   (define want (let ([v (hash-ref h 'default #f)]) (and (string? v) (string-trim v))))
   (when (and want (not (member want avail)))
     (error 'i18n-policy-set! "unknown locale ~s; this build ships ~a"

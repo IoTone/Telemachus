@@ -23,7 +23,10 @@
          read-catalog write-catalog catalog-exists?
          build-en-catalog sync-target
          catalog-duplicate-keys
-         diff coverage)
+         diff coverage
+         ;; the coverage floor, and the two questions it answers — exported for
+         ;; the runtime policy, the CI gate and their tests
+         LOCALE-COVERAGE-FLOOR locale-coverage advertised?)
 
 ;; ---- model ------------------------------------------------------------------
 ;; messages : (hash id-string → (cons text hash))
@@ -141,3 +144,42 @@
       (define m (hash-ref t id #f))
       (if (and m (not (string=? (car m) "")) (string=? (cdr m) (cdr btd))) 1 0)))
   (values covered total))
+
+
+;; ---- how complete is a catalog? -------------------------------------------
+;;
+;; A LOCALE IS ADVERTISED ONLY IF IT IS SUBSTANTIALLY TRANSLATED. `available`
+;; used to be "whichever `<locale>.json` files exist", which is right about what
+;; the build can OPEN and wrong about what it can offer: `nl` and `es-419` ship
+;; 190 of 1,179 messages (16%), so a switcher built on `available` offered Dutch
+;; and answered five strings of every six in English. A half-translated page that
+;; looks finished is worse than an obviously untranslated one, which is the same
+;; rule the screenshot captions and the book's chapters live by.
+;;
+;; The floor is a SHARE OF `en`, measured with `coverage` above — a string counts
+;; only when it is present, non-empty and still pinned to the English it was
+;; translated from, so a stale translation does not count as coverage.
+;;
+;; 80 is chosen to mean "the reader is not being shown English and told it is
+;; their language": at four strings in five translated, the fallback is an
+;; occasional word rather than the body of the page. It is a floor and not a
+;; target — `ja` sits at 100% and anything below 80 is a draft, which the
+;; Localization Manager still shows and still lets a translator work on. Nothing
+;; here deletes a catalog: a locale below the floor keeps its file, keeps its
+;; rows in the manager and keeps being imported, and only stops being OFFERED.
+(define LOCALE-COVERAGE-FLOOR 80)
+
+;; → an integer percentage of the base catalog this locale covers. "en" and a
+;; build with no base catalog are 100 by definition; a locale with no file is 0.
+(define (locale-coverage dir loc)
+  (define en (build-path dir "en.json"))
+  (define tgt (build-path dir (string-append loc ".json")))
+  (cond
+    [(or (equal? loc "en") (not (catalog-exists? en))) 100]
+    [(not (catalog-exists? tgt)) 0]
+    [else
+     (let-values ([(covered total) (coverage (read-catalog en) (read-catalog tgt))])
+       (if (zero? total) 100 (quotient (* 100 covered) total)))]))
+
+(define (advertised? dir loc)
+  (>= (locale-coverage dir loc) LOCALE-COVERAGE-FLOOR))
