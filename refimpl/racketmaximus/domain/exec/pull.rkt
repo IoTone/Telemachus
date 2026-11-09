@@ -913,15 +913,23 @@
       (values " AND status = 'running' AND claim_token = ?" (list token))
       (values " AND status = 'running' AND claim_token IS NULL" '())))
 
-;; → #t when the guarded write is the one that LANDED. `query-exec` answers
-;; nothing on this wrapper (Racket's db library returns void), so the fence is
-;; read back rather than counted: the row we meant to settle is the row that now
-;; carries our status with no claim token. A cancel that won the race leaves
-;; `canceling` and the token in place, and a re-claim leaves `running` with
-;; somebody else's.
-(define (settled? conn job-id want-status)
-  (define r (query-maybe-row conn "SELECT status, claim_token FROM jobs WHERE id = ?" job-id))
-  (and r (equal? (vector-ref r 0) want-status) (sql-null? (vector-ref r 1))))
+;; → #t when the guarded write is the one that LANDED.
+;;
+;; THIS IS A RETURNING GUARD, NOT A READ-BACK, and the difference is a bill.
+;; `query-exec` answers nothing on this wrapper (Racket's db library returns
+;; void), so the fence used to be checked by READING THE ROW BACK: "it now
+;; carries our status with no claim token". That cannot tell the winner from a
+;; loser, because the row it reads is the WINNER's write. Two `complete` posts
+;; carrying the same claim token — a retried request, a worker that re-sends
+;; after a timeout — both passed `holder-check` while the row was still
+;; `running`, both issued the guarded UPDATE, and both then read back `done` and
+;; answered ok: the job was billed twice and `record-worker-call!` wrote two
+;; model-request rows for one call. A `RETURNING id` answers the only question
+;; that matters — did MY statement change the row — which is #17's rule for the
+;; claim, arriving at the settle.
+(define (fenced-write? conn sql params)
+  (define r (apply query conn sql params))
+  (and (rows-result? r) (pair? (rows-result-rows r))))
 
 (define (worker-complete! conn ex job-id result #:token [token #f])
   (define v (holder-check conn ex job-id token))
@@ -937,14 +945,15 @@
      (cond
        [problem
         (define-values (fence fparams) (fence-for token))
-        (apply query-exec conn
-               (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
-                              (finished-set) " WHERE id = ?" fence)
-               (append (list (seal-error job-id (string-append "worker returned a bad result: " problem))
-                             job-id)
-                       fparams))
+        (define landed?
+          (fenced-write? conn
+            (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
+                           (finished-set) " WHERE id = ?" fence " RETURNING id")
+            (append (list (seal-error job-id (string-append "worker returned a bad result: " problem))
+                          job-id)
+                    fparams)))
         (cond
-          [(not (settled? conn job-id "error")) 'not-running]
+          [(not landed?) 'not-running]
           [else
            ;; the call happened and produced nothing usable, so it is logged as an
            ;; error rather than left out: an invisible failed call is the one an
@@ -953,12 +962,13 @@
            'ok])]
        [else
         (define-values (fence fparams) (fence-for token))
-        (apply query-exec conn
-               (string-append "UPDATE jobs SET status = 'done', result = ?, claim_token = NULL, "
-                              (finished-set) " WHERE id = ?" fence)
-               (append (list (seal-result job-id (jsexpr->string result)) job-id) fparams))
+        (define landed?
+          (fenced-write? conn
+            (string-append "UPDATE jobs SET status = 'done', result = ?, claim_token = NULL, "
+                           (finished-set) " WHERE id = ?" fence " RETURNING id")
+            (append (list (seal-result job-id (jsexpr->string result)) job-id) fparams)))
         (cond
-          [(not (settled? conn job-id "done")) 'not-running]
+          [(not landed?) 'not-running]
           [else
            (define team (query-value conn "SELECT team_id FROM jobs WHERE id = ?" job-id))
            ((scheduler-record!) conn team result)
@@ -972,16 +982,17 @@
     [(not (eq? v 'ok)) v]
     [else
      (define-values (fence fparams) (fence-for token))
-     (apply query-exec conn
-            (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
-                           (finished-set) " WHERE id = ?" fence)
-            (append (list
-                     ;; the worker's own message, which may quote what it was handed
-                     (seal-error job-id (format "executor ~a: ~a" (hash-ref ex 'name) message))
-                     job-id)
-                    fparams))
+     (define landed?
+       (fenced-write? conn
+         (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
+                        (finished-set) " WHERE id = ?" fence " RETURNING id")
+         (append (list
+                  ;; the worker's own message, which may quote what it was handed
+                  (seal-error job-id (format "executor ~a: ~a" (hash-ref ex 'name) message))
+                  job-id)
+                 fparams)))
      (cond
-       [(not (settled? conn job-id "error")) 'not-running]
+       [(not landed?) 'not-running]
        [else
         (record-worker-call! conn ex job-id #f "error" #:error-kind "transport")
         'ok])]))
@@ -1023,27 +1034,30 @@
      (cond
        [(> n MAX-RELEASES)
         (define-values (fence fparams) (fence-for token))
-        (apply query-exec conn
-               (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, "
-                              "lease_until = NULL, claim_token = NULL, releases = ?, "
-                              (finished-set) " WHERE id = ?" fence)
-               (append (list (seal-error job-id
-                              (format "no executor would run it: released ~a times (last by ~a: ~a)"
-                                      MAX-RELEASES (hash-ref ex 'name) why))
-                             n job-id)
-                       fparams))
+        (define landed?
+          (fenced-write? conn
+            (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, "
+                           "lease_until = NULL, claim_token = NULL, releases = ?, "
+                           (finished-set) " WHERE id = ?" fence " RETURNING id")
+            (append (list (seal-error job-id
+                           (format "no executor would run it: released ~a times (last by ~a: ~a)"
+                                   MAX-RELEASES (hash-ref ex 'name) why))
+                          n job-id)
+                    fparams)))
         (cond
-          [(not (settled? conn job-id "error")) 'not-running]
+          [(not landed?) 'not-running]
           [else (record-unserved! conn ex job-id "released") 'failed])]
        [else
         (define-values (fence fparams) (fence-for token))
-        (apply query-exec conn
-               (string-append "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL, "
-                              "claim_token = NULL, started_at = NULL, started_epoch = NULL, "
-                              "releases = ?, released_by = ?, release_after = ? WHERE id = ?" fence)
-               (append (list n (hash-ref ex 'id) (+ (now) RELEASE-BACKOFF) job-id) fparams))
+        (define landed?
+          (fenced-write? conn
+            (string-append "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL, "
+                           "claim_token = NULL, started_at = NULL, started_epoch = NULL, "
+                           "releases = ?, released_by = ?, release_after = ? WHERE id = ?" fence
+                           " RETURNING id")
+            (append (list n (hash-ref ex 'id) (+ (now) RELEASE-BACKOFF) job-id) fparams)))
         (cond
-          [(not (settled? conn job-id "queued")) 'not-running]
+          [(not landed?) 'not-running]
           [else (record-unserved! conn ex job-id "released") 'ok])])]))
 
 ;; ---- PULL-9: a worker reads the documents ITS OWN job names ------------------
