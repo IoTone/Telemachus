@@ -25,7 +25,8 @@
          web-server/http
          web-kit
          (only-in "../../config.rkt" max-upload-bytes)
-         (only-in "../../domain/authz/authz.rkt" audit! principal-team-id principal-user-id require-perm team-org)
+         (only-in "../../domain/authz/authz.rkt" audit! principal-team-id principal-user-id require-perm team-org
+                  VISIBILITIES)
          (only-in "../../domain/orgs/orgs.rkt" org-teams)
          (only-in "../../domain/s3/server.rkt" s3-region)
          (only-in "../../domain/s3/sigv4.rkt" aws-uri-encode presign-query)

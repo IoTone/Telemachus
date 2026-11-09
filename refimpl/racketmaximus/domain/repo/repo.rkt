@@ -71,7 +71,10 @@
          repo-derive!
          capability-permissions permissions->capability
          expiry->seconds seconds->iso8601
-         VISIBILITIES valid-key? inline-safe? STORAGE-DIMENSION)
+         ;; #110 r4 — NOT re-exported: the vocabulary lives in authz.rkt,
+         ;; which is where the reachability rule reads it, and two export paths
+         ;; would be two homes for one set.
+         valid-key? inline-safe? STORAGE-DIMENSION)
 
 (define STORAGE-DIMENSION "storage.bytes")
 
@@ -100,8 +103,6 @@
 ;; Like the put hook it must never fail the write — the attributes landed,
 ;; whatever a subscriber makes of them — and the subscriber owns its own error
 ;; handling.
-(define VISIBILITIES '("private" "team" "shared"))
-
 ;; ---- keys --------------------------------------------------------------------
 ;; A key is a path within the team. It is user-supplied text that ends up in URLs and
 ;; in listings, so the rules are a whitelist: no empty segments, no "." or "..", no
@@ -354,8 +355,8 @@
                    #:derived? [derived? #f])
   (require-perm conn p "files:write")
   (unless (valid-key? key) (raise-user-error 'repo "invalid key: ~s" key))
-  (when (and vis (not (member vis VISIBILITIES)))
-    (raise-user-error 'repo "visibility must be one of ~a" (string-join VISIBILITIES ", ")))
+  (when (and vis (visibility-problem vis))
+    (raise-user-error 'repo "~a" (visibility-problem vis)))
 
   (define team (principal-team-id p))
   (define org  (or (team-org conn team) (principal-org-id p)))
@@ -695,8 +696,8 @@
 
 ;; ---- visibility and sharing ------------------------------------------------------
 (define (repo-set-visibility! conn p id vis)
-  (unless (member vis VISIBILITIES)
-    (raise-user-error 'repo "visibility must be one of ~a" (string-join VISIBILITIES ", ")))
+  (when (visibility-problem vis)
+    (raise-user-error 'repo "~a" (visibility-problem vis)))
   (define o (repo-get conn p id))
   (and o
        (let ()

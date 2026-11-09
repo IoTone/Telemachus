@@ -257,6 +257,14 @@
   ;; the endpoint maps an absent key to it, which means a caller who said nothing
   ;; about tags is indistinguishable from one who sent `[]` on this path.
   (when (and (string=? fmt* "org") (pair? tags)) (refuse-org-tags!))
+  ;; A NOTE'S VISIBILITY IS THE SAME CLOSED VOCABULARY THE REPOSITORY USES, and
+  ;; it is checked here for the reason `authz.rkt` states at the set: the value
+  ;; was stored verbatim, so a typo (`"privte"`) was neither private nor
+  ;; refused — `resource-reachable?` reached an arm that answered "team-visible"
+  ;; about a word nothing defines, and the note was readable by every colleague.
+  ;; One set, one message, and the write is refused BEFORE the row exists, so a
+  ;; refusal changes nothing.
+  (when (visibility-problem vis) (raise-user-error 'notes "~a" (visibility-problem vis)))
   (define clean (or (and filetags (clean-filetags filetags))
                     (body-tags body fmt*)
                     (tags-clean tags)))
@@ -391,6 +399,12 @@
   (define r (get-row conn id))
   (and r (let ([n (row->note r)])
            (require-perm conn p "notes:write" #:resource (note->resource n))
+           ;; A NOTE'S VISIBILITY IS THE SAME CLOSED VOCABULARY THE REPOSITORY
+           ;; USES, and it is checked before any statement runs, so an update
+           ;; that names an unknown visibility leaves the note exactly as it
+           ;; was. The create path makes the same refusal at the same point.
+           (when (and vis (visibility-problem vis))
+             (raise-user-error 'notes "~a" (visibility-problem vis)))
            ;; cleaned before anything is written, so a malformed tag leaves the
            ;; note — and its previous tag set — exactly as it was
            ;; the EFFECTIVE format decides, so a request that converts to org and
