@@ -333,10 +333,10 @@
   ;; A 409 means this attempt is no longer ours to finish: the lease lapsed and
   ;; somebody re-claimed it, or the job was canceled (SCHED-8). Either way the
   ;; right move is to stop, because the result can no longer land. The beat
-  ;; thread breaks the thread doing the work; the handler below posts /fail,
-  ;; which is what lets the server settle the row at once instead of waiting the
-  ;; lease out. A worker in another language does the same thing: stop when the
-  ;; heartbeat stops saying 200.
+  ;; thread breaks the thread doing the work, and the handler below then POSTS a
+  ;; settle — which is what frees the row and the team's slot at once instead of
+  ;; waiting the lease out. A worker in another language does the same thing:
+  ;; stop when the heartbeat stops saying 200, and settle the attempt.
   (define worker-thd (current-thread))
   (define stopped (box #f))
   (define beat (thread (lambda ()
@@ -346,20 +346,51 @@
                            (cond
                              [(= code 200) (loop)]
                              [else
-                              (set-box! stopped (let ([e (and (hash? resp) (hash-ref resp 'error #f))])
-                                                  (if (string? e) e (format "heartbeat refused (HTTP ~a)" code))))
+                              (set-box! stopped
+                                        ;; code 0 is a heartbeat that never reached the platform,
+                                        ;; after the two retries above — a different thing from a
+                                        ;; refusal, and the log should not call it a status
+                                        (if (zero? code)
+                                            "the heartbeat could not be delivered"
+                                            (let ([e (and (hash? resp) (hash-ref resp 'error #f))])
+                                              (if (string? e) e (format "heartbeat refused (HTTP ~a)" code)))))
                               (break-thread worker-thd)])))))
   (with-handlers ([exn:break? (lambda (_)
                                 (kill-thread beat)
                                 (define why (or (unbox stopped) "interrupted"))
                                 (if (unbox stopped)
-                                    ;; THE PLATFORM SAYS THIS ATTEMPT IS NOT OURS:
-                                    ;; the lease lapsed and somebody re-claimed it,
-                                    ;; it was canceled, or the heartbeat was
-                                    ;; refused. There is nothing to hand back —
-                                    ;; posting either terminal call would be
-                                    ;; refused — so say it once and stop.
-                                    (eprintf "job ~a (~a): STOPPED — ~a\n" id kind why)
+                                    ;; THE PLATFORM SAYS THIS ATTEMPT IS NOT OURS, or it never
+                                    ;; reached it. One of three things happened: the job was
+                                    ;; CANCELED (the heartbeat answers 409 `canceled`), the lease
+                                    ;; lapsed and somebody re-claimed it (409 `not-holder`), or the
+                                    ;; heartbeat could not be delivered at all (code 0).
+                                    ;;
+                                    ;; POSTING IS WHAT SETTLES THE ROW, and this arm posted
+                                    ;; nothing: the premise was that "posting either terminal call
+                                    ;; would be refused", which is true of a re-claimed lease and
+                                    ;; FALSE of a cancel. Both `/complete` and `/fail` settle a
+                                    ;; `canceling` row (SCHED-8's `settle-canceling!`), so an
+                                    ;; operator's cancel held one of the team's two
+                                    ;; `ai.concurrency` slots until the 120-second lease expired —
+                                    ;; and a run whose heartbeat could not be delivered stayed
+                                    ;; `running`, so the reaper re-queued it and another host re-ran
+                                    ;; and re-billed the same generation.
+                                    ;;
+                                    ;; `/release` rather than `/fail`, because the third case is
+                                    ;; real: a transport failure leaves the row OURS and RUNNING,
+                                    ;; where `/fail` is terminal and would destroy a job nothing is
+                                    ;; wrong with (issue #93 — a model this host cannot serve is
+                                    ;; this HOST's problem). A release spends no attempt, lets
+                                    ;; another worker take the job at once, and on a cancel it is
+                                    ;; the same `settle-canceling!` a fail would have called.
+                                    (let-values ([(rcode _resp)
+                                                  (post-quietly (format "/api/workers/jobs/~a/release" id)
+                                                                (hasheq 'claim_token token 'reason "busy"))])
+                                      ;; a refused settle is EXPECTED for a lease somebody else now
+                                      ;; holds, so it is reported as what it is
+                                      (eprintf "job ~a (~a): STOPPED — ~a~a\n" id kind why
+                                              (if (= rcode 200) ""
+                                                  (format " (settle refused: HTTP ~a)" rcode))))
                                     ;; A STOP IS NOT A FAILURE, and Racket delivers
                                     ;; SIGTERM as a break, so this is the ordinary
                                     ;; `systemctl stop` path. /fail is terminal and
