@@ -9419,10 +9419,11 @@ see, plus the strings and the empty state around them.
 - **THE VIEW CARD WAS PAINTED OFF SCREEN** when the note was opened from a row
   low in a long tab, which reads as "nothing happened". `revealEl('notecard')`
   after the paint is the same rule `repoRevealDetail` and the run form use.
-- **ORG-12 IN THE FORM**, which the server now enforces: an org note has no tags
-  box, and the hint names `#+FILETAGS:`. `edSetFormat` must not re-render the tab
-  (its own comment records what that cost), so `edTagsField()` swaps the two
-  fragments in place — the one place the format changes without a render.
+- **ORG-12 IN THE FORM**, which the server enforces: an org note has no tags
+  box, and the hint names `#+FILETAGS:`. Upstream's `tagsField`/`edFormatChanged`
+  is the shared answer — `edSetFormat` must not re-render the tab (its own
+  comment records what that cost), so the field is swapped in place, and this
+  branch uses that seam rather than a second one.
 - **Delete asked for nothing**: one press removed somebody's note with no undo.
   It confirms now, as `doRemoveMember` and the workers card do.
 - **Six English literals were being shown to a Japanese reader** because they sat
@@ -9430,18 +9431,72 @@ see, plus the strings and the empty state around them.
   `team`/`private`/`shared` enum in the select AND the badge, and the
   `created`/`deleted`/`shared` toasts. All of them already had catalog keys
   (`ui.untitled`, `ui.vis_*`, `ui.created`…); the badge takes the short half of
-  `vis_*` at its em dash, and the select shows the whole sentence. Five are new
-  (`ui.mine`, `ui.nonotes`, `ui.notedelconfirm`, `ui.orgtagsfield`,
-  `ui.autotagorgnote`) and every one is in `static/ui-strings.json` and
-  `locales/ja.json` in the same commit.
+  `vis_*` at its em dash, and the select shows the whole sentence. Three are new
+  (`ui.mine`, `ui.nonotes`, `ui.notedelconfirm`) and every one is in
+  `static/ui-strings.json` and `locales/ja.json` in the same commit; the org-note
+  hint and the disabled auto-tag title are upstream's `ui.orgtagshint` and
+  `ui.autotagorg`.
 - **The empty state was an em dash.** It says "No notes yet" and offers the
   create field, which was already on screen above it.
-- **The e2e tour CANNOT RUN on this workstation**: Playwright's chromium needs
-  `libatk-1.0.so.0` and seventeen other system libraries this Nix shell does not
-  provide, so `test/e2e/validate.sh` dies in `chromium.launch`. §3b2's cases are
-  written and unrun here; `test/console-tests.rkt` holds the two seams down
-  instead (the draft read before the replacement, the fallback fetch, the reveal,
-  the in-place tag field), so the local gate is at least not blind to them.
+- §3b2 and §3b3 now RUN on this box, and that is where the rest of this section
+  came from — see "The browser gate runs now" below.
+
+## The browser gate runs now, and the three defects it found (9 Nov 2026)
+
+`test/e2e/validate.sh` had been unrunnable on the development box since #246: the
+notes said Playwright's Chromium needed `libatk-1.0.so.0` and seventeen other
+system libraries the Nix shell does not carry. **That was no longer true, and the
+cost of not re-checking was three defects nobody had seen**, one of which blanked
+the whole Notes tab. The gate now runs here — 279 assertions, 0 failed — and it
+found more in one run than two slices of static assertions had.
+
+```sh
+nix develop --command bash -c 'cd refimpl/racketmaximus && PORT=8854 bash test/e2e/validate.sh'
+```
+
+- 🔑 **A BLOCK-SCOPED `H` SHADOWS THE HANDLER REGISTRY, AND THIS BRANCH PAID FOR
+  IT ONCE.** Our first drawing opened `noteGraphSVG` with `const W = 760, H = 460`
+  — `W` and `H` for width and height, two letters that read as obviously local in
+  a drawing function and are not, because `H()` is `01-base.js`'s
+  delegated-handler registry and a `const` in the same function shadows it for the
+  WHOLE body. Every `H(() => noteShow(…))` in that builder threw **"H is not a
+  function"**, the SVG never rendered, and opening the graph blanked the Notes
+  tab. Upstream's `21-notegraph.js` spells them `GRAPH_W`/`GRAPH_H` and never had
+  the bug, but `console-tests.rkt` keeps the rule as a line scan — a
+  `const`/`let`/`var` line in any console file that also assigns an `H` fails by
+  name — so the next drawing cannot reintroduce it. Positive-controlled both ways.
+- 🔑 **A SUCCESSFUL WRITE CLEARED THE DRAFT AND LEFT THE DOM HOLDING IT.** #246's
+  fix made `renderTab()` read the form into `S.noteDraft` before replacing it —
+  the seam that keeps a typed title across a toolbar press. So `doCreateNote`'s
+  `noteDraftSeed('', …); renderTab()` was **undone by the render it triggered**:
+  the read pulled the just-saved title back out of the input and repainted it.
+  The field looked like nothing had been cleared, and the TAGS came back with it,
+  so a note then created as org failed its write with a **400** because a
+  Markdown note's tags are refused on one. `noteFormReset()` clears the DOM and
+  the draft together, and every reset path goes through it; a console test pins
+  that the empty seed appears exactly once, inside that helper.
+- **A RENDER CAN OUTLIVE THE SHELL.** Signing out replaces `#app` with the auth
+  view, and a pass already in flight (the jobs tick, a click) then found no
+  `#main` and threw "Cannot set properties of null (setting 'innerHTML')" — a
+  page error the gate counts. `renderTab` now returns when there is nothing to
+  paint into; the `finally` still closes its bracket, which is the reason that
+  early return is safe at all (#185).
+
+**Two of the four failures were the TEST, and both for the same reason**: after
+`edToggle` or `doCreateNote` the assertion read the DOM while `renderTab` had the
+`…` placeholder up, so the field was absent rather than stale. They wait now. A
+wait cannot manufacture a restored title — `until` times out — so the assertion
+still measures the product.
+
+**The flake needed no change, and that is worth stating** rather than inventing
+one: the bundled Chromium 131 launches inside `nix develop` on this host. The
+durable half is `test/e2e/browser.mjs`, the one place a browser is launched, so a
+box that cannot run that build (NixOS has no `/usr/lib`) can point
+`TMACH_CHROMIUM` at any Chromium — `nix shell nixpkgs#chromium -c env
+TMACH_CHROMIUM=$(command -v chromium) bash test/e2e/validate.sh`. Verified both
+ways: bundled 131 and host 156 each pass a page render through the seam. A gate
+nobody can run is not a gate, and **checking whether the blocker is still true is
+the first step, not the last**.
 
 ## A worker that stops is not a job that failed (issue #61, and the settles around it)
 

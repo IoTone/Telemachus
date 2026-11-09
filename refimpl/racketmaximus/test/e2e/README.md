@@ -39,6 +39,25 @@ throwaway or at a box that already has one.
 
 Failure screenshots land in `catalog/validate/`.
 
+### If the browser will not start
+
+Every script here launches through `browser.mjs`, and by default that is
+Playwright's own Chromium from `~/.cache/ms-playwright` (`validate.sh` installs
+it). That build links against the host's shared libraries, so on a box without
+them — NixOS has no `/usr/lib` — `chromium.launch()` fails with
+`error while loading shared libraries: libnss3.so` before a page ever opens.
+
+Point `TMACH_CHROMIUM` at any Chromium and the whole gate runs on it:
+
+```bash
+nix shell nixpkgs#chromium -c \
+  env TMACH_CHROMIUM=$(command -v chromium) bash test/e2e/validate.sh
+```
+
+Nothing else changes: the flag set is the same two Playwright needs
+(`--no-sandbox`, `--disable-dev-shm-usage`), and a box where the bundled build
+works needs no variable at all.
+
 ## Run
 
 ```bash

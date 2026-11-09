@@ -26,7 +26,7 @@
 //
 // Exit code is the number of failed checks, so `bash validate.sh` is a gate.
 
-import { chromium } from '@playwright/test';
+import { launchChromium } from './browser.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -115,7 +115,7 @@ async function apiCall(page, pathname, init = {}) {
   }, [pathname, init]);
 }
 
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const browser = await launchChromium({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 
 page.on('pageerror', e => pageErrors.push(String(e)));
@@ -264,18 +264,28 @@ try {
   await page.fill('#nt', 'Typed before the toolbar');
   await page.fill('#nb', 'the body survives anyway');
   await page.evaluate(() => window.edToggle('note', 'preview', 'side'));
+  // A TOOLBAR PRESS IS AN ASYNC RENDER, so the assertion has to wait for the new
+  // pass rather than read the DOM the instant `edToggle` returns: `renderTab`
+  // paints a "…" placeholder first, and the field is simply absent while it is
+  // there. This is `goTab`'s lesson one layer down. A wait cannot manufacture a
+  // restored title — if the draft were not kept, `until` times out — so this
+  // still measures the product and not the timing.
   ok('…a toolbar press keeps the typed title',
-    await page.evaluate(() => (document.getElementById('nt') || {}).value === 'Typed before the toolbar'));
+    await until(page, () => (document.getElementById('nt') || {}).value === 'Typed before the toolbar'));
   ok('…and keeps the body', await page.evaluate(() => (S.ed.note || {}).value === 'the body survives anyway'));
+  // and the write path needs the form back before it can read the field
+  await until(page, () => !!document.getElementById('nt'));
   await page.evaluate(() => window.doCreateNote());
   ok('…and the note is created under the typed title, not the placeholder',
     await until(page, () => document.body.innerText.includes('Typed before the toolbar')
                          && !document.body.innerText.includes('Secret plan')));
 
   // the draft is reset after a successful write, so the form is not a copy of
-  // what was just saved
+  // what was just saved. The write ends in a render, so this waits for the new
+  // pass rather than reading a field that is absent while the "…" placeholder is
+  // up — the same reason as the toolbar assertion above.
   ok('…and the form is cleared for the next one',
-    await page.evaluate(() => (document.getElementById('nt') || {}).value === ''));
+    await until(page, () => (document.getElementById('nt') || {}).value === ''));
 
   // an org note has no tags field: the body's `#+FILETAGS:` line owns them
   // (ORG-12), and the server refuses the write if the field is used

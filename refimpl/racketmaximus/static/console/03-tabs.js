@@ -267,6 +267,21 @@ function noteDraftRead(){
   S.noteDraft = d;
   return d;
 }
+// CLEARING THE FORM MEANS CLEARING THE DOM TOO, and forgetting it was a bug the
+// e2e gate caught: `renderTab()` reads the form into `S.noteDraft` first — the
+// seam that keeps a typed title across a toolbar press — so seeding an EMPTY
+// draft and then rendering read the JUST-SAVED title straight back out of the
+// DOM and put it in the next note. The tags came back with it, and a note
+// created as org then failed its write with a 400, because a Markdown note's
+// tags are refused on one.
+function noteFormReset(){
+  const ti = document.getElementById('nt'), ta = document.getElementById('ntags'),
+        vi = document.getElementById('nv');
+  if (ti) ti.value = '';
+  if (ta) ta.value = '';
+  if (vi) vi.value = 'team';
+  noteDraftSeed('', 'team', []);
+}
 // The visibility enum is what the server stores; the catalog is what a person
 // reads. `vis_*` carries both ("Team — everyone on this team"), and both shipped
 // locales separate the short name from its explanation with that dash, so a
@@ -497,14 +512,14 @@ function noteEdit(id, body, title, vis, tags, format){
   edReset('note', body, 'nb', format);
   renderTab();
 }
-function noteEditCancel(){ S.noteEdit=null; noteDraftSeed('', 'team', []); edReset('note', '', 'nb', 'markdown'); renderTab(); }
+function noteEditCancel(){ S.noteEdit=null; noteFormReset(); edReset('note', '', 'nb', 'markdown'); renderTab(); }
 async function doSaveNote(){
   const r=await api('/api/notes/'+S.noteEdit,{method:'PUT', body:noteWriteBody()});
-  if(r.ok){ S.noteEdit=null; noteDraftSeed('', 'team', []); edReset('note','', 'nb'); toast(t('saved'),true); renderTab(); }
+  if(r.ok){ S.noteEdit=null; noteFormReset(); edReset('note','', 'nb'); toast(t('saved'),true); renderTab(); }
   else toast((r.json&&r.json.error)||t('error'));
 }
 async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',body:noteWriteBody()});
-  if(r.ok){ noteDraftSeed('', 'team', []); edReset('note','', 'nb'); toast(t('created'),true); renderTab(); }
+  if(r.ok){ noteFormReset(); edReset('note','', 'nb'); toast(t('created'),true); renderTab(); }
   else toast((r.json&&r.json.error)||t('error')); }
 // ONE send, #174's shape: the flag IS the guard and the pending state, there is
 // no `await` between the check and the set, and it is cleared in a `finally` or
@@ -537,7 +552,7 @@ async function doDelNote(id){
   if(!confirm(t('notedelconfirm'))) return;
   const r=await api('/api/notes/'+id,{method:'DELETE'});
   if(r.ok){
-    if(S.noteEdit===id){ S.noteEdit=null; noteDraftSeed('', 'team', []); edReset('note','', 'nb'); }
+    if(S.noteEdit===id){ S.noteEdit=null; noteFormReset(); edReset('note','', 'nb'); }
     if(S.noteShow===id) S.noteShow=null;
     toast(t('deleted'),true); renderTab();
   } else toast((r.json&&r.json.error)||t('error'));

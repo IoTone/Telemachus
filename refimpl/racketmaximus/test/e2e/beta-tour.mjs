@@ -2,7 +2,7 @@
 // LLM-judge REVIEW, against a running beta-mode server (fresh temp DB). Setup runs
 // first because the funnel needs the internal team to exist before it accepts leads.
 // Shots + captions land in catalog/beta/.  BASE_URL defaults to 127.0.0.1:8835.
-import { chromium } from '@playwright/test';
+import { launchChromium } from './browser.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +19,7 @@ async function shot(page, id, title, caption) {
   console.log('shot', id);
 }
 
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const browser = await launchChromium({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1100, height: 950 } });
 try {
   // ── 1. The default experience is the funnel (home routing) ──────────────────

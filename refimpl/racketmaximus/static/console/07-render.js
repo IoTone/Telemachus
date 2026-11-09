@@ -223,6 +223,12 @@ async function doAddTerm(){
 let renderSeq = 0;
 async function renderTab(){ hPassStart(); try {
   const el=document.getElementById('main'); const seq = ++renderSeq;
+  // A PASS CAN OUTLIVE THE SHELL IT PAINTS INTO. Signing out replaces `#app` with
+  // the auth view, and a render already in flight — the jobs poll's tick, a
+  // click — then found no `#main` and threw "Cannot set properties of null
+  // (setting 'innerHTML')", which the e2e gate counts as a page error. There is
+  // nothing to paint into, so the pass is DONE; the `finally` closes its bracket.
+  if (!el) return;
   // THE FORM IS READ BEFORE IT IS REPLACED. A toolbar button, a tag chip and the
   // view/zen toggles all end in a render, and the render rebuilds the tab from
   // its template — so the title, the tags and the visibility were discarded by

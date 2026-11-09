@@ -5,7 +5,7 @@
 //
 // A real model makes the translation steps meaningful; without TMACH_MODEL_URL
 // the server's simulated echo still exercises every step, so the tour passes on CI.
-import { chromium } from '@playwright/test';
+import { launchChromium } from './browser.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,7 +34,7 @@ async function settle(page, timeoutMs = 180000) {
   throw new Error('run did not settle within ' + timeoutMs + 'ms');
 }
 
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const browser = await launchChromium({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 950 } });
 try {
   // ── sign in (bootstrap the operator on a fresh instance) ────────────────────
