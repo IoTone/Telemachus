@@ -303,29 +303,30 @@ A machine-readable form of this same table is [openapi.json](openapi.json) (Open
 
 ## Plugin routes
 
-Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every one requires a bearer token; the permission, when named, is checked before the plugin's handler runs. Matched after the core routes above.
+Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. **Auth** is the route's own declaration. `bearer` — the default, and every route before G13 — needs a session or API token, and the permission, when named, is checked before the plugin's handler runs. `public` needs no credential at all: the handler gets no principal, so it has no team context and no `can?`, and it must read no team data unless the route carries something that identifies the team itself. A public route is still subject to the platform's request limits, and it is declared in the plugin's route table — never inferred from a path. Matched after the core routes above.
 
-| Method | Path | Plugin | Permission | Description |
-|---|---|---|---|---|
-| GET | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in ?text=. |
-| POST | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in {text}. |
-| GET | `/api/x/feeds/queue` | `feeds` | `files:read` | The team's feed work queue, ordered by priority then soonest due date. ?status= open\|claimed\|done\|dropped\|all (default: the actionable two), ?feed= a feed slug, ?skill= one skill, ?limit=/?offset=. Every row is re-authorized on the document it points at, so the count is what the caller may read rather than what is there. |
-| POST | `/api/x/feeds/items/:id/status` | `feeds` | `files:read` | Move one queued item to another status: {"status": "claimed"}. Guarded on the row's own team as well as the document, because an object id is instance-global. |
-| POST | `/api/x/inbox/items` | `inbox` | `inbox:write` | Raise an item, or re-raise one. {source, key, title, severity?: critical\|high\|normal\|low, kind?, scope?, body?, url?, data?, revision?}. One live row exists per (source, key): the same revision refreshes the evidence only, a different revision replaces the content and sends an acknowledged or snoozed item back to open, and a key that was resolved opens a new row. The answer says which: outcome is created, reopened, refreshed, revised or resurfaced. |
-| POST | `/api/x/inbox/items/batch` | `inbox` | `inbox:write` | Raise or re-raise up to 100 items in one transaction, all or none: {items: [{source, key, title, severity?, kind?, scope?, body?, url?, data?, revision?}]}. The answer lists {key, outcome} in order. A caller that raises a page of findings cannot half-succeed. |
-| GET | `/api/x/inbox/items` | `inbox` | `inbox:read` | The team's inbox, most severe first then longest waiting. ?state= one or a comma list of open\|acknowledged\|snoozed\|suppressed\|resolved, or all (default: open and acknowledged), ?severity=, ?source=, ?kind=, ?scope= one exact scope label, ?scope_prefix= every label starting with it, ?limit=/?offset=. A snooze that has run out reads as open. |
-| GET | `/api/x/inbox/items/:id` | `inbox` | `inbox:read` | One item with its events, numbered in the order they happened: who acknowledged and when, the note they gave, every revision and wake. |
-| POST | `/api/x/inbox/items/:id/ack` | `inbox` | `inbox:write` | Acknowledge an open item: {note?}. Someone has seen it and is on it; it stays in the inbox and stops counting as needing attention. A new revision from the producer sends it back to open. |
-| POST | `/api/x/inbox/items/:id/snooze` | `inbox` | `inbox:write` | Hide an item until a time: {until: epoch seconds, at most 90 days ahead, note?}. When the time passes it is open again. |
-| POST | `/api/x/inbox/items/:id/suppress` | `inbox` | `inbox:write` | Keep an item quiet with no end time: {note?}. The producer can keep raising it, the evidence moves and nothing wakes it. Reopen it to bring it back. |
-| POST | `/api/x/inbox/items/:id/reopen` | `inbox` | `inbox:write` | Bring an acknowledged, snoozed or suppressed item back to open. |
-| POST | `/api/x/inbox/items/:id/resolve` | `inbox` | `inbox:write` | Close an item for good: {note?}. Resolved is terminal. The same (source, key) raised later is a new row with the next occurrence. |
-| GET | `/api/x/inbox/digest` | `inbox` | `inbox:read` | What to look at first, for the whole team or one scope: counts by state, open items by severity, how long the oldest open one has waited, and the top few. ?scope= one exact label, ?scope_prefix= a subtree. Resolved items are not counted. |
-| GET | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | Estimated days for ?lane=. |
-| POST | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | Estimated days for {lane}. |
-| GET | `/api/x/matrix/rooms` | `matrix` | `webhooks:manage` | The team's Matrix room subscriptions, the events they may filter on, and whether this instance has a homeserver configured at all. |
-| POST | `/api/x/matrix/rooms` | `matrix` | `webhooks:manage` | Notify a room: {room_id, events?, label?, user_id?}. The room id is a Matrix id (`!abc:example.org`) and never an alias; the bot must already be in it. |
-| PATCH | `/api/x/matrix/rooms/:id` | `matrix` | `webhooks:manage` | Change a subscription's `events`, `label` or `active`. |
-| DELETE | `/api/x/matrix/rooms/:id` | `matrix` | `webhooks:manage` | Stop notifying a room. |
-| POST | `/api/x/matrix/rooms/:id/test` | `matrix` | `webhooks:manage` | Send a test notification through the same job a real one takes. |
+| Method | Path | Plugin | Auth | Permission | Description |
+|---|---|---|---|---|---|
+| GET | `/api/x/example-tools/word-count` | `example-tools` | bearer | `chat:use` | Count the words in ?text=. |
+| POST | `/api/x/example-tools/word-count` | `example-tools` | bearer | `chat:use` | Count the words in {text}. |
+| GET | `/api/x/example-tools/ping` | `example-tools` | public | — | A public liveness ping: the plain text `pong`, with no token and no principal. Declared public in the route table; it reads no team data. |
+| GET | `/api/x/feeds/queue` | `feeds` | bearer | `files:read` | The team's feed work queue, ordered by priority then soonest due date. ?status= open\|claimed\|done\|dropped\|all (default: the actionable two), ?feed= a feed slug, ?skill= one skill, ?limit=/?offset=. Every row is re-authorized on the document it points at, so the count is what the caller may read rather than what is there. |
+| POST | `/api/x/feeds/items/:id/status` | `feeds` | bearer | `files:read` | Move one queued item to another status: {"status": "claimed"}. Guarded on the row's own team as well as the document, because an object id is instance-global. |
+| POST | `/api/x/inbox/items` | `inbox` | bearer | `inbox:write` | Raise an item, or re-raise one. {source, key, title, severity?: critical\|high\|normal\|low, kind?, scope?, body?, url?, data?, revision?}. One live row exists per (source, key): the same revision refreshes the evidence only, a different revision replaces the content and sends an acknowledged or snoozed item back to open, and a key that was resolved opens a new row. The answer says which: outcome is created, reopened, refreshed, revised or resurfaced. |
+| POST | `/api/x/inbox/items/batch` | `inbox` | bearer | `inbox:write` | Raise or re-raise up to 100 items in one transaction, all or none: {items: [{source, key, title, severity?, kind?, scope?, body?, url?, data?, revision?}]}. The answer lists {key, outcome} in order. A caller that raises a page of findings cannot half-succeed. |
+| GET | `/api/x/inbox/items` | `inbox` | bearer | `inbox:read` | The team's inbox, most severe first then longest waiting. ?state= one or a comma list of open\|acknowledged\|snoozed\|suppressed\|resolved, or all (default: open and acknowledged), ?severity=, ?source=, ?kind=, ?scope= one exact scope label, ?scope_prefix= every label starting with it, ?limit=/?offset=. A snooze that has run out reads as open. |
+| GET | `/api/x/inbox/items/:id` | `inbox` | bearer | `inbox:read` | One item with its events, numbered in the order they happened: who acknowledged and when, the note they gave, every revision and wake. |
+| POST | `/api/x/inbox/items/:id/ack` | `inbox` | bearer | `inbox:write` | Acknowledge an open item: {note?}. Someone has seen it and is on it; it stays in the inbox and stops counting as needing attention. A new revision from the producer sends it back to open. |
+| POST | `/api/x/inbox/items/:id/snooze` | `inbox` | bearer | `inbox:write` | Hide an item until a time: {until: epoch seconds, at most 90 days ahead, note?}. When the time passes it is open again. |
+| POST | `/api/x/inbox/items/:id/suppress` | `inbox` | bearer | `inbox:write` | Keep an item quiet with no end time: {note?}. The producer can keep raising it, the evidence moves and nothing wakes it. Reopen it to bring it back. |
+| POST | `/api/x/inbox/items/:id/reopen` | `inbox` | bearer | `inbox:write` | Bring an acknowledged, snoozed or suppressed item back to open. |
+| POST | `/api/x/inbox/items/:id/resolve` | `inbox` | bearer | `inbox:write` | Close an item for good: {note?}. Resolved is terminal. The same (source, key) raised later is a new row with the next occurrence. |
+| GET | `/api/x/inbox/digest` | `inbox` | bearer | `inbox:read` | What to look at first, for the whole team or one scope: counts by state, open items by severity, how long the oldest open one has waited, and the top few. ?scope= one exact label, ?scope_prefix= a subtree. Resolved items are not counted. |
+| GET | `/api/x/integrator-demo/eta` | `integrator-demo` | bearer | `chat:use` | Estimated days for ?lane=. |
+| POST | `/api/x/integrator-demo/eta` | `integrator-demo` | bearer | `chat:use` | Estimated days for {lane}. |
+| GET | `/api/x/matrix/rooms` | `matrix` | bearer | `webhooks:manage` | The team's Matrix room subscriptions, the events they may filter on, and whether this instance has a homeserver configured at all. |
+| POST | `/api/x/matrix/rooms` | `matrix` | bearer | `webhooks:manage` | Notify a room: {room_id, events?, label?, user_id?}. The room id is a Matrix id (`!abc:example.org`) and never an alias; the bot must already be in it. |
+| PATCH | `/api/x/matrix/rooms/:id` | `matrix` | bearer | `webhooks:manage` | Change a subscription's `events`, `label` or `active`. |
+| DELETE | `/api/x/matrix/rooms/:id` | `matrix` | bearer | `webhooks:manage` | Stop notifying a room. |
+| POST | `/api/x/matrix/rooms/:id/test` | `matrix` | bearer | `webhooks:manage` | Send a test notification through the same job a real one takes. |
 

@@ -3700,6 +3700,10 @@
       "text": "呼び出し元の S3 アクセスキー（シークレットは二度と表示されません）と、それを使うエンドポイント／バケット。",
       "hash": "051981c89ce1559f3c98f74b291a5c3a79f2e36b"
     },
+    "doc.route.get.api.x.example-tools.ping": {
+      "text": "公開のヘルスチェックです。トークンもプリンシパルも不要で、プレーンテキスト `pong` を返します。ルート表で public と宣言されており、チームのデータは読みません。",
+      "hash": "dbd1f304b8328ef5c1a542667c5126ac0626bf7f"
+    },
     "doc.route.get.api.x.example-tools.word-count": {
       "text": "?text= の単語数を数える。",
       "hash": "70e0c02a5ce3763782554545ed4b01198d4f1de0"

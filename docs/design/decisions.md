@@ -6735,3 +6735,36 @@ console UI at all, by TEN‑2g, and `docs/ops/multi-tenancy-runbook.md` is their
 home), and anything about the HTTP API — `docs/reference/api.md` is generated
 from the route table and gated, and a hand-written second account of it would
 be exactly the drift this tree keeps refusing.
+## G13 — a public, non-JSON door for plugin routes (built 8 Nov 2026)
+
+A plugin could contribute an HTTP route since slice 63, and every one of them was
+authenticated: `install-plugin-routes!` wrapped each entry in `with-auth`
+unconditionally and the route registry had no field saying otherwise. That is
+right for a customer's screen and wrong for the thing a plugin otherwise cannot
+build — a calendar feed a mail client polls, a webhook receiver, an OPML or ICS
+URL somebody pastes into an app that has no token and never will. The media-type
+half had already landed (`plugin-route-response` passes a `response` straight
+through), so a plugin could answer `text/calendar`; it could just never be asked
+by anything that was not signed in.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **G13‑1** | How a route is declared public | **An optional sixth element on the route tuple, `'public`; the default is `'bearer`** · vs inferring it from the path · vs a second `(provide public-routes)` list | Inferring is the version that gets somebody hurt: nothing about `/api/x/acme/feed` says whether it is safe to serve to a stranger, so a path-shaped guess would open routes nobody decided to open. A second export was the tempting alternative and splits the contract in two — two tables, two doc columns, two places to look — for one bit. The positional sixth element matches the shape plugins already use for a tool's optional `agent?`. |
+| 🔑 **G13‑2** | What "public" hands the handler | **`(conn args)` — TWO arguments, checked at load** · vs `(conn #f args)` · vs a principal with an empty team | The property is that a public handler CANNOT be given a principal, not that it must ignore one. `(conn #f args)` puts `#f` where `(principal-team-id p)` is called and turns a declaration mistake into a 500 or, worse, a query with a NULL team. Arity is checked in `check-route!`, so a three-argument handler declared public fails the plugin's LOAD — the same rule job kinds, migrations and route permissions already follow. |
+| **G13‑3** | A public route that names a permission | **Refused at load** · vs ignored · vs honoured if a credential happens to be present | There is no principal to ask `can?` about, so the declaration would be a rule nothing enforces — #113's shape, whose whole lesson is that a granted permission nothing reads is a promise the role listing makes and the server does not keep. Refusing is the only answer that cannot mislead an integrator into thinking a public route is gated. |
+| **G13‑4** | What a public route still gets | **Everything the platform applies to a request, unchanged** — security headers, request id, the 500 hygiene rule, the body ceiling and the connection's limits | "Public" is about IDENTITY, not about being outside `handle`. A plugin route is inside the same dispatcher and the same server options as every core route, so an operator's `TMACH_MAX_UPLOAD` and the baseline CSP/HSTS set apply without the plugin doing anything. What it does NOT get is anything keyed on a person: no team context, no `can?`, no audit entry naming somebody. |
+| **G13‑5** | Where an operator sees it | **`public_routes` in the plugin listing, its own column in `plugins.md`, and an Auth column in `api.md`** · vs a marker inside the existing routes list | The route list is a list of `"GET /path"` strings and a marker in it is something a reader has to notice. A public route is a security fact about the deployment, so it is its own field, rendered where an operator already looks. The generated reference is committed and drift-gated, so this ships with a `telemachus-docs render`. |
+
+**What a plugin gives up, stated for the integrator rather than implied:** no team
+context, no `can?`, no audit entry naming a person, and no permission. A public
+route must not read team data unless something in the request identifies the
+team — and then that something is a credential the plugin owns, which is why the
+documented shape is a long random token in the path rather than a guessed
+parameter. `plugins/example-tools` carries the worked example: `GET
+/api/x/example-tools/ping`, `text/plain`, no token, reads nothing.
+
+**What this does not change:** every existing plugin route, the `with-auth` path,
+the permission check, the bundle routes (which take a ticket rather than a token
+and declare `#:auth 'handler` in the core table), and the requirement that a
+plugin route lives under `/api/x/<plugin>/`. The core table's `auth` vocabulary
+gained nothing; `'public` was already a value it used.

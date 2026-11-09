@@ -190,6 +190,43 @@ the permission you name is checked through `can?` before your handler runs. A
 load**, not a request an hour later. They appear in
 [api.md](reference/api.md#plugin-routes) and in `GET /api/plugins`.
 
+### A route a stranger may call
+
+Some things a plugin serves are fetched by software that has no token and never
+will: a calendar subscription, a status feed, a webhook receiver. Declare one with
+an optional sixth element:
+
+```racket
+(define (feed-route conn args)                    ; (conn args) — no principal
+  (response/output #:code 200 #:mime-type #"text/calendar; charset=utf-8"
+                   (lambda (out) (write-string "BEGIN:VCALENDAR\r\n" out))))
+
+(define routes
+  (list (list "GET" "/feed/:token.ics" #f feed-route
+              "A subscription feed. The token in the path identifies the team."
+              'public)))
+```
+
+- **It is declared, never inferred.** A route that does not say is authenticated,
+  so forgetting the element leaves a route closed rather than open.
+- **The handler is `(conn args)`.** Two arguments, and the loader refuses a
+  three-argument handler declared public — there is no way to be handed a
+  principal, so there is no way to serve one team's data by accident.
+- **No permission.** A public route that names one fails your plugin's load:
+  there is no principal to check it against, so the declaration could only ever
+  be a rule nothing enforces.
+- **What you give up:** team context, `can?`, an audit entry naming a person. If
+  the route needs to serve one team's data it must carry something that says
+  which team — a long random token in the path, as above — and that token is a
+  credential you own: generate it with enough entropy that it cannot be guessed,
+  make it revocable, and do not log it.
+- **What you keep:** every platform request limit. A public route is still inside
+  the same server, so the body ceiling, the security headers, the request id and
+  the 500 rule apply.
+- **A handler may return a response** and keep its own media type, public or not;
+  anything else it returns is JSON. An operator sees which routes are public in
+  `GET /api/plugins` (`public_routes`) and in [plugins.md](reference/plugins.md).
+
 If you need a permission the catalog does not have, add it with a description —
 `PERMISSION-DOCS` in `domain/authz/permissions.rkt`; an undescribed permission is a
 load error.

@@ -218,6 +218,7 @@
   "doc.route.get.api.workflows": "The team's workflow definitions, plugin-contributed ones materialized on first look.",
   "doc.route.get.api.workflows.schema": "The workflow spec format: version, step kinds, binding references, predicates.",
   "doc.route.get.api.workflows.slug": "One workflow definition with its spec.",
+  "doc.route.get.api.x.example-tools.ping": "A public liveness ping: the plain text `pong`, with no token and no principal. Declared public in the route table; it reads no team data.",
   "doc.route.get.api.x.example-tools.word-count": "Count the words in ?text=.",
   "doc.route.get.api.x.feeds.queue": "The team's feed work queue, ordered by priority then soonest due date. ?status= open|claimed|done|dropped|all (default: the actionable two), ?feed= a feed slug, ?skill= one skill, ?limit=/?offset=. Every row is re-authorized on the document it points at, so the count is what the caller may read rather than what is there.",
   "doc.route.get.api.x.inbox.digest": "What to look at first, for the whole team or one scope: counts by state, open items by severity, how long the oldest open one has waited, and the top few. ?scope= one exact label, ?scope_prefix= a subtree. Resolved items are not counted.",

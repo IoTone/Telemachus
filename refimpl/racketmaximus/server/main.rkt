@@ -38,7 +38,7 @@
          (only-in "../domain/beta/experience.rkt" experience-judge-system resolve-experience)
          (only-in "../domain/i18n/manager.rkt" draft-acceptable? l10n-message-ref l10n-submit!)
          (only-in net/url url-query)
-         (only-in "plugin-route.rkt" headers->hash plugin-route-response)
+         (only-in "plugin-route.rkt" headers->hash plugin-route-call)
          (only-in "../domain/saas/onboarding.rkt" provision! resume! suspend!)
          (only-in "../domain/quota/quota.rkt" get-limit quota-record!)
          (only-in "../domain/sched/scheduler.rkt" current-job drain-scheduler! drain-seconds job-progress! register-job-kind! set-reaper! start-scheduler!)
@@ -404,17 +404,38 @@
     (unless (memq k declared)
       (error 'routes "server/main.rkt has handler '~a' which server/routes.rkt does not declare" k))))
 
-;; ---- plugin routes (slice 63) -----------------------------------------------------
-;; Built once from the loader's registry, AFTER plugins load (see main). Every one
-;; is authenticated — with-auth, then the route's permission — and its handler is
-;; the plugin's (conn principal args) -> jsexpr, where args carries the path
-;; params, the query, the JSON body and the request headers (read only). A user
-;; error is the caller's 400. A handler that returns a response keeps control of
-;; the status, the headers and the media type (server/plugin-route.rkt).
+;; ---- plugin routes (slice 63, public door G13) -------------------------------------
+;; Built once from the loader's registry, AFTER plugins load (see main). Its
+;; handler is the plugin's (conn principal args) -> jsexpr or response, where args
+;; carries the path params, the query, the JSON body and the request headers (read
+;; only). A user error is the caller's 400. A handler that returns a response keeps
+;; control of the status, the headers and the media type (server/plugin-route.rkt).
+;;
+;; TWO DOORS, AND THE ROUTE DECLARES WHICH (G13). 'bearer — the default, and every
+;; route before this — goes through `with-auth` and then the declared permission.
+;; 'public is served with NO session and NO principal: the handler is
+;; `(conn args)`, so it cannot receive one, and the loader refuses a public route
+;; that declares a permission because there would be nobody to check it against.
+;;
+;; A public route is still inside `handle`, so it keeps the platform's request
+;; limits, security headers, request id, 500 hygiene and the connection's body
+;; ceiling. What it does not get is anything keyed on a person — and that is the
+;; trade an integrator makes, stated in docs/integrators-guide.md.
 (define PLUGIN-ROUTES (box '()))          ; (listof (cons rt handler-proc))
+
+;; Everything a plugin handler may read, in one place, for both doors: the path
+;; params the pattern bound, the query string, the JSON body and the headers.
+(define (plugin-route-args req names vals)
+  (hasheq 'params (for/hasheq ([n (in-list names)] [v (in-list vals)]) (values (string->symbol n) v))
+          'query (for/hasheq ([kv (in-list (url-query (request-uri req)))] #:when (cdr kv))
+                   (values (car kv) (cdr kv)))
+          'body (read-json-body req)
+          'headers (headers->hash (request-headers/raw req))))
+
 (define (install-plugin-routes!)
   (set-box! PLUGIN-ROUTES
     (for/list ([r (in-list (plugin-routes))])
+      (define auth (hash-ref r 'auth 'bearer))
       ;; Built through `R` rather than the `rt` constructor POSITIONALLY. It was
       ;; positional, and adding #110 r2's `scope` field broke plugin routes at
       ;; BOOT with an arity mismatch — which the full suite had already passed
@@ -424,23 +445,28 @@
       (define entry (R (hash-ref r 'method)
                        (plugin-route-path (hash-ref r 'plugin) (hash-ref r 'path))
                        (string->symbol (string-append "plugin:" (hash-ref r 'plugin)))
+                       ;; the entry says which door it is, so the declaration and
+                       ;; the behaviour cannot drift apart
+                       #:auth (if (eq? auth 'public) 'public 'bearer)
                        #:perm (hash-ref r 'perm)
                        #:doc (hash-ref r 'doc)))
       (define perm (hash-ref r 'perm))
       (define handler (hash-ref r 'handler))
       (define names (route-params entry))
       (cons entry
-            (lambda (req . vals)
-              (with-auth req (lambda (p)
-                (when perm (require-perm db-conn p perm))
-                (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
-                  (define args
-                    (hasheq 'params (for/hasheq ([n (in-list names)] [v (in-list vals)]) (values (string->symbol n) v))
-                            'query (for/hasheq ([kv (in-list (url-query (request-uri req)))] #:when (cdr kv))
-                                     (values (car kv) (cdr kv)))
-                            'body (read-json-body req)
-                            'headers (headers->hash (request-headers/raw req))))
-                  (plugin-route-response (handler db-conn p args))))))))))
+            (if (eq? auth 'public)
+                ;; NO `with-auth`, and the handler is called with two arguments —
+                ;; the loader has already refused a three-argument one.
+                (lambda (req . vals)
+                  (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+                    (plugin-route-call auth handler db-conn #f (plugin-route-args req names vals))))
+                (lambda (req . vals)
+                  (with-auth req (lambda (p)
+                    (when perm (require-perm db-conn p perm))
+                    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+                      (plugin-route-call auth handler db-conn p (plugin-route-args req names vals)))))))))))
+
+
 
 ;; ---- the route table ENFORCES what it declares (#110 r2) -----------------------
 ;; `rt-auth`, `rt-perm` and `rt-feature` were documentation: `route` read

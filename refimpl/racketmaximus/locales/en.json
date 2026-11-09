@@ -3075,6 +3075,10 @@
       "text": "Run the tool-using agent loop over the team's enabled tools; every tool call is RBAC-checked and metered.",
       "hash": "ba6777989b583f514ff66b05e086ce6523bef0bc"
     },
+    "doc.route.get.api.x.example-tools.ping": {
+      "text": "A public liveness ping: the plain text `pong`, with no token and no principal. Declared public in the route table; it reads no team data.",
+      "hash": "dbd1f304b8328ef5c1a542667c5126ac0626bf7f"
+    },
     "ui.hdrainhint": {
       "text": "how long a stop waits before handing running work back to the queue",
       "hash": "8a79c4e6708a3ea8984c70528f66577a89c739c6"

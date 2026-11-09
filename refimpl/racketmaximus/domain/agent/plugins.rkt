@@ -7,10 +7,11 @@
 ;;   plugins/<id>/<entry>.rkt   (provide tools)  ; tools = (list (list name schema perm handler [agent?]) …)
 ;;                              ; handler : (conn principal args) -> string
 ;;                              (provide workflows) ; workflows = (listof spec-jsexpr)
-;;                              (provide routes)    ; routes = (list (list method path perm handler doc) …)
-;;                              ; mounted at /api/x/<id>/<path>; always authenticated;
+;;                              (provide routes)    ; routes = (list (list method path perm handler doc [auth]) …)
+;;                              ; mounted at /api/x/<id>/<path>; authenticated unless
+;;                              ; declared public (the optional sixth element);
 ;;                              ; handler : (conn principal args) -> jsexpr, where args is
-;;                              ; (hasheq 'params {…path params} 'query {…} 'body <json>)
+;;                              ; (hasheq 'params {…path params} 'query {…} 'body <json> 'headers {…})
 ;;                              ; (provide init!)     ; anything else, incl.
 ;;                              ; register-job-kind! — a plugin's kinds are named
 ;;                              ; x.<id>.<name> and the loader enforces it
@@ -31,6 +32,9 @@
          "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt")
 
 (provide load-plugins! loaded-plugins plugin-routes plugin-dir plugin-failures
+         ;; G13: the closed vocabulary a route's auth may name, and the check itself,
+         ;; exported FOR the tests — a bad declaration must fail the plugin's LOAD
+         PLUGIN-ROUTE-AUTHS check-route!
          ;; issue #121: a plugin that owns data
          plugin-migrations plugin-table-prefix check-migrations!)
 
@@ -61,17 +65,58 @@
 (define (plugin-migrations) (unbox *migrations*))
 
 (define METHODS '("GET" "POST" "PUT" "PATCH" "DELETE"))
+
+;; ---- who may call a plugin's route (G13) ------------------------------------
+;; 'bearer is the default, and it is what every route was before this existed: a
+;; session or API token through `with-auth`, then the declared permission through
+;; `can?`. 'public is an OPT-IN declaration and it means exactly what a core
+;; route's `#:auth 'public` means — no session, no token, no principal.
+;;
+;; IT IS DECLARED IN THE ROUTE TABLE AND NEVER INFERRED. Nothing about a path says
+;; whether it is safe to serve to a stranger, so a route that does not say is
+;; authenticated rather than open.
+;;
+;; A PUBLIC HANDLER IS `(conn args)` — TWO arguments, so it cannot be handed a
+;; principal even by mistake — and that arity is CHECKED AT LOAD rather than left
+;; to the handler to ignore. The failure it prevents is a route that reads
+;; `(principal-team-id p)` and serves one team's data to anyone with the URL,
+;; which no later check could catch. A public route also cannot declare a
+;; permission: there is no principal to ask `can?` about, so the declaration would
+;; be a rule nothing enforces (#113's shape).
+;;
+;; What a plugin GIVES UP by declaring a route public, and what an integrator has
+;; to decide for themselves: no team context, no `can?`, no audit entry naming a
+;; person, and no permission. Such a route must not read team data unless it is
+;; given something to identify the team WITH — and that something is then a
+;; credential the plugin is responsible for, which is why the documented shape for
+;; one is a long random token in the path rather than a guessed parameter.
+(define PLUGIN-ROUTE-AUTHS '(bearer public))
+
 (define (check-route! id r)
   (unless (and (list? r) (>= (length r) 4))
-    (error 'plugins "~a: a route is (list method path perm handler [doc])" id))
+    (error 'plugins "~a: a route is (list method path perm handler [doc] [auth])" id))
   (define-values (method path perm handler) (values (list-ref r 0) (list-ref r 1) (list-ref r 2) (list-ref r 3)))
+  (define doc (if (and (>= (length r) 5) (string? (list-ref r 4))) (list-ref r 4) ""))
+  (define auth (if (>= (length r) 6) (list-ref r 5) 'bearer))
   (unless (member method METHODS) (error 'plugins "~a: route method must be one of ~a" id METHODS))
   (unless (and (string? path) (regexp-match? #px"^/?[A-Za-z0-9_.:*/-]+$" path))
     (error 'plugins "~a: route path ~s is not a plain path (letters, digits, :name, *rest)" id path))
-  (unless (or (not perm) (string? perm)) (error 'plugins "~a: route permission must be a string or #f" id))
-  (unless (procedure? handler) (error 'plugins "~a: route handler must be a procedure" id))
-  (hasheq 'plugin id 'method method 'path path 'perm perm 'handler handler
-          'doc (if (and (>= (length r) 5) (string? (list-ref r 4))) (list-ref r 4) "")))
+  (unless (or (not perm) (string? perm)) (error 'plugins "~a: route permission must be a string or #f, not ~s" id perm))
+  (unless (procedure? handler) (error 'plugins "~a: route handler must be a procedure" id handler))
+  (unless (and (memq auth PLUGIN-ROUTE-AUTHS) #t)
+    (error 'plugins "~a: the auth of route ~a ~a must be one of ~a, not ~s"
+           id method path PLUGIN-ROUTE-AUTHS auth))
+  (when (eq? auth 'public)
+    (when perm
+      (error 'plugins "~a: route ~a ~a is public and names permission ~s; a public route has no principal to check it against"
+             id method path perm))
+    (unless (procedure-arity-includes? handler 2)
+      (error 'plugins "~a: the handler for the public route ~a ~a must take (conn args), not a principal"
+             id method path)))
+  (when (eq? auth 'bearer)
+    (unless (procedure-arity-includes? handler 3)
+      (error 'plugins "~a: the handler for route ~a ~a must take (conn principal args)" id method path)))
+  (hasheq 'plugin id 'method method 'path path 'perm perm 'handler handler 'auth auth 'doc doc))
 
 ;; `dirs` is one directory or a LIST of them, searched in order (issue #45): the
 ;; built-in directory and an operator's own, rather than one replacing the other.
@@ -255,7 +300,14 @@
                                   ;; caller's business.
                                   'bundle (directory-exists? (build-path pdir "bundle"))
                                   'routes (for/list ([r (in-list routes)])
-                                            (string-append (hash-ref r 'method) " " (hash-ref r 'path)))))))
+                                            (string-append (hash-ref r 'method) " " (hash-ref r 'path)))
+                                  ;; G13: which of those a stranger may call. Reported as
+                                  ;; its own list rather than annotated into the one above,
+                                  ;; so an operator reading `GET /api/plugins` sees a route
+                                  ;; that needs no credential instead of spotting a marker.
+                                  'public_routes (for/list ([r (in-list routes)]
+                                                            #:when (eq? (hash-ref r 'auth) 'public))
+                                                   (string-append (hash-ref r 'method) " " (hash-ref r 'path)))))))
           (hash-set! *dirs* id pdir)
           (log (format "~a v~a — ~a tool(s)~a~a~a~a~a" id (hash-ref m 'version "?") (length names)
                        (if (null? wf-slugs) "" (format ", ~a workflow(s)" (length wf-slugs)))

@@ -2183,6 +2183,17 @@ assert "plugin route in the plugin listing" "$(curl -s $B/api/plugins -H "Author
 assert "no plugin route outside its prefix"  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/word-count?text=x" -H "Authorization: Bearer $OP")" '404'
 assert "plugin job kind is listed for its plugin" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"x.example-tools.word-count"'
 
+# ---- G13: the PUBLIC door. A plugin may declare a route 'public, and then it is
+# served with no session, no token and no principal — the handler is (conn args),
+# which the loader enforces. The default is unchanged: the word-count route above
+# still 401s without a bearer, asserted two lines up.
+assert "a public plugin route answers with no token at all" "$(curl -s $B/api/x/example-tools/ping)" 'pong'
+assert "…and keeps its own media type"  "$(curl -s -D- -o /dev/null $B/api/x/example-tools/ping | tr -d '\r' | grep -i '^content-type:')" 'text/plain'
+assert "…it is still a 200, not an empty body" "$(curl -s -o /dev/null -w '%{http_code}' $B/api/x/example-tools/ping)" '200'
+assert "…a bearer changes nothing about it" "$(curl -s $B/api/x/example-tools/ping -H "Authorization: Bearer $OP")" 'pong'
+assert "…and the plugin listing reports which route is public" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"public_routes":["GET /ping"]'
+assert "…while an undeclared route is still bearer-only" "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/word-count?text=x")" '401'
+
 # ---- issue #20: a plugin's AUTHENTICATED bundle. The funnel's landing bundle is
 # public and publicly cached; customer screens must not be, so they come from a
 # second directory behind a bearer token and a no-store response.

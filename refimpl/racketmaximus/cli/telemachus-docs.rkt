@@ -148,14 +148,22 @@
                     ;; Projected explicitly for the same reason job_kinds is —
                     ;; a key dropped here renders as "—" for a plugin that has one.
                     'extractors (sort (hash-ref p 'extractors '()) string<?)
-                    'routes (sort (hash-ref p 'routes '()) string<?)))
+                    'routes (sort (hash-ref p 'routes '()) string<?)
+                    ;; G13: which of those need no credential. Its own column in
+                    ;; plugins.md, so an operator sees a public route as its own
+                    ;; fact rather than spotting a marker inside a list.
+                    'public_routes (sort (hash-ref p 'public_routes '()) string<?)))
           string<? #:key (lambda (p) (hash-ref p 'id))))
   ;; the plugins' authenticated routes, in api.md beside the core ones
   (define proutes
     (for/list ([r (in-list (plugin-routes))])
       (hasheq 'method (hash-ref r 'method) 'path (plugin-route-path (hash-ref r 'plugin) (hash-ref r 'path))
               'handler (string-append "plugin:" (hash-ref r 'plugin))
-              'auth "bearer" 'permission (or (hash-ref r 'perm) 'null) 'scope "role" 'feature 'null
+              ;; G13: a public route says so here, and api.md renders it in its own
+              ;; column. Before that field existed every plugin route was "bearer",
+              ;; which is why it was written as a literal.
+              'auth (if (eq? (hash-ref r 'auth 'bearer) 'public) "public" "bearer")
+              'permission (or (hash-ref r 'perm) 'null) 'scope "role" 'feature 'null
               'description (hash-ref r 'doc) 'plugin (hash-ref r 'plugin))))
   ;; every route permission must be described, like every role permission is
   (for ([r (in-list ROUTES)]) (when (rt-perm r) (permission-doc (rt-perm r))))
@@ -456,12 +464,19 @@
      (if (null? pr) ""
          (string-append
           "## Plugin routes\n\n"
-          "Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every one "
-          "requires a bearer token; the permission, when named, is checked before the "
-          "plugin's handler runs. Matched after the core routes above.\n\n"
-          (table '("Method" "Path" "Plugin" "Permission" "Description")
+          "Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. "
+          "**Auth** is the route's own declaration. `bearer` — the default, and every route "
+          "before G13 — needs a session or API token, and the permission, when named, is "
+          "checked before the plugin's handler runs. `public` needs no credential at all: "
+          "the handler gets no principal, so it has no team context and no `can?`, and it "
+          "must read no team data unless the route carries something that identifies the "
+          "team itself. A public route is still subject to the platform's request limits, "
+          "and it is declared in the plugin's route table — never inferred from a path. "
+          "Matched after the core routes above.\n\n"
+          (table '("Method" "Path" "Plugin" "Auth" "Permission" "Description")
                  (for/list ([r (in-list pr)])
                    (list (hash-ref r 'method) (code (hash-ref r 'path)) (code (hash-ref r 'plugin))
+                         (hash-ref r 'auth)
                          (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
                          (L (route-id r) (hash-ref r 'description)))))
           "\n")))))
@@ -676,12 +691,14 @@
    "(`id`, `name`, `version`, `description`, `entry`) and an entry module. Plugins run "
    "in-process with platform privileges; placing one in the directory is the consent.\n\n"
    "## Loaded plugins\n\n"
-   (table '("Plugin" "Version" "Tools" "Workflows" "Routes" "Job kinds" "Formats" "Description")
+   (table '("Plugin" "Version" "Tools" "Workflows" "Routes" "Public routes" "Job kinds" "Formats" "Description")
           (for/list ([p (in-list plugins)])
             (list (string-append (hash-ref p 'name) " (" (code (hash-ref p 'id)) ")") (hash-ref p 'version)
                   (let ([t (hash-ref p 'tools)]) (if (null? t) "—" (string-join (map code t) ", ")))
                   (let ([w (hash-ref p 'workflows)]) (if (null? w) "—" (string-join (map code w) ", ")))
                   (let ([r (hash-ref p 'routes '())]) (if (null? r) "—" (string-join (map code r) ", ")))
+                  ;; G13: a route a stranger may call, kept in its own column
+                  (let ([r (hash-ref p 'public_routes '())]) (if (null? r) "—" (string-join (map code r) ", ")))
                   (let ([k (hash-ref p 'job_kinds '())]) (if (null? k) "—" (string-join (map code k) ", ")))
                   (let ([x (hash-ref p 'extractors '())]) (if (null? x) "—" (string-join (map code x) ", ")))
                   (L (string-append "doc.plugin." (hash-ref p 'id)) (hash-ref p 'description)))))
@@ -689,7 +706,7 @@
    "| Seam | How | Where it lands |\n|---|---|---|\n"
    "| Tools | `(provide tools)` — a list of `(name schema permission handler [agent?])`; the handler is `(conn principal args) -> result`, and the optional fifth element is `#f` for a tool only a workflow step should call | the same registry as built-ins: per-tool RBAC and per-team activation apply |\n"
    "| Workflows | `(provide workflows)` — specs from `define-workflow`, or `workflows/*.json` | validated like an API-published spec; materialized into a team on first lookup |\n"
-   "| HTTP routes | `(provide routes)` — a list of `(method path permission handler doc)`; the handler is `(conn principal args) -> jsexpr or response` with `args` = `{params, query, body, headers}` | mounted at `/api/x/<plugin>/<path>`, always authenticated, permission checked first; listed in [api.md](api.md) |\n"
+   "| HTTP routes | `(provide routes)` — a list of `(method path permission handler [doc] [auth])`; the handler is `(conn principal args) -> jsexpr or response` with `args` = `{params, query, body, headers}`, and a route declared `'public` takes `(conn args)` instead | mounted at `/api/x/<plugin>/<path>`; authenticated by default with the permission checked first, or served with no credential at all when the route declares `'public` (G13). Listed in [api.md](api.md) |\n"
    "| Job kinds | `(provide init!)` calling `register-job-kind!`; the kind must be named `x.<plugin-id>.<name>` | the same queue as core kinds: per-team cap, quota admission, the org gate, cancel and the lease |\n"
    "| Formats | `(provide init!)` calling `register-extractor!` with a content type | the search index, `doc_text` and every workflow over them. Claiming a type the platform already reads REPLACES its reader — that is how a local OCR engine takes over `application/pdf` |\n"
    "| Anything else | `(provide init!)` — runs with full SDK access at load | e.g. `register-blob-store!` (the `rs3` local store), `register-onboarding!` (a beta funnel experience) |\n"
