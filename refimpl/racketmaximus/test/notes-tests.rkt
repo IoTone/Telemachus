@@ -119,24 +119,18 @@
 ;;
 ;; Five statements ran as five autocommits, so a failure on the fourth left the
 ;; note still THERE with its tags and its grants already gone: visible to the
-;; team, unfilterable by tag, and re-shareable only from scratch. The failure is
-;; injected with a trigger that refuses a delete on `note_links` — the third
-;; statement — because that is the only way to make a statement raise from
-;; outside, and it is dropped again immediately.
+;; team, unfilterable by tag, and re-shareable only from scratch.
+;;
+;; The failure is injected by RENAMING `note_links` for the duration — one
+;; statement both dialects accept, no schema duplicated in a test, and it makes
+;; the third statement raise on either engine. A trigger was the first attempt
+;; and worked on SQLite only: Racket's driver will not carry the plpgsql body's
+;; semicolons through a prepared statement.
 (define (block-note-link-deletes! c)
-  (case (db-dialect c)
-    [(postgresql)
-     (query-exec c "CREATE OR REPLACE FUNCTION tmx_block_del() RETURNS trigger AS $$
-                    BEGIN RAISE EXCEPTION 'blocked by the test'; END; $$ LANGUAGE plpgsql")
-     (query-exec c (string-append "CREATE TRIGGER tmx_block BEFORE DELETE ON note_links "
-                                  "FOR EACH ROW EXECUTE FUNCTION tmx_block_del()"))]
-    [else
-     (query-exec c (string-append "CREATE TRIGGER tmx_block BEFORE DELETE ON note_links "
-                                  "BEGIN SELECT RAISE(ABORT, 'blocked by the test'); END"))]))
+  (query-exec c "ALTER TABLE note_links RENAME TO tmx_blocked_note_links"))
 
 (define (unblock-note-link-deletes! c)
-  (query-exec c "DROP TRIGGER tmx_block")
-  (when (eq? (db-dialect c) 'postgresql) (query-exec c "DROP FUNCTION tmx_block_del()")))
+  (query-exec c "ALTER TABLE tmx_blocked_note_links RENAME TO note_links"))
 
 (define (count-where c sql . args) (apply query-value c sql args))
 
