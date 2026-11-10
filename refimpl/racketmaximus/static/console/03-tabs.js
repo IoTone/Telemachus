@@ -219,6 +219,28 @@ async function notesView(){
       <label for="nv">${t('visibility')}</label>${visSelect(d.vis)}
       <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${t('create')}</button>
       ${noteTools('note','nt')}</div>`;
+  // the swap needs the member options without re-reading /api/members, so the
+  // full render is what keeps them current — `S.qKinds`' rule exactly
+  S.noteMembers = opts;
+  const list = notesListHTML(r.ok?r.json:{notes:[],total:0,offset:0}, opts);
+  // the graph sits under the card it is about and above the listing: it is a
+  // picture OF a note when one is focused, and a map of the team when not
+  const G = (gr && gr.ok) ? gr.json : null;
+  const graph = G
+    ? noteGraphCard(G, (G.nodes||[]).filter(n=>n.focus).map(n=>n.title)[0] || '')
+    : `<div class="row" style="margin-top:10px"><div style="flex:0 0 auto">
+        <button class="btn sm ghost" data-h-click="${H(()=>graphOpen(S.noteShow||null))}"
+          title="${esc(t('ngraphhint'))}">${t('ngraphshow')}</button></div></div>`;
+  return `<h2>${t('notes')}</h2>${card}${graph}${orgImportStrip()}${filter}${list}`;
+}
+
+// THE LIST AND ITS PAGER, as a function of the response — so `nGo` can rebuild
+// exactly this region and nothing else. `total` is the pager's authority and the
+// page's own length is not: every listing here applies `can?` per row after the
+// SQL window (CLS-27), so a page can come back short with notes still behind it.
+function notesListHTML(J, opts){
+  const notes = J.notes||[];
+  S.noteTotal = J.total||0;
   const list=notes.map(n=>`<div class="note">
       <h4>${esc(n.title)||esc(t('untitled'))} <span class="badge" title="${esc(visLabel(n.visibility))}">${esc(visShort(n.visibility))}</span> ${n.owner_user_id===S.me.user_id?`<span class="badge ok">${esc(t('mine'))}</span>`:''}</h4>
       <div class="md">${bodyRender(n.body, n.format)}</div>
@@ -365,7 +387,36 @@ function readTags(){
   const el = document.getElementById('ntags');
   return el ? el.value.split(',').map(x=>x.trim()).filter(x=>x.length) : [];
 }
-// ORG-12 AT THE WRITE, which hiding the box could not do. `noteTagsField` hides
+// ORG-12 on the console's side. The server refuses a `tags` field against an org
+// note BY NAME, which is right for an API caller and would be a poor way for a
+// person to find out — so the field is not offered, and the line that IS
+// authoritative is named where the field used to be. The author can see it; that
+// is the whole argument for the body winning.
+function tagsFieldInner(tags){
+  if(edFormat('note') === 'org'){
+    return `<label>${t('tags')}</label>
+      <div class="muted" style="font-size:12px;margin:-2px 0 10px">${esc(t('orgtagshint'))}</div>
+      ${(tags&&tags.length)?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin:-4px 0 10px">${
+        tags.map(x=>`<span class="badge">${esc(x)}</span>`).join('')}</div>`:''}`;
+  }
+  return `<label>${t('tags')}</label><input id="ntags" value="${esc((tags||[]).join(', '))}" placeholder="${esc(t('tagsph'))}">
+      <div class="muted" style="font-size:12px;margin:-6px 0 8px">${esc(t('tagshint'))}</div>`;
+}
+// WRAPPED IN AN ID, so the format switch can swap it in place. `edSetFormat` is a
+// partial update by design (slice 1: a render pass discards a typed title), which
+// means anything the format decides has to be repainted rather than re-rendered.
+// The markup registers no delegated handler, so there is nothing to bracket.
+function tagsField(tags){
+  S.noteFormTags = tags || [];
+  return `<div id="ntagswrap">${tagsFieldInner(tags)}</div>`;
+}
+// The editor's announcement, hooked by name (`01-base.js`'s `paletteKey` seam).
+function edFormatChanged(key){
+  if(key !== 'note') return;
+  const w = document.getElementById('ntagswrap');
+  if(w) w.innerHTML = tagsFieldInner(S.noteFormTags || []);
+}
+// ORG-12 AT THE WRITE, which hiding the box could not do. The tags field hides
 // the wrapper but leaves `#ntags` in the DOM (it has to: `edSetFormat` swaps the
 // two fragments in place rather than re-rendering), and `noteEdit` SEEDS that
 // input from the note's own tags — so "an org note has no tags field" was true

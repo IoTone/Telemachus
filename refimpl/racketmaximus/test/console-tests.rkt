@@ -1449,8 +1449,9 @@
   (check-true (and (regexp-match? #px"if \\(S[.]noteDraftFresh\\) \\{ S[.]noteDraftFresh = false;"
                                  (fn-body "noteDraftRead")) #t)
               "…and the read consumes it instead of overwriting it")
-  ;; and the viewed note is fetched when the filtered list does not carry it
-  (check-true (and (regexp-match? #px"api\\('/api/notes/'\\+encodeURIComponent\\(S\\.noteShow\\)\\)" tabs) #t))
+  ;; and the note in focus is fetched BY ID — pagination is what forces it, and
+  ;; one fetch covers view and edit because they share the state slot
+  (check-true (and (regexp-match? #px"api\\('/api/notes/'\\+encodeURIComponent\\(focus\\)\\)" tabs) #t))
   ;; the reveal: the view card has an id and the render reveals it
   (check-true (and (regexp-match? #px"id=\"notecard\"" tabs) #t))
   (check-true (and (regexp-match? #px"revealEl\\('notecard'\\)" rv) #t))

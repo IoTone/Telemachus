@@ -421,7 +421,8 @@
            ;; note — and its previous tag set — exactly as it was
            ;; the EFFECTIVE format decides, so a request that converts to org and
            ;; sends tags in the same breath is refused rather than half-honoured
-           (define effective-fmt (or fmt (hash-ref n 'format)))
+           (define fmt* (and fmt (format-clean fmt)))
+           (define effective-fmt (or fmt* (hash-ref n 'format)))
            (when (and tags (string=? effective-fmt "org")) (refuse-org-tags!))
            (define clean (and tags (tags-clean tags)))
            ;; ORG-2 — CONVERTING A NOTE IS A DECLARATION, NEVER A REWRITE. This
@@ -453,22 +454,22 @@
                ;; only an org note has links at all, so converting org ->
                ;; markdown is what clears the rows and markdown -> org is what
                ;; fills them, with no second mechanism for either.
+               (define b* (or body (hash-ref n 'body)))
+               (define f* (or fmt* (hash-ref n 'format)))
                (when (or body fmt*)
                  (when body (query-exec conn "UPDATE notes SET body = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" body id))
                  (when fmt* (query-exec conn "UPDATE notes SET format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" fmt* id))
-                 (define b* (or body (hash-ref n 'body)))
-                 (define f* (or fmt* (hash-ref n 'format)))
-                 (write-links! conn id (hash-ref n 'team_id) b* f*)
-                 ;; ORG-12 — the body's own keyword line is authoritative on
-                 ;; EVERY write, in the same transaction as the body, or a
-                 ;; refused tag would leave a body claiming tags nothing stored.
-                 ;; `#f` means the body asserted nothing, which is what leaves a
-                 ;; converted note's existing tags alone.
-                 (define bt (and (or body fmt*) (body-tags b* f*)))
-                 (define final-tags (and (or bt clean) (if bt bt clean)))
-                 (when final-tags
-                   (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
-                   (write-tags! conn id (hash-ref n 'team_id) final-tags))))
+                 (write-links! conn id (hash-ref n 'team_id) b* f*))
+               ;; ORG-12 — the body's own keyword line is authoritative on
+               ;; EVERY write, in the same transaction as the body, or a
+               ;; refused tag would leave a body claiming tags nothing stored.
+               ;; `#f` means the body asserted nothing, which is what leaves a
+               ;; converted note's existing tags alone.
+               (define bt (and (or body fmt*) (body-tags b* f*)))
+               (define final-tags (and (or bt clean) (if bt bt clean)))
+               (when final-tags
+                 (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
+                 (write-tags! conn id (hash-ref n 'team_id) final-tags))))
            (with-tags conn (row->note (get-row conn id))))))
 
 ;; ---- the edges a note's body declares (#246 slice 2) ------------------------

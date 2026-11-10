@@ -292,17 +292,13 @@ try {
   await page.evaluate(() => window.edSetFormat('note', 'org'));
   ok('…an org note hides the tags field and names the keyword',
     await page.evaluate(() => {
-      const box = document.getElementById('ntagsbox'), hint = document.getElementById('ntagsorg');
-      return !!box && box.style.display === 'none'
-          && !!hint && hint.style.display !== 'none'
-          && hint.innerText.includes('#+FILETAGS:');
+      const w = document.getElementById('ntagswrap');
+      return !!w && !document.getElementById('ntags')
+          && w.innerText.includes('#+FILETAGS:');
     }));
   await page.evaluate(() => window.edSetFormat('note', 'markdown'));
   ok('…and switching back shows it again',
-    await page.evaluate(() => {
-      const box = document.getElementById('ntagsbox');
-      return !!box && box.style.display !== 'none';
-    }));
+    await page.evaluate(() => !!document.getElementById('ntags')));
 
   // …AND AN ORG NOTE CAN BE SAVED, which the hidden box made impossible. Hiding
   // the wrapper is not hiding the FIELD: `#ntags` stays in the DOM (it has to,
@@ -313,7 +309,10 @@ try {
   // deliberate CLEAR on the server and it won over the body's `#+FILETAGS:`.
   await goTab(page, 'notes', '#nt');
   await page.fill('#nt', 'Org note with tags');
-  await page.fill('#nb', '* a headline\n#+FILETAGS: :levee:');
+  // THE KEYWORD IS AT THE TOP OF THE BODY: `org-parse` consumes a LEADING run
+  // of `#+TITLE:`/`#+FILETAGS:` and stops at the first other line, which is what
+  // keeps a foreign `#+OPTIONS:` in the body instead of eating it.
+  await page.fill('#nb', '#+FILETAGS: :levee:\n* a headline');
   await page.evaluate(() => window.edSetFormat('note', 'org'));
   await page.evaluate(() => window.doCreateNote());
   ok('…an org note is created',
@@ -345,7 +344,7 @@ try {
   // so "the note still has its title and tags" is satisfied by a 400 as well —
   // the first version of this case passed against the defect. The body is what
   // moves here, and its edit is what says the PUT was accepted.
-  await page.fill('#nb', '* a headline\nedited in place\n#+FILETAGS: :levee:');
+  await page.fill('#nb', '#+FILETAGS: :levee:\n* a headline\nedited in place');
   await page.evaluate(() => window.doSaveNote());
   const saved = await page.evaluate(async id => {
     const r = await api('/api/notes/' + id);
