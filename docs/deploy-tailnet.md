@@ -17,6 +17,65 @@ There is no value that means "tailnet + LAN but nothing else" — `0.0.0.0` bind
 every interface, including the `lxcbr0`/`docker0` bridges. On a trusted network
 that is fine; it is not a substitute for a firewall.
 
+## Set the encryption key before you store a real credential
+
+TMach has to keep some credentials in a form it can use again: the **mail relay
+password**, S3 access keys, webhook and feed secrets, worker keys, two-factor
+seeds. It encrypts them with one key, `TMACH_SECRET_KEY`.
+
+**With no key set it stores them unencrypted and carries on working.** Nothing
+fails and no screen warns you. The only places that say so are the boot log and
+`GET /api/admin/status`, which read `secrets: plaintext`. That is deliberate — a
+key can be added later with no migration — and it is how this demo ran until a
+live SMTP password was typed into **Admin → Email transport** in November 2026
+and sat readable in `data/telemachus.db`, a file that goes into every backup.
+
+So do this **before** anybody enters a relay password, issues an S3 key or
+turns on two-factor:
+
+```bash
+# 1. Once, on the host. The key goes in a file only this account can read —
+#    never in git, never on an `Environment=` line, never in a Nix expression.
+mkdir -p ~/.config/tmach && umask 077
+printf 'TMACH_SECRET_KEY=%s\n' "$(openssl rand -hex 32)" > ~/.config/tmach/secret.env
+
+# 2. Hand it to the server.
+#    systemd:   EnvironmentFile=%h/.config/tmach/secret.env   then restart
+#    by hand:   set -a; . ~/.config/tmach/secret.env; set +a
+
+# 3. If the instance already stored credentials, encrypt what is there.
+#    From refimpl/racketmaximus inside `nix develop`, with the key loaded as in
+#    step 2 and DATABASE_URL naming the instance's database. Safe to re-run;
+#    rows already encrypted are left alone.
+racket cli/telemachus-secrets.rkt rewrap
+
+# 4. Check, rather than assume.
+racket cli/telemachus-secrets.rkt status      # each line: N stored, N sealed, 0 in the clear
+```
+
+`GET /api/admin/status` should now read `"secrets": "sealed"` with a
+`secret_key_id`. If it still says `plaintext`, the server did not get the key —
+stop there and do not enter a credential.
+
+Three things about the key itself:
+
+- **Keep a copy somewhere the database backup does not go.** Stored beside the
+  backup it protects nothing; lost, every stored credential has to be typed in
+  again.
+- **Generate it once, by hand.** Never at boot: a key made fresh on each start
+  encrypts everything with a key nobody has.
+- **It is not `TMACH_SECRET`.** That one is the token pepper, and changing it
+  signs everybody out.
+
+`TMACH_STRICT_STARTUP=1` turns a missing key into a refusal to start, which is
+the right setting for anything unattended. It **also** refuses plain HTTP on a
+non-loopback address, which is exactly the tailnet setup below — so use it
+with the `tailscale serve` arrangement further down (the app on `127.0.0.1`,
+Tailscale in front), not with a direct tailnet bind.
+
+Full procedures, including rotating the key:
+[`ops/secrets-at-rest-runbook.md`](ops/secrets-at-rest-runbook.md).
+
 ## Current setup — private, tailnet-only
 
 The server binds to this host's **tailnet IP**, so any device signed into the same
@@ -27,6 +86,7 @@ browser padlock.
 ```bash
 cd refimpl/racketmaximus
 export PLTCOLLECTS="$(pwd)/pkgs:"
+set -a; . ~/.config/tmach/secret.env; set +a            # the encryption key, see above
 TMACH_BIND=100.70.154.54 \                             # this host: `tailscale ip -4`
 TMACH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions \
 TMACH_MODEL=qwen2.5:7b \                               # ollama (OpenAI-compatible)

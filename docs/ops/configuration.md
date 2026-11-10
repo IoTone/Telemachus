@@ -86,7 +86,7 @@ Two consequences worth knowing:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `TMACH_SECRET_KEY` | — | Seals the three stored secrets that cannot be hashed (TOTP seeds, S3 and executor keys) with AES-256-GCM. 64 hex characters is the key itself; anything else is a passphrase, stretched with PBKDF2. **Unset means plaintext at rest**, which is supported and reported at boot — see `docs/ops/secrets-at-rest-runbook.md`. Not the same variable as `TMACH_SECRET`. |
+| `TMACH_SECRET_KEY` | — | Seals the stored credentials that cannot be hashed (the mail relay password, S3 and executor keys, webhook and feed secrets, TOTP seeds, redaction maps) with AES-256-GCM. 64 hex characters is the key itself; anything else is a passphrase, stretched with PBKDF2. **Unset means plaintext at rest** — the server accepts and stores those credentials unencrypted without complaint — which is supported and reported at boot and on `GET /api/admin/status`; set it before entering a live credential — see `docs/ops/secrets-at-rest-runbook.md`. Not the same variable as `TMACH_SECRET`. |
 | `TMACH_SECRET_KEY_OLD` | — | A previous key, read but never written, for `telemachus-secrets rewrap`. |
 | `TMACH_SECRET` | a dev default (warned about at boot) | The general-purpose secret: the fallback pepper for API-token hashes, and the funnel's signing secret. **Rotating it signs everyone out**, which is why it is deliberately not the key that seals secrets at rest. |
 | `TMACH_TOKEN_PEPPER` | `TMACH_SECRET`, else a dev default | Peppers the HMAC-SHA-256 token hashes specifically. |

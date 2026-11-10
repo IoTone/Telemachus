@@ -18,8 +18,12 @@ one, and revoking a two-factor seed. Issue
 | `users.totp_secret` | **the seed itself** | A TOTP code is computed *from* the seed; there is nothing to compare a hash against. |
 | `repo_credentials.secret_key` | **the secret itself** | SigV4 is an HMAC keyed by it. An HMAC cannot be checked against a hash. |
 | `executors.secret_key` | **the secret itself** | A push executor signs with it. |
+| `email_transport.password` | **the password itself** | The server presents it to the mail relay on every send. |
+| `webhooks.secret` | **the secret itself** | Every delivery is signed with it. |
+| `feeds.secret` | **the token itself** | Sent to the feed's source on every poll. |
+| `repo_redactions.token_map` | **the map itself** | It is what puts the redacted names back. |
 
-Those bottom three are *replayable*: whoever reads the row can use the credential.
+Those seven are *replayable*: whoever reads the row can use the credential.
 Before this change they sat in the clear, so a single database dump — a backup
 file, a read replica, a `pg_dump` pasted into a ticket, a stolen volume snapshot —
 was enough to replay all of them.
@@ -72,7 +76,7 @@ Two switches, deliberately separate (ENC-1):
 
 | Variable | Seals | Default |
 |---|---|---|
-| `TMACH_SECRET_KEY` | the three replayable credentials above | unset (plaintext — a supported choice) |
+| `TMACH_SECRET_KEY` | the seven replayable credentials above | unset (plaintext — a supported choice) |
 | `TMACH_ENCRYPT_CONTENT` | document-derived content: `repo_text`, job payloads/results/errors, workflow run and step bindings and errors, translations, trigger-fire errors | off |
 
 `TMACH_ENCRYPT_CONTENT` is its own switch because sealing `repo_text.content`
@@ -105,6 +109,13 @@ trust boundary" position, and it is what every instance did before this existed.
 The point of the status line is that it is now a decision you can see, rather than
 one you inherit without noticing.
 
+**Supported is not the same as safe for what you are about to store.** With no
+key the server accepts a mail relay password, an S3 key or a webhook secret
+exactly as it would with one, stores it unencrypted, and says nothing at the
+moment you type it. Check `secrets` on `GET /api/admin/status` **before**
+entering a live third-party credential; if it reads `plaintext`, do section 4
+first.
+
 ## 4. Adopting a key on a running instance
 
 Existing rows are plaintext and stay readable, so this is not a migration and
@@ -112,7 +123,9 @@ there is no downtime.
 
 ```sh
 racket cli/telemachus-secrets.rkt keygen        # a 256-bit key, hex
-# put it in the service environment as TMACH_SECRET_KEY, then:
+# put it in the service environment as TMACH_SECRET_KEY — in a file only the
+# service account can read (systemd: EnvironmentFile=, mode 600), not on an
+# Environment= line and not in a Nix expression — then:
 DATABASE_URL=… TMACH_SECRET_KEY=… racket cli/telemachus-secrets.rkt rewrap
 ```
 
