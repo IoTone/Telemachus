@@ -72,10 +72,47 @@ jobs:
             echo "created $d"
           done
 
+      # Everything the later steps load, compiled ONCE and in parallel. This used
+      # to compile `server/main.rkt` alone, so `raco test` compiled each of the
+      # 135 test files in memory as it reached it: measured, the suite is about
+      # two minutes of testing and was reported as six. The CLIs are here because
+      # the two gates below run them. `-j` is safe for compilation; it is NOT used
+      # on `raco test`, where four files bind fixed ports.
       - name: Compile
         run: |
           export PLTCOLLECTS="$(pwd)/pkgs:"
-          raco make server/main.rkt
+          raco make -j "$(nproc)" server/main.rkt cli/*.rkt test/*-tests.rkt
+
+      # THE CHEAP GATES RUN FIRST. They read the source and take seconds, and they
+      # sat at the end of this job — so a missing row in the configuration
+      # reference was reported thirteen minutes in, after every test and smoke had
+      # passed (#276). Failing here costs one compile.
+      # The two gates below read the SOURCE, not the database, so running them on
+      # both legs would only buy a second identical answer.
+      #
+      # The reference under docs/reference/ is generated from the source of truth
+      # (tools, workflows, permissions, the route table, plugins) and COMMITTED;
+      # this fails the build when a PR changes the code without regenerating.
+      - name: Documentation drift gate
+        if: matrix.db == 'sqlite'
+        run: |
+          export PLTCOLLECTS="$(pwd)/pkgs:"
+          racket cli/telemachus-docs.rkt check
+
+      - name: Localization gate
+        if: matrix.db == 'sqlite'
+        run: |
+          export PLTCOLLECTS="$(pwd)/pkgs:"
+          racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt static/ui-strings.json ../../docs/reference/strings.json --required en,ja
+
+      # Issue #89: every TELEMACHUS_* name the code reads must appear in the
+      # configuration reference, so the one table an operator configures a
+      # container from cannot quietly fall behind the code.
+      - name: Configuration reference gate
+        if: matrix.db == 'sqlite'
+        working-directory: .
+        run: bash scripts/check-config-reference.sh
+
 
       - name: Unit tests
         env:
@@ -166,32 +203,6 @@ jobs:
         env:
           DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgres://telemachus:telemachus@127.0.0.1:5432/tmx_blob' || '' }}
         run: bash test/s3-blobstore-smoke.sh
-
-      # The two gates below read the SOURCE, not the database, so running them on
-      # both legs would only buy a second identical answer.
-      #
-      # The reference under docs/reference/ is generated from the source of truth
-      # (tools, workflows, permissions, the route table, plugins) and COMMITTED;
-      # this fails the build when a PR changes the code without regenerating.
-      - name: Documentation drift gate
-        if: matrix.db == 'sqlite'
-        run: |
-          export PLTCOLLECTS="$(pwd)/pkgs:"
-          racket cli/telemachus-docs.rkt check
-
-      - name: Localization gate
-        if: matrix.db == 'sqlite'
-        run: |
-          export PLTCOLLECTS="$(pwd)/pkgs:"
-          racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt static/ui-strings.json ../../docs/reference/strings.json --required en,ja
-
-      # Issue #89: every TELEMACHUS_* name the code reads must appear in the
-      # configuration reference, so the one table an operator configures a
-      # container from cannot quietly fall behind the code.
-      - name: Configuration reference gate
-        if: matrix.db == 'sqlite'
-        working-directory: .
-        run: bash scripts/check-config-reference.sh
 
   # The container is what issue #89 is about: build it, then prove it actually
   # serves against an EXTERNAL Postgres rather than only that it builds.
