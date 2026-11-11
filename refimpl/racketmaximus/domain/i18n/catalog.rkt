@@ -47,19 +47,24 @@
 ;; wording first and the current one second, and nothing failed. The check counts
 ;; the id's own key token in the raw text, because the parsed catalog cannot say
 ;; it appeared twice.
+;;
+;; ONE PASS over the lines. The first version built a regexp per id and ran it
+;; over every line — 1,179 ids against ~5,000 lines, twice — which measured 15
+;; seconds per catalog and was 31 of the localization gate's 33. A line that
+;; opens a message is `"<id>": {`, so one pattern reads the key off each line and
+;; a hash counts them. The id is compared as raw text, exactly as before: an id
+;; that needed a JSON escape would not have matched the old pattern either.
+(define KEY-LINE #px"^[ \t]*\"([^\"\\\\]*)\"[ \t]*:[ \t]*\\{")
 (define (catalog-duplicate-keys path)
-  (define lines (string-split (call-with-input-file path port->string) "\n"))
   (define messages (catalog-messages (read-catalog path)))
-  (for/list ([id (in-list (hash-keys messages))]
-             #:when (> (for/sum ([line (in-list lines)]
-                                 #:when (regexp-match?
-                                         (regexp (string-append
-                                                  "^[ \\t]*\"" (regexp-quote id)
-                                                  "\"[ \\t]*:[ \\t]*\\{"))
-                                         line))
-                          1)
-                       1))
-    id))
+  (define counts (make-hash))
+  (for ([line (in-list (string-split (call-with-input-file path port->string) "\n"))])
+    (define m (regexp-match KEY-LINE line))
+    (when m (hash-update! counts (cadr m) add1 0)))
+  (sort (for/list ([(id n) (in-hash counts)]
+                   #:when (and (> n 1) (hash-has-key? messages id)))
+          id)
+        string<?))
 
 ;; ---- io ---------------------------------------------------------------------
 (define (catalog-exists? path) (file-exists? path))
