@@ -150,8 +150,18 @@ racket cli/telemachus-secrets.rkt rewrap
 ```
 
 Rows sealed by either key are readable while both are set; `rewrap` re-seals every
-row under the new one. When `status` reports the new key id against every row,
-drop `TMACH_SECRET_KEY_OLD` and restart.
+row under the new one. Then run `status` **with both keys still set**: it marks any
+column that still holds rows `under ANOTHER key` and says so in a closing line.
+Drop `TMACH_SECRET_KEY_OLD` and restart only when that line is gone — a row left
+under the previous key stops opening the moment the previous key does.
+
+With `TMACH_ENCRYPT_CONTENT` on, a rotation also rewrites job payloads, results
+and errors, workflow run and step inputs, outputs and errors, translations and
+trigger-fire errors, so on an instance with a long history it writes one line per
+row and takes a while. **Builds up to 0.11.0 skipped those thirteen columns.** If
+you rotated a content-encrypted instance on one of them and have since dropped the
+previous key, older runs, jobs and translations no longer open; set
+`TMACH_SECRET_KEY_OLD` to the previous key again, upgrade, and re-run `rewrap`.
 
 An unreadable row **stops the run** rather than being skipped — carrying on would
 quietly leave behind secrets nobody can decrypt.
