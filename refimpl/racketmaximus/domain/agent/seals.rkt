@@ -43,7 +43,7 @@
 (provide SEAL-FORMS
          seal-spec-problem check-seals!
          seal-context-of
-         record-plugin-seals! ledger-specs)
+         record-plugin-seals! ledger-specs ledger-missing)
 
 (define SEAL-FORMS '(text bytes))
 
@@ -153,42 +153,80 @@
     (query-rows conn (format "SELECT 1 FROM ~a LIMIT 0" table))
     #t))
 
+;; -> (values recorded skipped changed)
+;;
+;; `skipped` names a declaration whose table does not exist YET or any more: a
+;; typo, or a plugin whose migration did not run. Reporting it is the point — a
+;; silent skip is how a sealed column stops being rotated without anyone noticing.
+;;
+;; `changed` names a declaration whose TEMPLATE, id columns or form differs from
+;; what the ledger already holds. The row is updated either way: a plugin that
+;; corrected a wrong template must not keep being rotated under the old one, and
+;; the operator has to know that rows written under the old spelling need their
+;; own pass.
 (define (record-plugin-seals! conn specs now)
-  (define rows
-    (for/list ([s (in-list specs)]
-               #:when (table-exists? conn (list-ref s 1)))
-      s))
-  (for ([s (in-list rows)])
+  (define present (filter (lambda (s) (table-exists? conn (list-ref s 1))) specs))
+  (define skipped (for/list ([s (in-list specs)]
+                             #:unless (table-exists? conn (list-ref s 1)))
+                    (format "~a.~a" (list-ref s 1) (list-ref s 2))))
+  (define changed (box '()))
+  (for ([s (in-list present)])
     (define plugin-id (list-ref s 0))
     (define table (list-ref s 1))
     (define col (list-ref s 2))
     (define ids (list-ref s 3))
     (define template (list-ref s 4))
     (define form (list-ref s 5))
+    (define old (query-maybe-row conn
+                                 "SELECT id_columns, context_template, form, plugin_id FROM plugin_seals WHERE tbl = ? AND col = ?"
+                                 table col))
+    (when (and old
+               (not (and (equal? (vector-ref old 0) (string-join ids ","))
+                         (equal? (vector-ref old 1) template)
+                         (equal? (vector-ref old 2) (symbol->string form))
+                         (equal? (vector-ref old 3) plugin-id))))
+      (set-box! changed (cons (format "~a.~a" table col) (unbox changed))))
     (query-exec conn
                 (string-append
                  "INSERT INTO plugin_seals "
                  "(plugin_id, tbl, col, id_columns, context_template, form, first_seen_epoch, last_seen_epoch) "
                  "VALUES (?,?,?,?,?,?,?,?) "
-                 "ON CONFLICT (tbl, col) DO UPDATE SET last_seen_epoch = excluded.last_seen_epoch")
+                 "ON CONFLICT (tbl, col) DO UPDATE SET "
+                 "  plugin_id = excluded.plugin_id, id_columns = excluded.id_columns, "
+                 "  context_template = excluded.context_template, form = excluded.form, "
+                 "  last_seen_epoch = excluded.last_seen_epoch")
                 plugin-id table col (string-join ids ",") template (symbol->string form) now now))
-  (length rows))
+  (values (length present) skipped (reverse (unbox changed))))
 
 ;; -> (listof (list table column id-columns context-procedure form)), the same
 ;; spec shape `rewrap` already consumes, except that the context is a procedure
 ;; because a template needs the row's ids to render.
-(define (ledger-specs conn)
+(define (ledger-rows conn)
   (if (not (table-exists? conn "plugin_seals"))
       '()
       (for/list ([r (in-list (query-rows conn
                                          (string-append
-                                          "SELECT tbl, col, id_columns, context_template, form "
+                                          "SELECT tbl, col, id_columns, context_template, form, plugin_id "
                                           "FROM plugin_seals ORDER BY tbl, col")))])
-        (define table (vector-ref r 0))
-        (define col (vector-ref r 1))
-        (define ids (string-split (vector-ref r 2) ","))
-        (define template (vector-ref r 3))
-        (define form (string->symbol (vector-ref r 4)))
-        (list table col ids
-              (lambda (row-ids) (seal-context-of template table col row-ids))
-              form))))
+        r)))
+
+;; A LEDGER ROW WHOSE TABLE IS GONE IS SKIPPED AND NAMED, never walked. This is
+;; the state SEAL-3 exists for (a plugin uninstalled, its tables dropped), and a
+;; raw SQL error there aborted `rewrap` part-way through the list, leaving the
+;; database half-rotated with no diagnostic.
+(define (ledger-missing conn)
+  (for/list ([r (in-list (ledger-rows conn))]
+             #:unless (table-exists? conn (vector-ref r 0)))
+    (list (vector-ref r 0) (vector-ref r 1) (vector-ref r 5))))
+
+(define (ledger-specs conn)
+  (for/list ([r (in-list (ledger-rows conn))]
+             #:when (table-exists? conn (vector-ref r 0)))
+    (define table (vector-ref r 0))
+    (define col (vector-ref r 1))
+    (define ids (string-split (vector-ref r 2) ","))
+    (define template (vector-ref r 3))
+    (define form (string->symbol (vector-ref r 4)))
+    (list table col ids
+          (lambda (row-ids) (seal-context-of template table col row-ids))
+          form)))

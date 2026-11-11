@@ -387,8 +387,8 @@
   (check-true (> (length rows) 0))
   ;; every created account has no address yet: it was made by username
   (for ([r (in-list rows)])
-    (check-false (hash-ref r 'has_email))
     (check-false (hash-ref r 'email_verified))
+    (check-false (hash-ref r 'email_pending))
     ;; the reply carries no address at all, under any key
     (check-false (member 'email (hash-keys r)))
     (check-true (list? (hash-ref r 'teams))))
@@ -398,8 +398,17 @@
               "someone@acme.test" 1800000000 uid)
   (define after (for/first ([r (in-list (org-members conn a))]
                             #:when (equal? (hash-ref r 'user_id) uid)) r))
-  (check-true (hash-ref after 'has_email))
   (check-true (hash-ref after 'email_verified))
+  (check-false (hash-ref after 'email_pending))
+  ;; a PENDING address is its own state: it lives in email_verifications, cannot
+  ;; receive a recovery link, and an admin has to be able to see it
+  (query-exec conn "UPDATE users SET email = NULL, email_verified_epoch = NULL WHERE id = ?" uid)
+  (query-exec conn "INSERT INTO email_verifications (user_id, address, token_hash, expires_epoch, created_epoch) VALUES (?,?,?,?,?)"
+              uid "waiting@acme.test" "hash" 1900000000 1800000000)
+  (define pending (for/first ([r (in-list (org-members conn a))]
+                              #:when (equal? (hash-ref r 'user_id) uid)) r))
+  (check-false (hash-ref pending 'email_verified))
+  (check-true (hash-ref pending 'email_pending))
   (check-false (member 'email (hash-keys after)))
   ;; and one company's list never names the other's people
   (define other (map (lambda (r) (hash-ref r 'username)) (org-members conn (hash-ref globex 'org))))

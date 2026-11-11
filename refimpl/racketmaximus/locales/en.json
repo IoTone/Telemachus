@@ -4496,8 +4496,8 @@
       "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
     },
     "doc.route.post.api.org.members": {
-      "text": "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).",
-      "hash": "03a74d632f9d392ba7d7d8c4dc71f6081a8174cb"
+      "text": "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader). Two forms, as on the team plane: with `username` the account is created and the reply carries a `*:*` session for it, as this route always has; with `email` it is an INVITATION and the reply carries no session, the account is created `invited`, the address is held pending until it answers, a link is mailed, and redeeming it both activates the account and proves the address. An invited org_admin is an org_admin when they accept. On an instance with no transport the link comes back once so it can be handed over.",
+      "hash": "ae8206f5e133c097c2d50b2785b350661c28cb2d"
     },
     "ui.wkconfighint": {
       "text": "Declared in executors.json, which owns its names — this instance reads the file at boot. It cannot be drained or retired from here; edit the file and restart.",
@@ -4786,6 +4786,14 @@
     "doc.tool.doc_redact.step": {
       "text": "The workflow step id, for provenance",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "doc.route.get.api.org.members": {
+      "text": "The people in the caller's company, for the org administrator who manages them: one row each with their org role, their team roles, and whether an address is proven or still pending. The address itself is never in this reply, and neither flag is a recovery path: a person with no proven address cannot receive a recovery link, and this is how an administrator sees that.",
+      "hash": "1cc32ab6502bb98294c647974603e99ab9cf5e76"
+    },
+    "doc.route.post.api.org.members.id.invite": {
+      "text": "Send a company invitation again, for a member who has not accepted yet. The company plane's mirror of the team route, and it exists because an org administrator is usually not a member of the team the person was invited to. A member of another company answers 404.",
+      "hash": "d6cdbd316b9cdaa0316014b7c64cf1ccb7839b37"
     }
   }
 }

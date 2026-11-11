@@ -73,7 +73,7 @@ function qvLeases(fr){
         aria-label="${esc(e.name)} ${wkAge(left)}">
         <rect x="0" y="0" width="100" height="14" fill="var(--line)"></rect>
         <rect x="0" y="0" width="${(frac*100).toFixed(2)}" height="14" fill="var(--${hue})"></rect></svg></td>
-      <td class="mono muted qvtot">${left<=0?t('qvexpired'):wkAge(left)}</td>
+      <td class="mono muted qvtot">${left<=0?esc(t('qvexpired')):esc(wkAge(left))}</td>
       <td class="mono muted" style="max-width:16em;overflow:hidden;text-overflow:ellipsis">${esc(e.current.kind)}</td></tr>`;
   }).join('');
   return `<table class="qvtbl"><tbody>${rows}</tbody></table>`;
@@ -118,7 +118,7 @@ async function jobTrail(id, el){
       <span class="muted mono">${esc(j.kind)}</span>
       ${all.length?all.join('<span class="qvarrow">→</span>'):`<span class="muted">${esc(t('qvnopath'))}</span>`}
       <span class="muted">${esc(t('qvattempts').replace('{a}', j.attempt).replace('{m}', j.max_attempts)
-        )}${j.releases?' · '+t('qvreleases').replace('{n}', j.releases):''}</span></div></td>`;
+        )}${j.releases?' · '+esc(t('qvreleases')).replace('{n}', esc(String(j.releases))):''}</span></div></td>`;
   }
   tr.parentNode.insertBefore(row, tr.nextSibling);
 }
@@ -156,17 +156,17 @@ function queueVizCard(vr, fr){
   const grain = mins>1 ? ` <span class="muted">${esc(t('qvgrain').replace('{n}', mins))}</span>` : '';
   const every = S.qvEvery||0;
   const opts = [0,15,30,60].map(s=>`<option value="${s}"${every===s?' selected':''}>${
-    s?s+'s':t('qvautooff')}</option>`).join('');
+    s?esc(s)+'s':esc(t('qvautooff'))}</option>`).join('');
   return `<div class="card" id="qvcard" style="margin-top:14px">
     <h3>${esc(t('qvtitle'))} <span class="muted" style="font-size:13px">— ${
-      t('qvwindow').replace('{h}', (V.window||{}).hours)}${grain}</span></h3>
+      esc(t('qvwindow')).replace('{h}', esc(String((V.window||{}).hours)))}${grain}</span></h3>
     <div class="row" style="align-items:center">
       <div><label>${esc(t('qvauto'))}</label>
         <select data-h-change="${H((el)=>qvAutoSet(parseInt(el.value,10)||0))}">${opts}</select></div>
       <p class="muted" style="margin:0 0 0 auto">${esc(t('qvautohint'))}</p>
     </div>
     <h4>${esc(t('qvstuck'))} <span class="muted" style="font-weight:normal">— ${
-      t('qvstuckhint')}</span>${trunc}</h4>
+      esc(t('qvstuckhint'))}</span>${trunc}</h4>
     ${qvBar(segs, total)}
     <h4>${esc(t('qvflow'))}</h4>
     <table class="qvtbl"><tbody>

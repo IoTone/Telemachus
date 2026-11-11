@@ -98,8 +98,9 @@ A machine-readable form of this same table is [openapi.json](openapi.json) (Open
 | GET | `/api/org/teams` | org-admin | `org:read` | role | — | 呼び出し元の会社のチーム。 |
 | POST | `/api/org/teams` | org-admin | `org:manage` | role | — | 呼び元の会社でチームを作成します。 |
 | POST | `/api/org/teams/:ref/quota` | org-admin | `org:manage` | role | — | 組織管理プレーンから単一チームのクォータ上限を設定する（issue #113）: 呼び出し元自身の会社に属するチームを id または slug で指定し、{dimension, limit, window?} を渡します。チーム層の POST /api/quota は常に呼び出し元自身のチームにしか設定しないため、これがないと複数チームを管理する組織管理者はチームごとにトークンを持つ必要がありました。会社外のチームは 404 を返します — この呼び出し元にとっては存在しません。 |
-| GET | `/api/org/members` | org-admin | `org:read` | role | — | The people in the caller's company: one row each with their org role, their team roles, and whether they have an address and whether it is proven. The address itself is never in this reply; a person with no proven address cannot receive a recovery link, and this is how an administrator sees that. |
-| POST | `/api/org/members` | org-admin | `org:manage` | role | — | 呼び出し元の会社のチームに人物を追加します。オプションで組織ロール（org_admin, org_owner, org_reader）も指定できます。 |
+| GET | `/api/org/members` | org-admin | `org:manage` | role | — | 呼び出し元の会社の人物一覧です（org 管理者向け）。各行に組織ロール、チームロール、メールアドレスが確認済みか保留中かが入ります。アドレス自体はこの応答に含まれず、どちらのフラグも復旧手段ではありません。確認済みのアドレスがない人はパスワード再設定のリンクを受け取れず、管理者はこの一覧でそれを見つけられます。 |
+| POST | `/api/org/members` | org-admin | `org:manage` | role | — | 呼び出し元の会社のチームに人物を追加します。オプションで組織ロール（org_admin、org_owner、org_reader）も指定できます。チーム側と同じ二つの形式があります。username ではアカウントが作成され、応答はこれまでどおりそのアカウントの *:* セッションを返します。email では招待になり、応答にセッションは含まれません。アカウントは invited で作成され、アドレスは承諾まで保留となり、リンクがメールで送られます。承諾するとアカウントが有効になり、アドレスも確認済みになります。招待された org_admin は承諾時に org_admin になります。メール送信の設定がないインスタンスでは、リンクが一度だけ返るので手渡しできます。 |
+| POST | `/api/org/members/:id/invite` | org-admin | `org:manage` | role | — | まだ承諾していないメンバーに会社の招待を再送します。チーム側ルートの会社版です。組織管理者は通常、その人物が加わるチームのメンバーではないため、このルートが必要になります。別の会社のメンバーには 404 を返します。 |
 | PATCH | `/api/org/members/:id` | org-admin | `org:manage` | role | — | 人の組織ロールを設定またはクリアする — 既存ユーザーを org_reader にする方法（TEN-2h）。自分自身には不可。 |
 | GET | `/api/org/audit` | org-admin | `org:read` | role | — | 会社の監査ログ。 |
 | GET | `/api/org/retention` | org-admin | `org:read` | role | — | 会社自身の保持ルール（#86 r3）。組織は自社のデータについてインスタンスが許す期間を短縮できますが、延長はできません。 |

@@ -36,7 +36,7 @@ async function reviewsView(){
   const r = await api('/api/reviews?status='+encodeURIComponent(show));
   const items = (r.ok && r.json.reviews) ? r.json.reviews : [];
   const pick = ['pending','decided'].map(x=>
-    `<button class="btn sm ${show===x?'':'ghost'}" data-h-click="${H((el,ev)=>{S.revShow=x; renderTab();})}">${x==='pending'?t('reviewpending'):t('reviewdecided')}</button>`).join(' ');
+    `<button class="btn sm ${show===x?'':'ghost'}" data-h-click="${H((el,ev)=>{S.revShow=x; renderTab();})}">${esc(x==='pending'?t('reviewpending'):t('reviewdecided'))}</button>`).join(' ');
   const list = items.length
     ? items.map(v=>reviewCard(v, show==='pending')).join('')
     : `<div class="card" style="margin-top:14px"><p class="muted">${esc(t('reviewnone'))}</p></div>`;
@@ -57,8 +57,8 @@ async function doDecide(v, verdict){
 function jobWaitBadge(j){
   const w=j.waiting; if(!w) return '';
   const txt = w.reason==='concurrency'
-    ? t('heldbycap').replace('{limit}', esc(String(w.limit)))
-    : t('heldbyquota').replace('{dimension}', esc(w.dimension||''));
+    ? esc(t('heldbycap')).replace('{limit}', esc(String(w.limit)))
+    : esc(t('heldbyquota')).replace('{dimension}', esc(w.dimension||''));
   return ` <span class="badge op">${txt}</span>`;
 }
 // WHICH WORKER RAN THIS? On a fleet of several GPU hosts that is the first

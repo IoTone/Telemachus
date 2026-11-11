@@ -74,7 +74,7 @@ async function repoView(){
       ${nav?`<div style="margin-top:8px">${nav}</div>`:''}
       ${objs.length
         ? `<table style="margin-top:8px"><thead><tr><th>${esc(t('key'))}</th><th>${esc(t('visibility'))}</th><th>${esc(t('size'))}</th><th>${esc(t('updated'))}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-        : `<p class="muted" style="margin-top:8px">${S.repoShared?t('nosharedwithme'):(prefix?t('nohereobjects'):t('norepoobjects'))}</p>`}
+        : `<p class="muted" style="margin-top:8px">${esc(S.repoShared?t('nosharedwithme'):(prefix?t('nohereobjects'):t('norepoobjects')))}</p>`}
     </div>
     <div id="rdetail"></div>
     ${await s3Card()}`;
@@ -240,14 +240,14 @@ async function repoOpenDetail(id){
     </tr>`).join('');
   // one row per principal: who, what they may do, until when — and revoke (DSH step 3)
   const grows=grants.length
-    ? grants.map(x=>`<tr><td>${x.principal_type==='team'?'<span class="badge">'+t('teamsec')+'</span> ':''}${esc(x.name||x.username||x.principal_id)}</td>
-        <td class="mono muted">${esc(t('cap_'+(x.capability||'view')))}${x.expired?' <span class="badge bad">'+t('expired')+'</span>':(x.expires_at?' · '+t('until')+' '+esc(x.expires_at.slice(0,10)):'')}</td>
+    ? grants.map(x=>`<tr><td>${x.principal_type==='team'?'<span class="badge">'+esc(t('teamsec'))+'</span> ':''}${esc(x.name||x.username||x.principal_id)}</td>
+        <td class="mono muted">${esc(t('cap_'+(x.capability||'view')))}${x.expired?' <span class="badge bad">'+esc(t('expired'))+'</span>':(x.expires_at?' · '+esc(t('until'))+' '+esc(x.expires_at.slice(0,10)):'')}</td>
         <td><button class="btn sm bad" data-h-click="${H((el,ev)=>repoUnshare((id),(x.principal_type),(x.principal_id)))}">${esc(t('revoke'))}</button></td></tr>`).join('')
     : `<tr><td colspan="3" class="muted">${esc(t('noshares'))}</td></tr>`;
   // a person on this team, or a team in this org (DSH-6) — never anyone outside it
   const uopts=users.filter(x=>x.user_id!==o.owner_user_id)
     .map(x=>`<option value="user:${esc(x.user_id)}">${esc(x.username)}</option>`).join('');
-  const topts=teams.map(x=>`<option value="team:${esc(x.id)}">${esc(x.name)}${x.own?' ('+t('thisteam')+')':''}</option>`).join('');
+  const topts=teams.map(x=>`<option value="team:${esc(x.id)}">${esc(x.name)}${x.own?' ('+esc(t('thisteam'))+')':''}</option>`).join('');
   const opts=(uopts?`<optgroup label="${esc(t('people'))}">${uopts}</optgroup>`:'')+(topts?`<optgroup label="${esc(t('teamsec'))}">${topts}</optgroup>`:'');
   // "Processed by": what came out of this document, where it came from, every run that touched it (DWF step 4)
   const drows=(proc.derived||[]).map(d=>`<tr><td><b class="mono">${esc(d.key)}</b><div class="muted" style="font-size:12px">${esc(d.content_type)}${d.version>1?' · v'+esc(d.version):''}</div></td>
@@ -257,7 +257,7 @@ async function repoOpenDetail(id){
   const frows=(proc.derived_from||[]).map(d=>`<tr><td>${esc(t('derivedfrom'))} <b class="mono">${esc(d.key||d.source_object_id)}</b></td>
       <td class="muted">${esc(d.step_id||'—')}</td><td class="muted" style="font-size:12px">${esc(d.created_at)}</td>
       <td style="white-space:nowrap"><button class="btn sm ghost" data-h-click="${H((el,ev)=>repoOpenDetail((d.source_object_id)))}">${esc(t('details'))}</button>${d.run_id?` <button class="btn sm ghost" data-h-click="${H((el,ev)=>repoViewRun((d.run_id)))}">${esc(t('viewrun'))}</button>`:''}</td></tr>`).join('');
-  const rrows=(proc.runs||[]).map(r=>`<tr><td>${esc(r.slug||'—')}${r.trigger_id?' <span class="badge">'+t('bytrigger')+'</span>':''}</td>
+  const rrows=(proc.runs||[]).map(r=>`<tr><td>${esc(r.slug||'—')}${r.trigger_id?' <span class="badge">'+esc(t('bytrigger'))+'</span>':''}</td>
       <td>${wfBadge(r.status)}</td><td class="muted" style="font-size:12px">${esc(r.created_at)}</td>
       <td><button class="btn sm ghost" data-h-click="${H((el,ev)=>repoViewRun((r.id)))}">${esc(t('viewrun'))}</button></td></tr>`).join('');
   const processed = (drows||frows||rrows)

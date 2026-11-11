@@ -188,8 +188,10 @@ never shadow a core route or another plugin's. Every route requires a bearer tok
 unless it declares `'public`. By default the permission you name is checked by
 ROLE before your handler runs; declare the optional seventh element `'resource`
 when the handler will weigh the permission itself against one object (the shape a
-grant holder needs, and the only way `files:read` admits a viewer with a share). A
-`raise-user-error` becomes the caller's 400. A malformed entry fails **your plugin's
+grant holder needs, and the only way `files:read` admits a viewer with a share).
+On a `'resource` route YOUR HANDLER IS THE ONLY GATE: the platform checks nothing
+before it runs, so a route that declares the scope and then forgets to call
+`require-perm` or `can?` refuses nobody. A `raise-user-error` becomes the caller's 400. A malformed entry fails **your plugin's
 load**, not a request an hour later. They appear in
 [api.md](reference/api.md#plugin-routes) and in `GET /api/plugins`.
 
@@ -582,7 +584,7 @@ TMach rather than extending it, the deployment surface is two pages:
 nix build .#container && docker load < result    # on a Linux host
 docker run -d --read-only --tmpfs /tmp -v telemachus-data:/data \
   -e DATABASE_URL='postgres://…' -e TMACH_SECRET_KEY="$(openssl rand -hex 32)" \
-  -p 8835:8835 --stop-timeout 30 telemachus:0.12.0
+  -p 8835:8835 --stop-timeout 30 telemachus:0.13.0
 ```
 
 Four things about the image are worth knowing before you plan around it:

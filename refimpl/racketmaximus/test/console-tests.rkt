@@ -1949,9 +1949,29 @@
   ;; THE RULE IS ESCAPE AT THE SINK, NEVER INSIDE `t()`. A value that is later
   ;; assigned to `textContent`, put in a `confirm()` or read by a screen reader is
   ;; plain text: escaping it there would put `&amp;` in front of a reader instead.
-  ;; So the needle is `${t(` inside a template literal, not every `t(` call —
-  ;; `btn.textContent = t('send')` is correct exactly as it stands.
-  (define (sites src) (length (regexp-match* #px"\\$\\{(?!esc\\()t\\(" src)))
+  ;; So the needle is an interpolation whose expression reaches `t(`, not every
+  ;; `t(` call — `btn.textContent = t('send')` is correct exactly as it stands.
+  ;; ONE RULE, NOT THREE SHAPES. A first version looked for a bare `${t(` and read
+  ;; clean while ten sites interpolated a catalog string through a ternary or a
+  ;; concatenation. A second version looked for `?`/`:`/`+` before `t(` and
+  ;; over-reported, because `esc(t(…))` and an escaping helper both match that
+  ;; spelling and are correct.
+  ;;
+  ;; So the rule is about the EXPRESSION, not the character before the call: an
+  ;; interpolation is unsafe when it calls `t(` and contains no escape at all.
+  ;; `esc(t(…))`, `col(t(…), …)` and the other helpers below escape their argument
+  ;; at the sink, which is exactly where the rule says it belongs.
+  (define escape-helpers
+    '("esc(" "col(" "btn(" "hRow(" "hBadge(" "qvSpark(" "pick(" "seg(" "tog("
+      "helpBody(" "visLabel(" "wfBadge(" "artifactCard(" "jobWaitBadge(" "reviewCard("
+      "stat(" "sel(" "visSelect(" "wfJson(" "bodyRender(" "brandContrast(" "iv(" "bxAsset("))
+  (define t-call #px"(?<![A-Za-z0-9_$.])t\\(")
+  (define (unsafe? expr)
+    (and (regexp-match? t-call expr)
+         (not (for/or ([h (in-list escape-helpers)]) (string-contains? expr h)))))
+  (define (sites src)
+    (for/sum ([m (in-list (regexp-match* #px"\\$\\{[^}]*\\}" src))])
+      (if (unsafe? m) 1 0)))
   ;; `for*`, not `for`: a parallel clause cannot see the one before it, and this
   ;; loop counts in the same breath as it reads the file (line 74's rule).
   (define offenders
@@ -1959,10 +1979,8 @@
                 [n (in-value (sites (console-code f)))]
                 #:when (positive? n))
       (format "~a: ~a site(s)" f n)))
-  ;; The reported shape is `t('…')`; this scan is deliberately BROADER and takes
-  ;; `t(key)` and `t(org ? 'a' : 'b')` too, which are the same sink. A second
-  ;; scan for the narrower spelling would be a guard duplicating this one, and a
-  ;; reader would take it for the place the rule lives.
+  ;; The scan reads the whole expression, so `t(key)`, `t(org ? 'a' : 'b')` and
+  ;; `'…' + t('x')` are all the same sink and all seen.
   (check-equal? offenders '()
                 (string-append "escape at the sink: ${esc(t('key'))}. A value bound for "
                                "textContent or confirm() is plain text — leave that one alone"))

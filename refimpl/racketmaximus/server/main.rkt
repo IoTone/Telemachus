@@ -705,9 +705,19 @@
   ;; SEAL-1: remember the sealed columns every loaded plugin declared, so a
   ;; rotation still walks them after the plugin is uninstalled. After the
   ;; migrations, because the ledger table itself is one of them.
-  (define sealed (record-plugin-seals! db-conn (plugin-seals) (current-seconds)))
+  (define-values (sealed seal-skipped seal-changed)
+    (record-plugin-seals! db-conn (plugin-seals) (current-seconds)))
   (when (positive? sealed)
     (printf "  sealed columns declared by plugins: ~a\n" sealed))
+  ;; A declaration naming a table that does not exist is REPORTED, not dropped:
+  ;; a typo, or a plugin whose migration has not run, would otherwise stop being
+  ;; rotated with nothing said (SEAL-1's silent skip).
+  (for ([s (in-list seal-skipped)])
+    (printf "  sealed column NOT recorded, no such table: ~a\n" s))
+  ;; A corrected template is written over the old one; the operator still has to
+  ;; know that rows written under the previous spelling need their own pass.
+  (for ([c (in-list seal-changed)])
+    (printf "  sealed column declaration CHANGED: ~a (rows under the old context need their own rotation)\n" c))
   ;; Refuse to serve with a RELATIVE blob root. `serve/servlet` repoints
   ;; `current-directory` at the web server's own web root while it handles a
   ;; request, so a relative root aims writes at whatever that is — for a Nix

@@ -252,7 +252,7 @@ function notesListHTML(J, opts){
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags),(n.format)))}">${esc(t('edit'))}</button></div>
         <div><button class="btn sm ghost"${(S.autoTagging===n.id||n.format==='org')?' disabled':''}
           data-h-click="${H((el,ev)=>doAutoTag((n.id)))}"
-          title="${esc(n.format==='org'?t('autotagorg'):t('autotaghint'))}">${S.autoTagging===n.id?esc(t('autotagging')):t('autotag')}</button></div>
+          title="${esc(n.format==='org'?t('autotagorg'):t('autotaghint'))}">${S.autoTagging===n.id?esc(t('autotagging')):esc(t('autotag'))}</button></div>
         <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${esc(t('del'))}</button></div>
       </div></div>`).join('')
     || `<div class="card"><p class="muted" style="margin:0 0 10px">${esc(t('nonotes'))}</p>
@@ -683,7 +683,7 @@ async function teamView(){
     const status = on ? `<span class="badge ok">${esc(t('featon'))}</span>`
                       : `<span class="badge">${esc(t('featoff'))}</span>`;
     const act = above ? `<span class="muted" style="font-size:12px">${esc(t('featlocked'))}</span>`
-      : `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleFeature((f),(!on)))}">${on?t('disable'):t('enable')}</button>`;
+      : `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleFeature((f),(!on)))}">${on?esc(t('disable')):esc(t('enable'))}</button>`;
     return `<tr><td class="mono">${esc(f)}</td><td>${status}</td><td class="mono muted">${esc(by)}</td><td>${act}</td></tr>`;
   }).join('');
   const featCard = manage ? `<div class="card" style="margin-top:14px"><h3>${esc(t('features'))} <span class="muted" style="font-size:13px">— activate / deactivate</span></h3>
@@ -742,16 +742,16 @@ function canManage(){ if(!S.me) return false; if(S.me.is_operator) return true;
 // is exactly how it was read.
 function quotaHeldCard(held){
   if(!held) return '';
-  const fill = (k)=>t(k).replace('{dimension}', esc(held.dimension||''))
+  const fill = (k)=>esc(t(k)).replace('{dimension}', esc(held.dimension||''))
                         .replace('{used}', esc(String(held.used)))
                         .replace('{limit}', esc(String(held.limit)));
   const body = held.scope==='org' ? fill('quotaheldorg') : fill('quotaheldteam');
   // resets_at is epoch SECONDS and absent for a sliding window, so the sentence
   // is only added when the server actually named a boundary
-  const when = held.resets_at ? ' '+t('quotaresets').replace('{when}',
+  const when = held.resets_at ? ' '+esc(t('quotaresets')).replace('{when}',
                  esc(new Date(held.resets_at*1000).toLocaleString())) : '';
   // an org-tier limit is not the team operator's to raise, so do not promise it
-  const who = (S.me && S.me.is_operator && held.scope!=='org') ? t('quotaraiseop') : t('quotaraiseask');
+  const who = esc((S.me && S.me.is_operator && held.scope!=='org') ? t('quotaraiseop') : t('quotaraiseask'));
   return `<div class="card" style="border-color:var(--warn,#c9a227);margin-bottom:14px">
       <h3>⏸ ${esc(t('quotaheldtitle'))}</h3><p style="margin:0">${body}${when} ${who}</p></div>`;
 }
@@ -777,7 +777,7 @@ async function usageView(){
   const toolRows=tools.map(x=>`<tr><td class="mono">${esc(x.name)}</td><td class="mono muted">${esc(x.permission)}</td>
       <td>${x.source==='built-in'?'<span class="badge">built-in</span>':`<span class="badge ok">🔌 ${esc(x.source)}</span>`}</td>
       <td>${x.enabled?'<span class="badge ok">on</span>':'<span class="badge">off</span>'}</td>
-      <td>${manage?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleTool((x.name),(!x.enabled)))}">${x.enabled?t('disable'):t('enable')}</button>`:''}</td></tr>`).join('');
+      <td>${manage?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleTool((x.name),(!x.enabled)))}">${x.enabled?esc(t('disable')):esc(t('enable'))}</button>`:''}</td></tr>`).join('');
   // issue #43: a plugin with a page gets a link. Opening it needs a ticket — the
   // page is authenticated and a browser navigation carries no bearer — so the
   // link mints one and opens the URL the server hands back.

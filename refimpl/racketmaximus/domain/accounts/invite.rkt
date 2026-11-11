@@ -13,10 +13,16 @@
 ;; `POST /api/org/members`), and both go through this module, so "what an
 ;; invitation is" has one home however the caller reached it.
 ;;
-;; WHAT AN INVITATION ANSWERS WITH IS NOT A SESSION, and that is now the rule for
-;; BOTH forms: a created account is never handed a token for itself. The caller
-;; sets a password or sends an invitation, and either way the person signs in
-;; with their own credential.
+;; WHAT AN INVITATION ANSWERS WITH IS NOT A SESSION. The `email` form creates the
+;; account `invited` and answers with the address pending and, on an instance with
+;; no transport, the link, so the inviter holds no credential for the invitee.
+;;
+;; The `username` form is DIFFERENT, deliberately and still today: both planes
+;; mint a `*:*` session for the new account and return it in the reply, because
+;; every fixture, smoke block and demo in this tree provisions members that way and
+;; the invitation is additive. That is a credential for somebody else's account and
+;; it is a known gap (`INVITE-1`), not a closed one. Closing it is a flag day across
+;; those callers, and it is not part of this release.
 
 (require db-kit/portable
          racket/string

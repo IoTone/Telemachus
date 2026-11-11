@@ -119,7 +119,7 @@ function workersCard(xr, fr){
   };
 
   const locRow = loc ? `<tr><td><span class="badge ok">${esc(t('wklocal'))}</span></td><td class="mono">${esc(loc.model)}</td>
-    <td><span class="badge ${loc.configured?'ok':'warn'}">${loc.configured?t('wkconfigured'):t('simulated')}</span></td>
+    <td><span class="badge ${loc.configured?'ok':'warn'}">${loc.configured?esc(t('wkconfigured')):esc(t('simulated'))}</span></td>
     <td colspan="5" class="muted">${esc(t('wklocalhint'))}</td></tr>` : '';
 
   // Executors declared in executors.json are NOT in the fleet read — that one
@@ -444,7 +444,7 @@ function instFeatCard(){
     const status = off ? `<span class="badge bad">${esc(t('featoff'))}</span>`
                        : `<span class="badge ok">${esc(t('featallowed'))}</span>`;
     return `<tr><td class="mono">${esc(f)}</td><td>${status}</td>
-      <td><button class="btn sm ${off?'ghost':'bad'}" data-h-click="${H((el,ev)=>doInstFeature((f),(off)))}">${off?t('featallow'):t('featturnoff')}</button></td></tr>`;
+      <td><button class="btn sm ${off?'ghost':'bad'}" data-h-click="${H((el,ev)=>doInstFeature((f),(off)))}">${off?esc(t('featallow')):esc(t('featturnoff'))}</button></td></tr>`;
   }).join('');
   return `<div class="card" style="margin-top:14px"><h3>${esc(t('instfeatures'))}</h3>
     <p class="muted" style="margin-top:0">${esc(t('instfeathint'))}</p>

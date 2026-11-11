@@ -216,7 +216,9 @@
 (define (ep-my-org-members req)
   (with-mt req (lambda ()
     (with-auth req (lambda (p)
-      (require-perm db-conn p "org:read")
+      ;; org:manage, not org:read: this is the management plane's list of people,
+      ;; and reading it is not the same authority as reading the company's data.
+      (require-perm db-conn p "org:manage")
       (json-response (hasheq 'members (org-members db-conn (caller-org p)))))))))
 
 (define (ep-my-org-team-create req)

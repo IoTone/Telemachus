@@ -35,11 +35,11 @@ async function automationsCard(defs){
   const trg=r.json.triggers||[], b=r.json.budget||{};
   const budget=(b.limit===null||b.limit===undefined) ? t('nolimit') : `${esc(b.remaining)} / ${esc(b.limit)} ${esc(t('tokensleft'))}`;
   const rows=trg.map(x=>`<tr>
-      <td><b>${esc(x.workflow_slug)}</b><div class="muted mono" style="font-size:12px">${esc(x.match_prefix||'*')}${x.match_types?' · '+esc(x.match_types):''}${x.match_attrs&&Object.keys(x.match_attrs).length?' · '+esc(Object.entries(x.match_attrs).map(([k,v])=>k+':'+v).join(', ')):''}${x.fire_on_derived?' · '+t('trigger_derived'):''}</div></td>
-      <td>${x.enabled?'<span class="badge ok">'+t('enabled')+'</span>':'<span class="badge">'+t('disabled')+'</span>'}</td>
+      <td><b>${esc(x.workflow_slug)}</b><div class="muted mono" style="font-size:12px">${esc(x.match_prefix||'*')}${x.match_types?' · '+esc(x.match_types):''}${x.match_attrs&&Object.keys(x.match_attrs).length?' · '+esc(Object.entries(x.match_attrs).map(([k,v])=>k+':'+v).join(', ')):''}${x.fire_on_derived?' · '+esc(t('trigger_derived')):''}</div></td>
+      <td>${x.enabled?'<span class="badge ok">'+esc(t('enabled'))+'</span>':'<span class="badge">'+esc(t('disabled'))+'</span>'}</td>
       <td style="white-space:nowrap">
         <button class="btn sm ghost" data-h-click="${H((el,ev)=>trgHistory((x.id)))}">${esc(t('fires'))}</button>
-        ${canPerm('workflows:write')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>trgToggle((x.id),(x.enabled?'false':'true')))}">${x.enabled?t('disable'):t('enable')}</button>
+        ${canPerm('workflows:write')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>trgToggle((x.id),(x.enabled?'false':'true')))}">${x.enabled?esc(t('disable')):esc(t('enable'))}</button>
         <button class="btn sm bad" data-h-click="${H((el,ev)=>trgDelete((x.id)))}">${esc(t('del'))}</button>`:''}
       </td></tr>`).join('');
   const wopts=defs.map(d=>`<option value="${esc(d.slug)}"${d.slug==='process-upload'?' selected':''}>${esc(d.name||d.slug)}</option>`).join('');

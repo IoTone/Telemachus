@@ -207,18 +207,20 @@
 (define (org-members conn org-id)
   (for/list ([r (in-list (query-rows conn
      (string-append "SELECT id, username, display_name, status, org_role_key, "
-                    "       email, email_verified_epoch FROM users "
-                    "WHERE org_id = ? ORDER BY username") org-id))])
+                    "       email, email_verified_epoch, "
+                    "       EXISTS (SELECT 1 FROM email_verifications v WHERE v.user_id = users.id) "
+                    "FROM users WHERE org_id = ? ORDER BY username") org-id))])
     (define uid (vector-ref r 0))
-    ;; AN ADMIN HAS TO BE ABLE TO SEE WHY A PERSON CANNOT RESET: an account with
-    ;; no address, or one that never proved it, cannot receive a recovery link.
-    ;; The address ITSELF is not in this reply — the same posture as every other
-    ;; read — only whether there is one and whether it is proven.
+    ;; AN ADMIN HAS TO BE ABLE TO SEE WHY A PERSON CANNOT RESET. `users.email` is
+    ;; only ever written WITH `email_verified_epoch`, so "has an address" and
+    ;; "proved it" are one state, not two; the state production can actually
+    ;; produce is a PENDING address in `email_verifications`, which cannot receive
+    ;; a recovery link either. The address ITSELF is never in this reply.
     (hasheq 'user_id uid 'username (vector-ref r 1)
             'display_name (nz (vector-ref r 2)) 'status (vector-ref r 3)
             'org_role (nz (vector-ref r 4))
-            'has_email (not (sql-null? (vector-ref r 5)))
             'email_verified (not (sql-null? (vector-ref r 6)))
+            'email_pending (equal? 1 (vector-ref r 7))
             'teams (query-list conn
               (string-append "SELECT t.slug || ':' || m.role_key FROM memberships m "
                              "JOIN teams t ON t.id = m.team_id WHERE m.user_id = ? ORDER BY t.slug") uid))))

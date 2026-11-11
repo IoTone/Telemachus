@@ -22,7 +22,7 @@
          (only-in file/sha1 bytes->hex-string)
          "../config.rkt"
          "../domain/authz/secretbox.rkt"
-         (only-in "../domain/agent/seals.rkt" ledger-specs))
+         (only-in "../domain/agent/seals.rkt" ledger-specs ledger-missing))
 
 ;; the same connector the server uses — sqlite:/// or postgres://, resolved
 ;; against the implementation root exactly as main.rkt resolves it
@@ -156,6 +156,14 @@
 ;; platform's is a prefix string; `context-of` accepts both.
 (define (all-specs conn) (append (SECRETS) (ledger-specs conn)))
 
+;; A ledger row whose table is gone is named once, before either command walks
+;; anything: it is the uninstalled-plugin case the ledger exists for, and walking
+;; it used to raise a raw SQL error that stopped `rewrap` part-way.
+(define (report-missing conn)
+  (for ([m (in-list (ledger-missing conn))])
+    (printf "skipped    : ~a.~a — the table does not exist (plugin ~a)\n"
+            (list-ref m 0) (list-ref m 1) (list-ref m 2))))
+
 ;; A spec's id column is one name or a LIST of names. A row comes back as
 ;; (ids . stored), `ids` always a list, so every caller has one shape.
 (define (id-columns idcol) (if (list? idcol) idcol (list idcol)))
@@ -197,6 +205,7 @@
   (case form [(bytes) (wrapped-bytes? stored)] [else (wrapped-secret? stored)]))
 
 (define (status conn)
+  (report-missing conn)
   (printf "secret key : ~a\n" (if (secrets-enabled?) (format "configured (id ~a)" (secret-key-id)) "NOT configured"))
   (when (current-previous-secret-key)
     (printf "previous   : configured — a rotation is in progress\n"))
@@ -234,6 +243,7 @@
 (define (rewrap conn)
   (unless (secrets-enabled?)
     (die "TMACH_SECRET_KEY is not set — there is nothing to seal secrets with."))
+  (report-missing conn)
   (define changed
     (for/sum ([spec (in-list (all-specs conn))])
       (define-values (table col idcol prefix) (apply values (take spec 4)))
