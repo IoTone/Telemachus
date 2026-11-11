@@ -562,7 +562,7 @@ function revealEl(id){
 // and has its own paging to reset.
 function pathNav(folders, prefix, go){
   const segs = (prefix || '').split('/').filter(s => s.length);
-  const crumbs = [`<button class="btn sm${prefix ? ' ghost' : ''}" data-h-click="${H(() => go(''))}">${t('allpaths')}</button>`];
+  const crumbs = [`<button class="btn sm${prefix ? ' ghost' : ''}" data-h-click="${H(() => go(''))}">${esc(t('allpaths'))}</button>`];
   let acc = '';
   segs.forEach(s => {
     acc += s + '/';
@@ -578,7 +578,7 @@ function pathNav(folders, prefix, go){
     ? strip(kids.map(f => `<button class="btn sm ghost" data-h-click="${H(() => go(f.prefix))}">${esc(f.name)}/</button>`).join(''))
     : '';
   const cut = (folders && folders.truncated)
-    ? `<div class="muted" style="font-size:12px;margin-top:4px">${t('foldercut')}</div>` : '';
+    ? `<div class="muted" style="font-size:12px;margin-top:4px">${esc(t('foldercut'))}</div>` : '';
   return strip(crumbs.join('')) + folderStrip + cut;
 }
 
@@ -612,7 +612,7 @@ function pagerHTML(o){
   const pages = Math.max(1, Math.ceil(total / size));
   const cur = Math.min(pages, Math.floor(off / size) + 1);
   const from = total ? off + 1 : 0, to = off + (o.shown || 0);
-  const showing = `<span class="muted">${t('qshowing').replace('{from}',from).replace('{to}',to).replace('{total}',total)}</span>`;
+  const showing = `<span class="muted">${esc(t('qshowing').replace('{from}',from).replace('{to}',to).replace('{total}',total))}</span>`;
   if(pages<=1) return `<p style="margin-top:8px">${showing}</p>`;
   const btn=(label,page,opts)=>{
     const op = opts || {};
@@ -637,7 +637,7 @@ function pagerHTML(o){
     ${nums.join('')}
     ${btn('›',cur+1,{disabled:cur>=pages,title:t('qnext')})}
     ${btn('»',pages,{disabled:cur>=pages,title:t('qlast')})}
-    <label style="margin:0 0 0 10px;white-space:nowrap">${t('qjump')}
+    <label style="margin:0 0 0 10px;white-space:nowrap">${esc(t('qjump'))}
       <input type="number" min="1" max="${pages}" value="${cur}" style="width:5.5em;margin-left:6px"
         data-h-change="${H((el)=>jump(el))}"
         data-h-keydown="${H((el,ev)=>{ if(ev.key==='Enter'&&!ev.isComposing){ jump(el); return false; } })}">

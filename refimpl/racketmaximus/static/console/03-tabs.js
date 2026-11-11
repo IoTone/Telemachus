@@ -6,16 +6,16 @@ async function chatView(){
   // the word that matters least in the language they had not chosen.
   const badge = S.model?.configured ? `<span class="badge ok">${esc(S.model.model)}</span>`
     : `<span class="badge" style="color:var(--warn)" title="${esc(t('simulatedwhy'))}">${esc(S.model?.model||'local')} · ${esc(t('simulated'))}</span>`;
-  return `<h2>${t('chat')} <span class="muted" style="font-size:14px">${t('model')}: ${badge}</span></h2>
+  return `<h2>${esc(t('chat'))} <span class="muted" style="font-size:14px">${esc(t('model'))}: ${badge}</span></h2>
     <div class="card">
-      <label>${t('prompt')}</label>
+      <label>${esc(t('prompt'))}</label>
       <textarea id="cp" class="grow" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doChat))}"
         data-h-input="${H((el)=>{growTA(el);cpCount();})}">Hello team</textarea>
       <div id="cpcount" class="muted" style="font-size:12px"></div>
       <div class="row" style="align-items:center;gap:8px">
-        <button class="btn" id="cpsend" data-h-click="${H((el,ev)=>doChat())}">${t('send')}</button>
-        <button class="btn ghost" id="cpstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('chatAbort'))}">${t('stop')}</button>
-        <span class="muted" style="font-size:12px">${t('sendhint')}</span>
+        <button class="btn" id="cpsend" data-h-click="${H((el,ev)=>doChat())}">${esc(t('send'))}</button>
+        <button class="btn ghost" id="cpstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('chatAbort'))}">${esc(t('stop'))}</button>
+        <span class="muted" style="font-size:12px">${esc(t('sendhint'))}</span>
       </div>
     </div><div id="chatlog"></div>`;
 }
@@ -69,15 +69,15 @@ async function doChat(){
 // own. `S.model` is shared, so a tab change does not pay for it twice.
 async function agentView(){
   if(!S.model){ const m=await api('/api/ai/model'); S.model=m.json; }
-  return `<h2>${t('agent')} <span class="muted" style="font-size:14px">— the AI uses tools to act on your platform</span></h2>
-    <div class="card"><label>${t('prompt')}</label>
+  return `<h2>${esc(t('agent'))} <span class="muted" style="font-size:14px">— the AI uses tools to act on your platform</span></h2>
+    <div class="card"><label>${esc(t('prompt'))}</label>
       <textarea id="ap" class="grow" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doAgent))}"
         data-h-input="${H((el)=>{growTA(el);apCount();})}">Create a private note titled "Q3 goals" with body "ship v1, hire two, launch". Then list my notes.</textarea>
       <div id="apcount" class="muted" style="font-size:12px"></div>
       <div class="row" style="align-items:center;gap:8px">
-        <button class="btn" id="apsend" data-h-click="${H((el,ev)=>doAgent())}">${t('send')}</button>
-        <button class="btn ghost" id="apstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('agentAbort'))}">${t('stop')}</button>
-        <span class="muted" style="font-size:12px">${t('sendhint')}</span>
+        <button class="btn" id="apsend" data-h-click="${H((el,ev)=>doAgent())}">${esc(t('send'))}</button>
+        <button class="btn ghost" id="apstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('agentAbort'))}">${esc(t('stop'))}</button>
+        <span class="muted" style="font-size:12px">${esc(t('sendhint'))}</span>
       </div></div><div id="agentlog"></div>`;
 }
 async function doAgent(){
@@ -119,8 +119,8 @@ async function doAgent(){
 // an artifact-shaped tool result (slice 64): the thing a tool produced, as a card
 // that opens it, rather than its payload as text
 function artifactCard(a){
-  const open = a.object_id ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>kgOpenDoc((a.object_id)))}">${t('details')}</button>`
-             : (a.url ? `<a class="btn sm ghost" href="${esc(a.url)}" target="_blank" rel="noopener">${t('open')}</a>` : '');
+  const open = a.object_id ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>kgOpenDoc((a.object_id)))}">${esc(t('details'))}</button>`
+             : (a.url ? `<a class="btn sm ghost" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(t('open'))}</a>` : '');
   return `<div class="card" style="margin:4px 0 8px 20px;padding:8px 10px;display:flex;gap:10px;align-items:center">
     <span class="badge">${esc(a.kind)}</span>
     <div style="flex:1;min-width:0"><b class="mono" style="font-size:13px">${esc(a.title)}</b>
@@ -204,20 +204,20 @@ async function notesView(){
   const card = viewing
     ? noteViewCard(viewing, edges)
     : editing
-    ? `<div class="card"><h3>${t('editnote')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
-      <label for="nt">${t('title')}</label><input id="nt" value="${esc(d.title)}">
-      <label for="nb">${t('body')}</label>${editorHTML('note', {id:'nb', formats:NOTE_FORMATS})}
+    ? `<div class="card"><h3>${esc(t('editnote'))} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
+      <label for="nt">${esc(t('title'))}</label><input id="nt" value="${esc(d.title)}">
+      <label for="nb">${esc(t('body'))}</label>${editorHTML('note', {id:'nb', formats:NOTE_FORMATS})}
       ${tagsField(noteDraftTags(d, editing))}
-      <label for="nv">${t('visibility')}</label>${visSelect(d.vis)}
-      <button class="btn" data-h-click="${H((el,ev)=>doSaveNote())}">${t('save')}</button>
-      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>noteEditCancel())}">${t('cancel')}</button>
+      <label for="nv">${esc(t('visibility'))}</label>${visSelect(d.vis)}
+      <button class="btn" data-h-click="${H((el,ev)=>doSaveNote())}">${esc(t('save'))}</button>
+      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>noteEditCancel())}">${esc(t('cancel'))}</button>
       ${noteTools('note','nt')}</div>`
-    : `<div class="card"><h3>${t('newnote')}</h3>
-      <label for="nt">${t('title')}</label><input id="nt" value="${esc(d.title)}">
-      <label for="nb">${t('body')}</label>${editorHTML('note', {id:'nb', value:d.body == null ? '' : d.body, formats:NOTE_FORMATS})}
+    : `<div class="card"><h3>${esc(t('newnote'))}</h3>
+      <label for="nt">${esc(t('title'))}</label><input id="nt" value="${esc(d.title)}">
+      <label for="nb">${esc(t('body'))}</label>${editorHTML('note', {id:'nb', value:d.body == null ? '' : d.body, formats:NOTE_FORMATS})}
       ${tagsField(noteDraftTags(d, null))}
-      <label for="nv">${t('visibility')}</label>${visSelect(d.vis)}
-      <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${t('create')}</button>
+      <label for="nv">${esc(t('visibility'))}</label>${visSelect(d.vis)}
+      <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${esc(t('create'))}</button>
       ${noteTools('note','nt')}</div>`;
   // the swap needs the member options without re-reading /api/members, so the
   // full render is what keeps them current — `S.qKinds`' rule exactly
@@ -230,8 +230,8 @@ async function notesView(){
     ? noteGraphCard(G, (G.nodes||[]).filter(n=>n.focus).map(n=>n.title)[0] || '')
     : `<div class="row" style="margin-top:10px"><div style="flex:0 0 auto">
         <button class="btn sm ghost" data-h-click="${H(()=>graphOpen(S.noteShow||null))}"
-          title="${esc(t('ngraphhint'))}">${t('ngraphshow')}</button></div></div>`;
-  return `<h2>${t('notes')}</h2>${card}${graph}${orgImportStrip()}${filter}${list}`;
+          title="${esc(t('ngraphhint'))}">${esc(t('ngraphshow'))}</button></div></div>`;
+  return `<h2>${esc(t('notes'))}</h2>${card}${graph}${orgImportStrip()}${filter}${list}`;
 }
 
 // THE LIST AND ITS PAGER, as a function of the response — so `nGo` can rebuild
@@ -247,16 +247,16 @@ function notesListHTML(J, opts){
       ${noteFormatBadge(n)}${noteTagChips(n)}
       <div class="row" style="margin-top:8px">
         ${canShareNote(n) ? `<div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>` : ''}
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteShow((n.id)))}">${t('view')}</button></div>
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags),(n.format)))}">${t('edit')}</button></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${esc(t('share'))}</button></div>` : ''}
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteShow((n.id)))}">${esc(t('view'))}</button></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags),(n.format)))}">${esc(t('edit'))}</button></div>
         <div><button class="btn sm ghost"${(S.autoTagging===n.id||n.format==='org')?' disabled':''}
           data-h-click="${H((el,ev)=>doAutoTag((n.id)))}"
           title="${esc(n.format==='org'?t('autotagorg'):t('autotaghint'))}">${S.autoTagging===n.id?esc(t('autotagging')):t('autotag')}</button></div>
-        <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${t('del')}</button></div>
+        <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${esc(t('del'))}</button></div>
       </div></div>`).join('')
     || `<div class="card"><p class="muted" style="margin:0 0 10px">${esc(t('nonotes'))}</p>
-        <button class="btn sm" data-h-click="${H(()=>{ const el=document.getElementById('nt'); if(el){ el.focus(); el.scrollIntoView({block:'center'}); } })}">${t('newnote')}</button></div>`;
+        <button class="btn sm" data-h-click="${H(()=>{ const el=document.getElementById('nt'); if(el){ el.focus(); el.scrollIntoView({block:'center'}); } })}">${esc(t('newnote'))}</button></div>`;
   return `<div id="nlist">${list}${pagerHTML({ total: J.total||0, offset: J.offset||0,
                                                size: NPAGE, shown: notes.length, go: nGo })}</div>`;
 }
@@ -334,7 +334,7 @@ function tagFilterStrip(tags){
   const chip = x => `<button class="btn sm ${on.indexOf(x.tag)>=0?'':'ghost'}"
       data-h-click="${H(()=>noteTagToggle(x.tag))}">${esc(x.tag)} <span class="muted">${x.notes}</span></button>`;
   const clear = on.length
-    ? `<button class="btn sm ghost" data-h-click="${H(()=>noteTagClear())}">${t('tagclear')}</button>` : '';
+    ? `<button class="btn sm ghost" data-h-click="${H(()=>noteTagClear())}">${esc(t('tagclear'))}</button>` : '';
   return `<div class="card" style="padding:10px 14px"><div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
     <span class="muted" style="font-size:12px;margin-right:4px">${esc(t('tags'))}</span>
     ${tags.map(chip).join('')}${clear}</div></div>`;
@@ -394,12 +394,12 @@ function readTags(){
 // is the whole argument for the body winning.
 function tagsFieldInner(tags){
   if(edFormat('note') === 'org'){
-    return `<label>${t('tags')}</label>
+    return `<label>${esc(t('tags'))}</label>
       <div class="muted" style="font-size:12px;margin:-2px 0 10px">${esc(t('orgtagshint'))}</div>
       ${(tags&&tags.length)?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin:-4px 0 10px">${
         tags.map(x=>`<span class="badge">${esc(x)}</span>`).join('')}</div>`:''}`;
   }
-  return `<label>${t('tags')}</label><input id="ntags" value="${esc((tags||[]).join(', '))}" placeholder="${esc(t('tagsph'))}">
+  return `<label>${esc(t('tags'))}</label><input id="ntags" value="${esc((tags||[]).join(', '))}" placeholder="${esc(t('tagsph'))}">
       <div class="muted" style="font-size:12px;margin:-6px 0 8px">${esc(t('tagshint'))}</div>`;
 }
 // WRAPPED IN AN ID, so the format switch can swap it in place. `edSetFormat` is a
@@ -445,10 +445,10 @@ function noteTools(key, titleId){
   return `<div class="row" style="margin-top:10px;gap:8px">
     <div style="flex:0 0 auto"><button class="btn sm ghost" id="edexp_${key}"
       data-h-click="${H(()=>edExport(key, (document.getElementById(titleId)||{}).value||'note'))}"
-      title="${esc(t(org?'edexportorghint':'edexporthint'))}">${t(org?'edexportorg':'edexport')}</button></div>
+      title="${esc(t(org?'edexportorghint':'edexporthint'))}">${esc(t(org?'edexportorg':'edexport'))}</button></div>
     <div style="flex:0 0 auto"><button class="btn sm ghost"
       data-h-click="${H(()=>edToRepo(key, titleId))}"
-      title="${esc(t('edtorepohint'))}">${t('edtorepo')}</button></div></div>`;
+      title="${esc(t('edtorepohint'))}">${esc(t('edtorepo'))}</button></div></div>`;
 }
 // READ-ONLY, AND THE TIMESTAMPS ARE NOT PARSED. `notes.created_at` and
 // `updated_at` are TEXT `CURRENT_TIMESTAMP`, whose format differs by dialect —
@@ -517,15 +517,15 @@ function noteViewCard(n, edges){
       · <span class="mono">${esc(n.id)}</span></div>
     <div class="row" style="margin-top:10px;gap:8px">
       <div style="flex:0 0 auto"><button class="btn sm"
-        data-h-click="${H(()=>noteEdit(n.id, n.body, n.title, n.visibility, n.tags, n.format))}">${t('edit')}</button></div>
+        data-h-click="${H(()=>noteEdit(n.id, n.body, n.title, n.visibility, n.tags, n.format))}">${esc(t('edit'))}</button></div>
       <div style="flex:0 0 auto"><button class="btn sm ghost"
         data-h-click="${H(()=>graphOpen(n.id))}"
-        title="${esc(t('ngraphhint'))}">${t('ngraph')}</button></div>
+        title="${esc(t('ngraphhint'))}">${esc(t('ngraph'))}</button></div>
       <div style="flex:0 0 auto"><button class="btn sm ghost"
         data-h-click="${H(()=>noteDownloadOrg(n.id))}"
-        title="${esc(t('orgdownloadhint'))}">${t('orgdownload')}</button></div>
+        title="${esc(t('orgdownloadhint'))}">${esc(t('orgdownload'))}</button></div>
       <div style="flex:0 0 auto"><button class="btn sm ghost"
-        data-h-click="${H(()=>noteViewClose())}">${t('close')}</button></div>
+        data-h-click="${H(()=>noteViewClose())}">${esc(t('close'))}</button></div>
     </div></div>`;
 }
 // ORG-11 — DOWNLOADING THE SAVED NOTE, which is a different thing from the
@@ -652,7 +652,7 @@ async function teamView(){
            ROLES.map(x=>`<option value="${x}"${x===m.role?' selected':''}>${esc(x)}</option>`).join('')}</select>`
       : `<span class="badge">${esc(m.role)}</span>`;
     const act = (manage && !own)
-      ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doRemoveMember(m.user_id, m.username))}">${t('remove')}</button>`
+      ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doRemoveMember(m.user_id, m.username))}">${esc(t('remove'))}</button>`
       : '';
     return `<tr><td>${esc(m.username)}</td><td>${roleCell}</td><td class="mono muted">${esc(m.user_id.slice(0,8))}…</td><td>${act}</td></tr>`;
   }).join('');
@@ -660,15 +660,15 @@ async function teamView(){
   const tokens = tks.ok ? tks.json.tokens : [];
   const aud = manage ? await api('/api/audit') : {ok:false};
   const audits = aud.ok ? aud.json.audit : [];
-  const tokRows = tokens.map(x=>`<tr><td>${esc(x.name||'—')}</td><td class="mono muted">${esc(x.prefix)}…</td><td class="mono muted">${(x.scopes||[]).map(esc).join(' ')}</td><td>${x.status==='active'?'<span class="badge ok">active</span>':'<span class="badge">'+esc(x.status)+'</span>'}</td><td>${x.status==='active'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doRevokeToken((x.id)))}">${t('revoke')}</button>`:''}</td></tr>`).join('');
+  const tokRows = tokens.map(x=>`<tr><td>${esc(x.name||'—')}</td><td class="mono muted">${esc(x.prefix)}…</td><td class="mono muted">${(x.scopes||[]).map(esc).join(' ')}</td><td>${x.status==='active'?'<span class="badge ok">active</span>':'<span class="badge">'+esc(x.status)+'</span>'}</td><td>${x.status==='active'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doRevokeToken((x.id)))}">${esc(t('revoke'))}</button>`:''}</td></tr>`).join('');
   const newTokBox = S.newToken ? `<div class="card" style="border-color:var(--ok);margin:0 0 10px"><b>New token — copy now, shown once:</b><br><span class="mono" style="word-break:break-all">${esc(S.newToken)}</span></div>` : '';
-  const tokCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('apitokens')}</h3>${newTokBox}
-      <div class="row" style="align-items:end;margin-bottom:8px"><div><label>${t('name')||'name'}</label><input id="tkn"></div>
+  const tokCard = manage ? `<div class="card" style="margin-top:14px"><h3>${esc(t('apitokens'))}</h3>${newTokBox}
+      <div class="row" style="align-items:end;margin-bottom:8px"><div><label>${esc(t('name')||'name')}</label><input id="tkn"></div>
       <div><label>scopes</label><input id="tks" value="*:read"></div>
-      <div><button class="btn sm" data-h-click="${H((el,ev)=>doCreateToken())}">${t('createtoken')}</button></div></div>
+      <div><button class="btn sm" data-h-click="${H((el,ev)=>doCreateToken())}">${esc(t('createtoken'))}</button></div></div>
       <table><thead><tr><th>name</th><th>prefix</th><th>scopes</th><th>status</th><th></th></tr></thead><tbody>${tokRows}</tbody></table></div>` : '';
   const audRows = audits.slice(0,20).map(a=>`<tr><td class="mono muted">${esc((a.at||'').replace('T',' ').slice(0,19))}</td><td>${esc(a.action)}</td><td class="mono muted">${esc((a.actor_id||'').slice(0,8))}</td><td class="mono muted">${a.resource_type?esc(a.resource_type)+' '+esc((a.resource_id||'').slice(0,8)):''}</td></tr>`).join('');
-  const audCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('audit')} <span class="muted" style="font-size:13px">— recent activity</span></h3>
+  const audCard = manage ? `<div class="card" style="margin-top:14px"><h3>${esc(t('audit'))} <span class="muted" style="font-size:13px">— recent activity</span></h3>
       <table><thead><tr><th>time</th><th>action</th><th>actor</th><th>resource</th></tr></thead><tbody>${audRows}</tbody></table></div>` : '';
   // #177: THREE statuses, not two. A feature is on; or this team turned it off;
   // or a layer ABOVE this team did, which a team cannot undo — the attempt is a
@@ -686,19 +686,19 @@ async function teamView(){
       : `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleFeature((f),(!on)))}">${on?t('disable'):t('enable')}</button>`;
     return `<tr><td class="mono">${esc(f)}</td><td>${status}</td><td class="mono muted">${esc(by)}</td><td>${act}</td></tr>`;
   }).join('');
-  const featCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('features')} <span class="muted" style="font-size:13px">— activate / deactivate</span></h3>
-      <table><thead><tr><th>feature</th><th>status</th><th>${t('featdecided')}</th><th></th></tr></thead><tbody>${featRows}</tbody></table></div>` : '';
-  return `<h2>${t('team')}</h2>
-    <div class="card"><table><thead><tr><th>${t('user')}</th><th>${t('role')}</th><th>id</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="card" style="margin-top:14px"><h3>${t('addmember')}</h3>
-      <div class="row"><div><label>${t('user')}</label><input id="mu"></div><div><label>${t('pass')}</label><input id="mp" type="password"></div>
-      <div><label>${t('role')}</label><select id="mr"><option>member</option><option>admin</option><option>viewer</option></select></div></div>
-      <button class="btn" data-h-click="${H((el,ev)=>doAddMember())}">${t('addmember')}</button>
+  const featCard = manage ? `<div class="card" style="margin-top:14px"><h3>${esc(t('features'))} <span class="muted" style="font-size:13px">— activate / deactivate</span></h3>
+      <table><thead><tr><th>feature</th><th>status</th><th>${esc(t('featdecided'))}</th><th></th></tr></thead><tbody>${featRows}</tbody></table></div>` : '';
+  return `<h2>${esc(t('team'))}</h2>
+    <div class="card"><table><thead><tr><th>${esc(t('user'))}</th><th>${esc(t('role'))}</th><th>id</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="card" style="margin-top:14px"><h3>${esc(t('addmember'))}</h3>
+      <div class="row"><div><label>${esc(t('user'))}</label><input id="mu"></div><div><label>${esc(t('pass'))}</label><input id="mp" type="password"></div>
+      <div><label>${esc(t('role'))}</label><select id="mr"><option>member</option><option>admin</option><option>viewer</option></select></div></div>
+      <button class="btn" data-h-click="${H((el,ev)=>doAddMember())}">${esc(t('addmember'))}</button>
     </div>
-    <div class="card" style="margin-top:14px"><h3>${t('chpw')}</h3>
-      <label>${t('curpw')}</label><input id="pc" type="password">
-      <label>${t('newpw')}</label><input id="pn" type="password">
-      <button class="btn" data-h-click="${H((el,ev)=>doChangePw())}">${t('updpw')}</button>
+    <div class="card" style="margin-top:14px"><h3>${esc(t('chpw'))}</h3>
+      <label>${esc(t('curpw'))}</label><input id="pc" type="password">
+      <label>${esc(t('newpw'))}</label><input id="pn" type="password">
+      <button class="btn" data-h-click="${H((el,ev)=>doChangePw())}">${esc(t('updpw'))}</button>
     </div>${featCard}${tokCard}${audCard}`;
 }
 async function doToggleFeature(name,on){
@@ -753,7 +753,7 @@ function quotaHeldCard(held){
   // an org-tier limit is not the team operator's to raise, so do not promise it
   const who = (S.me && S.me.is_operator && held.scope!=='org') ? t('quotaraiseop') : t('quotaraiseask');
   return `<div class="card" style="border-color:var(--warn,#c9a227);margin-bottom:14px">
-      <h3>⏸ ${t('quotaheldtitle')}</h3><p style="margin:0">${body}${when} ${who}</p></div>`;
+      <h3>⏸ ${esc(t('quotaheldtitle'))}</h3><p style="margin:0">${body}${when} ${who}</p></div>`;
 }
 async function usageView(){
   const r=await api('/api/usage'); const q=r.ok?r.json.quota:[];
@@ -770,10 +770,10 @@ async function usageView(){
   const manage=canManage();
   const rows=q.map(d=>`<tr><td class="mono">${esc(d.dimension)}</td><td>${d.used}</td><td>${d.limit}</td><td>${d.remaining}</td>
       <td class="muted">${d.resets_at?esc(new Date(d.resets_at*1000).toLocaleString()):'—'}</td></tr>`).join('');
-  const opForm = S.me.is_operator ? `<div class="card" style="margin-top:14px"><h3>${t('setquota')}</h3>
-      <div class="row"><div><label>${t('dimension')}</label><select id="qd"><option>ai.tokens.total</option><option>ai.requests</option><option>ai.concurrency</option></select></div>
-      <div><label>${t('limit')}</label><input id="ql" value="50"></div></div>
-      <button class="btn" data-h-click="${H((el,ev)=>doSetQuota())}">${t('setquota')}</button></div>` : '';
+  const opForm = S.me.is_operator ? `<div class="card" style="margin-top:14px"><h3>${esc(t('setquota'))}</h3>
+      <div class="row"><div><label>${esc(t('dimension'))}</label><select id="qd"><option>ai.tokens.total</option><option>ai.requests</option><option>ai.concurrency</option></select></div>
+      <div><label>${esc(t('limit'))}</label><input id="ql" value="50"></div></div>
+      <button class="btn" data-h-click="${H((el,ev)=>doSetQuota())}">${esc(t('setquota'))}</button></div>` : '';
   const toolRows=tools.map(x=>`<tr><td class="mono">${esc(x.name)}</td><td class="mono muted">${esc(x.permission)}</td>
       <td>${x.source==='built-in'?'<span class="badge">built-in</span>':`<span class="badge ok">🔌 ${esc(x.source)}</span>`}</td>
       <td>${x.enabled?'<span class="badge ok">on</span>':'<span class="badge">off</span>'}</td>
@@ -785,12 +785,12 @@ async function usageView(){
     p.bundle ? `<a href="#" data-h-click="${H((el,ev)=>{pluginOpen(p.id);return false})}">${esc(p.name)}</a> v${esc(p.version)}`
              : esc(p.name)+' v'+esc(p.version)).join(', ')}</p>` : '';
   const oopLine = oops.length ? `<p class="muted" style="margin:0 0 8px">🛡️ sandboxed: ${oops.map(p=>esc(p.name)+' <span class="mono">['+(p.scopes||[]).map(esc).join(', ')+']</span>').join(' · ')}</p>` : '';
-  return `<h2>${t('usage')}</h2>
+  return `<h2>${esc(t('usage'))}</h2>
     ${quotaHeldCard(held)}
-    <div class="card"><table><thead><tr><th>${t('dimension')}</th><th>used</th><th>limit</th><th>remaining</th><th>${t('resets')}</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}
-    <div class="card" style="margin-top:14px"><h3>${t('tools')} <span class="muted" style="font-size:13px">— agent capabilities</span></h3>
+    <div class="card"><table><thead><tr><th>${esc(t('dimension'))}</th><th>used</th><th>limit</th><th>remaining</th><th>${esc(t('resets'))}</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}
+    <div class="card" style="margin-top:14px"><h3>${esc(t('tools'))} <span class="muted" style="font-size:13px">— agent capabilities</span></h3>
       ${plugLine}${oopLine}
-      <table><thead><tr><th>${t('tool')}</th><th>permission</th><th>source</th><th>status</th><th></th></tr></thead><tbody>${toolRows}</tbody></table></div>
+      <table><thead><tr><th>${esc(t('tool'))}</th><th>permission</th><th>source</th><th>status</th><th></th></tr></thead><tbody>${toolRows}</tbody></table></div>
     ${myNotifyCard()}`;
 }
 async function doSetQuota(){ const r=await api('/api/quota',{method:'POST',body:{dimension:val('qd'),limit:parseInt(val('ql'),10),window:'day'}});

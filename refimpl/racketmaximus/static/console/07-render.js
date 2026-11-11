@@ -48,30 +48,30 @@ async function translateView(){
   // tab with a job still running therefore picks it up again.
   if((S.trJobs||[]).length) setTimeout(trFollow, 0);
   const histRows=hist.map(x=>`<tr><td class="mono muted">${esc(x.target_lang)}</td><td>${esc((x.source_text||'').slice(0,40))}</td><td>${esc((x.result||'').slice(0,70))}</td></tr>`).join('');
-  return `<h2>${t('translate')}</h2>
+  return `<h2>${esc(t('translate'))}</h2>
    <div class="card">
-     <label>${t('sourcetext')}</label>
+     <label>${esc(t('sourcetext'))}</label>
      <textarea id="trsrc" class="grow" rows="4"
        data-h-input="${H((el)=>{growTA(el);trCount();})}"></textarea>
      <div id="trcount" class="muted" style="font-size:12px">${trCountText(0)}</div>
      <div class="row" style="margin-top:8px;align-items:end">
-       <div><label>${t('target')}</label><select id="trtgt">${opts}</select></div>
-       <div><label><input type="checkbox" id="trgl" checked> ${t('useglossary')}</label></div>
-       <div><button id="trgo" class="btn" data-h-click="${H((el,ev)=>doTranslate())}">${t('translate')}</button></div>
+       <div><label>${esc(t('target'))}</label><select id="trtgt">${opts}</select></div>
+       <div><label><input type="checkbox" id="trgl" checked> ${esc(t('useglossary'))}</label></div>
+       <div><button id="trgo" class="btn" data-h-click="${H((el,ev)=>doTranslate())}">${esc(t('translate'))}</button></div>
      </div>
      <div id="trout" class="mono" style="margin-top:12px;white-space:pre-wrap"></div>
    </div>
    ${trJobsCard(null)}
-   <div class="card" style="margin-top:14px"><h3>${t('glossary')} <span class="muted" style="font-size:13px">— team terminology</span></h3>
+   <div class="card" style="margin-top:14px"><h3>${esc(t('glossary'))} <span class="muted" style="font-size:13px">— team terminology</span></h3>
      ${manage?`<div class="row" style="align-items:end;margin-bottom:8px">
-        <div><label>${t('target')}</label><select id="gltgt">${opts}</select></div>
-        <div><label>${t('term')}</label><input id="glterm"></div>
-        <div><label>${t('translation')}</label><input id="gltr"></div>
-        <div><button class="btn sm" data-h-click="${H((el,ev)=>doAddTerm())}">${t('addterm')}</button></div></div>`:''}
-     <table><thead><tr><th>lang</th><th>${t('term')}</th><th>${t('translation')}</th></tr></thead><tbody>${termRows}</tbody></table>
+        <div><label>${esc(t('target'))}</label><select id="gltgt">${opts}</select></div>
+        <div><label>${esc(t('term'))}</label><input id="glterm"></div>
+        <div><label>${esc(t('translation'))}</label><input id="gltr"></div>
+        <div><button class="btn sm" data-h-click="${H((el,ev)=>doAddTerm())}">${esc(t('addterm'))}</button></div></div>`:''}
+     <table><thead><tr><th>lang</th><th>${esc(t('term'))}</th><th>${esc(t('translation'))}</th></tr></thead><tbody>${termRows}</tbody></table>
    </div>
-   <div class="card" style="margin-top:14px"><h3>${t('recent')}</h3>
-     <table><thead><tr><th>lang</th><th>${t('sourcetext')}</th><th>${t('translation')}</th></tr></thead><tbody>${histRows}</tbody></table></div>`;
+   <div class="card" style="margin-top:14px"><h3>${esc(t('recent'))}</h3>
+     <table><thead><tr><th>lang</th><th>${esc(t('sourcetext'))}</th><th>${esc(t('translation'))}</th></tr></thead><tbody>${histRows}</tbody></table></div>`;
 }
 // WHAT THE COUNTER IS FOR is not tidiness: past the limit the answer comes back
 // WRONG rather than failing (#231), so the number has to be visible BEFORE the
@@ -184,9 +184,9 @@ function trJobsCard(jobs){
     + `<td>${jobStatusBadge(j.status)}${jobWaitBadge(j)}</td>`
     + `<td>${trProgress(j)}</td>`
     + `<td style="white-space:nowrap">${jobTook(j)}</td>`
-    + `<td>${(j.status==='queued'||j.status==='running')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doTrCancel((j.id)))}">${t('cancel')}</button>`:''}</td></tr>`).join('');
-  return `<div class="card" id="trjobs" style="margin-top:14px"><h3>${t('trjobs')}</h3>
-    <table><thead><tr><th>job</th><th>status</th><th>${t('trcolsections')}</th><th>${t('trcolelapsed')}</th><th></th></tr></thead>
+    + `<td>${(j.status==='queued'||j.status==='running')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doTrCancel((j.id)))}">${esc(t('cancel'))}</button>`:''}</td></tr>`).join('');
+  return `<div class="card" id="trjobs" style="margin-top:14px"><h3>${esc(t('trjobs'))}</h3>
+    <table><thead><tr><th>job</th><th>status</th><th>${esc(t('trcolsections'))}</th><th>${esc(t('trcolelapsed'))}</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
@@ -346,7 +346,7 @@ function renderLandingShell(cfg, mode){
     <section class="bx-hero">${cfg.eyebrow?`<div class="bx-eyebrow">${esc(cfg.eyebrow)}</div>`:''}<h1>${esc(cfg.title||'')}</h1><p>${esc(cfg.subtitle||'')}</p></section>
     <div class="bx-main">
       <div class="bx-card">${form}</div>
-      <div class="bx-details">${details||''}${live&&cfg.showSignIn!==false?`<p class="bx-signin" style="margin-top:8px"><a href="#" data-h-click="${H((el,ev)=>{teamSignIn();return false})}">${t('teamsignin')} →</a></p>`:''}</div>
+      <div class="bx-details">${details||''}${live&&cfg.showSignIn!==false?`<p class="bx-signin" style="margin-top:8px"><a href="#" data-h-click="${H((el,ev)=>{teamSignIn();return false})}">${esc(t('teamsignin'))} →</a></p>`:''}</div>
     </div>
     <footer class="bx-foot">${esc(cfg.footer||'')}</footer>
   </div></div>`;
@@ -394,13 +394,13 @@ function teamSignIn(){ S.forceLogin=true; render(); }
 function activateView(token){
   return `<div class="auth">
     <h1 class="brand">${brandLockup(38)}</h1>
-    <p class="muted">${t('welcome')}</p>
+    <p class="muted">${esc(t('welcome'))}</p>
     <div class="card">
-      <h2>${t('setpw')}</h2>
+      <h2>${esc(t('setpw'))}</h2>
       <input type="hidden" id="atok" value="${esc(token)}">
-      <label>${t('newpw')}</label><input id="apw" type="password" autofocus>
-      <label>${t('confirmpw')}</label><input id="apw2" type="password">
-      <button class="btn" style="width:100%" data-h-click="${H((el,ev)=>doActivate())}">${t('activate')}</button>
+      <label>${esc(t('newpw'))}</label><input id="apw" type="password" autofocus>
+      <label>${esc(t('confirmpw'))}</label><input id="apw2" type="password">
+      <button class="btn" style="width:100%" data-h-click="${H((el,ev)=>doActivate())}">${esc(t('activate'))}</button>
     </div></div>`;
 }
 async function doActivate(){
@@ -426,31 +426,31 @@ async function documentsView(){
   // edit path — the issue's "three bare textareas becoming three different
   // editors" is avoided by there being one component, not three.
   const editing = S.docEdit ? docs.filter(d=>d.id===S.docEdit)[0] : null;
-  const rows=docs.map(d=>`<tr><td>${esc(d.title||'—')}<div class="muted mono" style="font-size:12px">${esc(d.key||'')}</div></td><td><span class="badge">${esc(d.visibility)}</span></td><td class="muted">${esc((d.content||'').slice(0,60))}</td><td><button class="btn sm ghost" data-h-click="${H((el,ev)=>docEdit((d.id),(d.content)))}">${t('edit')}</button> <button class="btn sm ghost" data-h-click="${H((el,ev)=>doDelDoc((d.id)))}">${t('del')}</button></td></tr>`).join('');
+  const rows=docs.map(d=>`<tr><td>${esc(d.title||'—')}<div class="muted mono" style="font-size:12px">${esc(d.key||'')}</div></td><td><span class="badge">${esc(d.visibility)}</span></td><td class="muted">${esc((d.content||'').slice(0,60))}</td><td><button class="btn sm ghost" data-h-click="${H((el,ev)=>docEdit((d.id),(d.content)))}">${esc(t('edit'))}</button> <button class="btn sm ghost" data-h-click="${H((el,ev)=>doDelDoc((d.id)))}">${esc(t('del'))}</button></td></tr>`).join('');
   const card = editing
-    ? `<div class="card"><h3>${t('editdoc')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
-      <label>${t('title')}</label><input id="dt" value="${esc(editing.title||'')}">
+    ? `<div class="card"><h3>${esc(t('editdoc'))} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
+      <label>${esc(t('title'))}</label><input id="dt" value="${esc(editing.title||'')}">
       <div class="muted mono" style="font-size:12px;margin-top:4px">${esc(editing.key||'')}</div>
-      <div class="muted" style="font-size:12px">${t('docmovehint')}</div>
-      <label>${t('content')}</label>${editorHTML('doc', {id:'dc'})}
-      <label>${t('visibility')}</label><select id="dv">${
+      <div class="muted" style="font-size:12px">${esc(t('docmovehint'))}</div>
+      <label>${esc(t('content'))}</label>${editorHTML('doc', {id:'dc'})}
+      <label>${esc(t('visibility'))}</label><select id="dv">${
         ['team','private'].map(x=>`<option${x===editing.visibility?' selected':''}>${x}</option>`).join('')}</select>
-      <button class="btn" data-h-click="${H((el,ev)=>doSaveDoc())}">${t('save')}</button>
-      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>docEditCancel())}">${t('cancel')}</button>
+      <button class="btn" data-h-click="${H((el,ev)=>doSaveDoc())}">${esc(t('save'))}</button>
+      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>docEditCancel())}">${esc(t('cancel'))}</button>
       <div class="row" style="margin-top:10px;gap:8px"><div style="flex:0 0 auto"><button class="btn sm ghost"
-        data-h-click="${H(()=>edExport('doc', (document.getElementById('dt')||{}).value||'document'))}">${t('edexport')}</button></div></div></div>`
-    : `<div class="card"><h3>${t('newdoc')}</h3>
-      <label>${t('title')}</label><input id="dt">
-      <label>${t('key')}</label><input id="dk" placeholder="levee-7/chapters/" value="${esc(prefix)}">
-      <div class="muted" style="font-size:12px">${t('dockeyhint')}</div>
-      <label>${t('content')}</label>${editorHTML('doc', {id:'dc'})}
-      <label>${t('visibility')}</label><select id="dv"><option>team</option><option>private</option></select>
-      <button class="btn" data-h-click="${H((el,ev)=>doCreateDoc())}">${t('create')}</button>
+        data-h-click="${H(()=>edExport('doc', (document.getElementById('dt')||{}).value||'document'))}">${esc(t('edexport'))}</button></div></div></div>`
+    : `<div class="card"><h3>${esc(t('newdoc'))}</h3>
+      <label>${esc(t('title'))}</label><input id="dt">
+      <label>${esc(t('key'))}</label><input id="dk" placeholder="levee-7/chapters/" value="${esc(prefix)}">
+      <div class="muted" style="font-size:12px">${esc(t('dockeyhint'))}</div>
+      <label>${esc(t('content'))}</label>${editorHTML('doc', {id:'dc'})}
+      <label>${esc(t('visibility'))}</label><select id="dv"><option>team</option><option>private</option></select>
+      <button class="btn" data-h-click="${H((el,ev)=>doCreateDoc())}">${esc(t('create'))}</button>
       <div class="row" style="margin-top:10px;gap:8px"><div style="flex:0 0 auto"><button class="btn sm ghost"
-        data-h-click="${H(()=>edExport('doc', (document.getElementById('dt')||{}).value||'document'))}">${t('edexport')}</button></div></div></div>`;
-  return `<h2>${t('documents')}</h2>
+        data-h-click="${H(()=>edExport('doc', (document.getElementById('dt')||{}).value||'document'))}">${esc(t('edexport'))}</button></div></div></div>`;
+  return `<h2>${esc(t('documents'))}</h2>
     ${card}
-    <div class="card" style="margin-top:14px">${nav?`<div style="margin-bottom:10px">${nav}</div>`:''}<table><thead><tr><th>${t('title')}</th><th>${t('visibility')}</th><th>${t('content')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="card" style="margin-top:14px">${nav?`<div style="margin-bottom:10px">${nav}</div>`:''}<table><thead><tr><th>${esc(t('title'))}</th><th>${esc(t('visibility'))}</th><th>${esc(t('content'))}</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <div class="row" style="margin-top:8px">${off>0?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMoreDocs(0))}">« first</button>`:''}${(typeof next==='number')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMoreDocs((next)))}">more »</button>`:''}</div></div>`;
 }
 function docEdit(id, content){ S.docEdit=id; edReset('doc', content, 'dc'); renderTab(); }

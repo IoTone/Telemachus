@@ -20,7 +20,7 @@ function wfOut(st){
   if(art && art.kind && art.title) return artifactCard(art) + wfJson(st.output,'json');
   const o=st.output; if(!o||o==='null'||typeof o!=='object') return '<span class="muted">—</span>';
   if(Array.isArray(o.results))                       // a map parent — its children carry the detail
-    return `<span class="muted">${o.results.length} ${t('results').toLowerCase()}</span>${wfJson(o,'json')}`;
+    return `<span class="muted">${o.results.length} ${esc(t('results').toLowerCase())}</span>${wfJson(o,'json')}`;
   const r=('result' in o)?o.result:o;
   const line=(typeof r==='string'?r:JSON.stringify(r))||'';
   return `<span class="mono" style="font-size:13px">${esc(line.slice(0,140))}${line.length>140?'…':''}</span>${wfJson(o,'json')}`;
@@ -33,33 +33,33 @@ async function automationsCard(defs){
   const r=await api('/api/doc-triggers');
   if(!r.ok) return '';
   const trg=r.json.triggers||[], b=r.json.budget||{};
-  const budget=(b.limit===null||b.limit===undefined) ? t('nolimit') : `${esc(b.remaining)} / ${esc(b.limit)} ${t('tokensleft')}`;
+  const budget=(b.limit===null||b.limit===undefined) ? t('nolimit') : `${esc(b.remaining)} / ${esc(b.limit)} ${esc(t('tokensleft'))}`;
   const rows=trg.map(x=>`<tr>
       <td><b>${esc(x.workflow_slug)}</b><div class="muted mono" style="font-size:12px">${esc(x.match_prefix||'*')}${x.match_types?' · '+esc(x.match_types):''}${x.match_attrs&&Object.keys(x.match_attrs).length?' · '+esc(Object.entries(x.match_attrs).map(([k,v])=>k+':'+v).join(', ')):''}${x.fire_on_derived?' · '+t('trigger_derived'):''}</div></td>
       <td>${x.enabled?'<span class="badge ok">'+t('enabled')+'</span>':'<span class="badge">'+t('disabled')+'</span>'}</td>
       <td style="white-space:nowrap">
-        <button class="btn sm ghost" data-h-click="${H((el,ev)=>trgHistory((x.id)))}">${t('fires')}</button>
+        <button class="btn sm ghost" data-h-click="${H((el,ev)=>trgHistory((x.id)))}">${esc(t('fires'))}</button>
         ${canPerm('workflows:write')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>trgToggle((x.id),(x.enabled?'false':'true')))}">${x.enabled?t('disable'):t('enable')}</button>
-        <button class="btn sm bad" data-h-click="${H((el,ev)=>trgDelete((x.id)))}">${t('del')}</button>`:''}
+        <button class="btn sm bad" data-h-click="${H((el,ev)=>trgDelete((x.id)))}">${esc(t('del'))}</button>`:''}
       </td></tr>`).join('');
   const wopts=defs.map(d=>`<option value="${esc(d.slug)}"${d.slug==='process-upload'?' selected':''}>${esc(d.name||d.slug)}</option>`).join('');
   const form=canPerm('workflows:write')?`<div class="row" style="align-items:end;margin-top:10px">
-      <div style="flex:1"><label>${t('workflow')}</label><select id="tg_wf">${wopts}</select></div>
-      <div style="flex:1"><label>${t('trigger_prefix')}</label><input id="tg_prefix" placeholder="inbox/invoices/"></div>
-      <div style="flex:1"><label>${t('trigger_types')}</label><input id="tg_types" placeholder="application/pdf, text/plain"></div>
-      <div style="flex:1"><label>${t('trigger_attrs')}</label><input id="tg_attrs" placeholder="doc_type:invoice"></div>
-      <div style="flex:none"><label><input type="checkbox" id="tg_derived"> ${t('trigger_derived')}</label></div>
+      <div style="flex:1"><label>${esc(t('workflow'))}</label><select id="tg_wf">${wopts}</select></div>
+      <div style="flex:1"><label>${esc(t('trigger_prefix'))}</label><input id="tg_prefix" placeholder="inbox/invoices/"></div>
+      <div style="flex:1"><label>${esc(t('trigger_types'))}</label><input id="tg_types" placeholder="application/pdf, text/plain"></div>
+      <div style="flex:1"><label>${esc(t('trigger_attrs'))}</label><input id="tg_attrs" placeholder="doc_type:invoice"></div>
+      <div style="flex:none"><label><input type="checkbox" id="tg_derived"> ${esc(t('trigger_derived'))}</label></div>
     </div>
-    <label>${t('trigger_input')}</label>
+    <label>${esc(t('trigger_input'))}</label>
     <textarea id="tg_input" rows="4">${esc(JSON.stringify({schema:PIPELINE_EXAMPLE_SCHEMA,template:'',locales:[]},null,1))}</textarea>
-    <div style="margin-top:8px"><button class="btn" data-h-click="${H((el,ev)=>trgCreate())}">${t('addtrigger')}</button></div>`:'';
+    <div style="margin-top:8px"><button class="btn" data-h-click="${H((el,ev)=>trgCreate())}">${esc(t('addtrigger'))}</button></div>`:'';
   return `<div class="card" style="margin-top:14px">
     <div class="row" style="justify-content:space-between;align-items:center">
-      <h3 style="margin:0">${t('automations')}</h3>
-      <div class="muted" style="flex:none;font-size:12px">${t('budget')}: ${budget}</div></div>
-    <div class="muted" style="font-size:12px;margin:4px 0 8px">${t('automationshint')}</div>
-    ${trg.length?`<table><thead><tr><th>${t('workflow')}</th><th>${t('status')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-                :`<p class="muted">${t('notriggers')}</p>`}
+      <h3 style="margin:0">${esc(t('automations'))}</h3>
+      <div class="muted" style="flex:none;font-size:12px">${esc(t('budget'))}: ${budget}</div></div>
+    <div class="muted" style="font-size:12px;margin:4px 0 8px">${esc(t('automationshint'))}</div>
+    ${trg.length?`<table><thead><tr><th>${esc(t('workflow'))}</th><th>${esc(t('status'))}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+                :`<p class="muted">${esc(t('notriggers'))}</p>`}
     <div id="tg_history"></div>
     ${form}</div>`;
 }
@@ -93,46 +93,46 @@ async function trgHistory(id){
   const el=document.getElementById('tg_history'); if(!el) return;
   if(!r.ok) return toast(r.json.error||'error');
   const fires=r.json.fires||[];
-  el.innerHTML=`<div style="margin-top:8px"><b>${t('fires')}</b> — <span class="mono muted">${esc(r.json.match_prefix||'*')}</span>
+  el.innerHTML=`<div style="margin-top:8px"><b>${esc(t('fires'))}</b> — <span class="mono muted">${esc(r.json.match_prefix||'*')}</span>
     ${fires.length?`<table style="margin-top:4px"><tbody>${fires.map(f=>`<tr><td class="mono">${esc(f.key||f.object_id)}</td>
       <td class="muted" style="font-size:12px">${esc(f.fired_at)}</td>
-      <td>${f.run_id?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>repoViewRun((f.run_id)))}">${t('viewrun')}</button>`:`<span class="badge bad">${esc(f.error||'—')}</span>`}</td></tr>`).join('')}</tbody></table>`
-                 :`<p class="muted" style="margin:4px 0 0">${t('nofires')}</p>`}</div>`;
+      <td>${f.run_id?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>repoViewRun((f.run_id)))}">${esc(t('viewrun'))}</button>`:`<span class="badge bad">${esc(f.error||'—')}</span>`}</td></tr>`).join('')}</tbody></table>`
+                 :`<p class="muted" style="margin:4px 0 0">${esc(t('nofires'))}</p>`}</div>`;
 }
 
 async function workflowsView(){
   if(S.wfRun) return await wfRunView(S.wfRun);
   const [dr,rr]=await Promise.all([api('/api/workflows'),api('/api/runs')]);
-  if(!dr.ok) return `<h2>${t('workflows')}</h2><div class="card"><p class="muted">${esc(dr.json.error||'unavailable')}</p></div>`;
+  if(!dr.ok) return `<h2>${esc(t('workflows'))}</h2><div class="card"><p class="muted">${esc(dr.json.error||'unavailable')}</p></div>`;
   const defs=dr.json.workflows||[], runs=rr.ok?(rr.json.runs||[]):[];
   const defRows=defs.map(d=>`<tr>
       <td><b>${esc(d.name||d.slug)}</b><div class="muted mono" style="font-size:12px">${esc(d.slug)}</div></td>
       <td class="muted">v${esc(d.version)}</td>
       <td><span class="badge">${esc(d.source||'api')}</span></td>
       <td class="muted">${esc(d.step_count)}</td>
-      <td><button class="btn sm${S.wfSel===d.slug?' ghost':''}" data-h-click="${H((el,ev)=>wfSelect((d.slug)))}">${t('runwf')}</button></td>
+      <td><button class="btn sm${S.wfSel===d.slug?' ghost':''}" data-h-click="${H((el,ev)=>wfSelect((d.slug)))}">${esc(t('runwf'))}</button></td>
     </tr>`).join('');
   const runRows=runs.map(r=>`<tr>
       <td class="mono muted">${esc(r.id.slice(0,8))}</td>
       <td>${esc(r.slug||'—')}</td>
       <td>${wfBadge(r.status)}</td>
-      <td class="muted">${esc(r.steps_used)} ${t('stepsused')}</td>
+      <td class="muted">${esc(r.steps_used)} ${esc(t('stepsused'))}</td>
       <td class="muted" style="font-size:12px">${esc(r.created_at)}</td>
-      <td><button class="btn sm ghost" data-h-click="${H((el,ev)=>wfOpen((r.id)))}">${t('viewrun')}</button></td>
+      <td><button class="btn sm ghost" data-h-click="${H((el,ev)=>wfOpen((r.id)))}">${esc(t('viewrun'))}</button></td>
     </tr>`).join('');
-  return `<h2>${t('workflows')}</h2>
+  return `<h2>${esc(t('workflows'))}</h2>
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <h3 style="margin:0">${t('definitions')}</h3>
-        <div style="flex:none"><button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${t('refresh')}</button></div></div>
-      ${defs.length?`<table style="margin-top:8px"><thead><tr><th>${t('workflow')}</th><th>${t('version')}</th><th>${t('source')}</th><th>${t('steps')}</th><th></th></tr></thead><tbody>${defRows}</tbody></table>`
-                   :`<p class="muted" style="margin-top:8px">${t('nodefs')}</p>`}
+        <h3 style="margin:0">${esc(t('definitions'))}</h3>
+        <div style="flex:none"><button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${esc(t('refresh'))}</button></div></div>
+      ${defs.length?`<table style="margin-top:8px"><thead><tr><th>${esc(t('workflow'))}</th><th>${esc(t('version'))}</th><th>${esc(t('source'))}</th><th>${esc(t('steps'))}</th><th></th></tr></thead><tbody>${defRows}</tbody></table>`
+                   :`<p class="muted" style="margin-top:8px">${esc(t('nodefs'))}</p>`}
     </div>
     ${S.wfSel?wfRunForm():''}
     ${await automationsCard(defs)}
-    <div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">${t('runs')}</h3>
-      ${runs.length?`<table><thead><tr><th>id</th><th>workflow</th><th>${t('status')}</th><th></th><th>${t('started')}</th><th></th></tr></thead><tbody>${runRows}</tbody></table>`
-                   :`<p class="muted">${t('noruns')}</p>`}</div>`;
+    <div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">${esc(t('runs'))}</h3>
+      ${runs.length?`<table><thead><tr><th>id</th><th>workflow</th><th>${esc(t('status'))}</th><th></th><th>${esc(t('started'))}</th><th></th></tr></thead><tbody>${runRows}</tbody></table>`
+                   :`<p class="muted">${esc(t('noruns'))}</p>`}</div>`;
 }
 
 // The run form is generated from the spec's own `input` map — the same declaration
@@ -150,11 +150,11 @@ function wfRunForm(){
   const desc=(d.description&&d.description!=='null')?`<p class="muted" style="margin:0 0 10px">${esc(d.description)}</p>`:'';
   const chain=(spec.steps||[]).map(x=>esc(x.id)).join(' → ');
   return `<div class="card" id="wfform" style="margin-top:14px">
-    <h3 style="margin:0 0 4px">${t('runwf')} — ${esc(d.name||d.slug)}</h3>${desc}
+    <h3 style="margin:0 0 4px">${esc(t('runwf'))} — ${esc(d.name||d.slug)}</h3>${desc}
     <div class="muted mono" style="font-size:12px;margin-bottom:12px">${esc(d.slug)} v${esc(d.version)} · ${chain}</div>
     ${fields}
-    <button class="btn" data-h-click="${H((el,ev)=>wfStart())}">${t('runwf')}</button>
-    <button class="btn ghost" data-h-click="${H((el,ev)=>wfSelect(null))}">${t('cancel')}</button></div>`;
+    <button class="btn" data-h-click="${H((el,ev)=>wfStart())}">${esc(t('runwf'))}</button>
+    <button class="btn ghost" data-h-click="${H((el,ev)=>wfSelect(null))}">${esc(t('cancel'))}</button></div>`;
 }
 
 async function wfSelect(slug){
@@ -196,8 +196,8 @@ async function wfCancel(id){
 
 async function wfRunView(id){
   const r=await api('/api/runs/'+encodeURIComponent(id));
-  if(!r.ok) return `<h2>${t('runs')}</h2><div class="card"><p class="muted">${esc(r.json.error||'not found')}</p>
-    <button class="btn ghost" data-h-click="${H((el,ev)=>wfBack())}">${t('back')}</button></div>`;
+  if(!r.ok) return `<h2>${esc(t('runs'))}</h2><div class="card"><p class="muted">${esc(r.json.error||'not found')}</p>
+    <button class="btn ghost" data-h-click="${H((el,ev)=>wfBack())}">${esc(t('back'))}</button></div>`;
   const run=r.json, steps=run.steps||[];
   const live=(run.status==='queued'||run.status==='running');
   // a step row survives a restart because it IS the state — so polling the run is
@@ -216,13 +216,13 @@ async function wfRunView(id){
   return `<h2>${esc(run.slug||t('runs'))} <span class="muted mono" style="font-size:14px">${esc(run.id.slice(0,8))}…</span></h2>
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <div style="flex:none">${wfBadge(run.status)} <span class="muted">${esc(run.steps_used)} ${t('stepsused')}</span>${live?' <span class="muted">· live</span>':''}</div>
-        <div style="flex:none">${live?`<button class="btn sm bad" data-h-click="${H((el,ev)=>wfCancel((run.id)))}">${t('cancel')}</button> `:''}<button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${t('refresh')}</button> <button class="btn sm ghost" data-h-click="${H((el,ev)=>wfBack())}">${t('back')}</button></div>
+        <div style="flex:none">${wfBadge(run.status)} <span class="muted">${esc(run.steps_used)} ${esc(t('stepsused'))}</span>${live?' <span class="muted">· live</span>':''}</div>
+        <div style="flex:none">${live?`<button class="btn sm bad" data-h-click="${H((el,ev)=>wfCancel((run.id)))}">${esc(t('cancel'))}</button> `:''}<button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${esc(t('refresh'))}</button> <button class="btn sm ghost" data-h-click="${H((el,ev)=>wfBack())}">${esc(t('back'))}</button></div>
       </div>
       ${wfJson(run.input,t('input'))}${wfJson(run.output,t('output'))}
     </div>${err}
-    <div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">${t('steps')}</h3>
-      <table><thead><tr><th>step</th><th>${t('status')}</th><th>${t('output')}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">${esc(t('steps'))}</h3>
+      <table><thead><tr><th>step</th><th>${esc(t('status'))}</th><th>${esc(t('output'))}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 async function betaView(){
@@ -243,9 +243,9 @@ async function betaView(){
       <td>${details(p)}</td>
       <td>${verdict(p.judge)}</td>
       <td><span class="badge">${esc(p.status)}</span></td>
-      <td>${(p.status==='qualified'||p.status==='rejected')?'':`<button class="btn sm" data-h-click="${H((el,ev)=>doDecide((p.id),'qualified'))}">${t('qualify')}</button> <button class="btn sm ghost" data-h-click="${H((el,ev)=>doDecide((p.id),'rejected'))}">${t('reject')}</button>`}</td>
+      <td>${(p.status==='qualified'||p.status==='rejected')?'':`<button class="btn sm" data-h-click="${H((el,ev)=>doDecide((p.id),'qualified'))}">${esc(t('qualify'))}</button> <button class="btn sm ghost" data-h-click="${H((el,ev)=>doDecide((p.id),'rejected'))}">${esc(t('reject'))}</button>`}</td>
     </tr>`).join('');
-  return `<h2>${t('beta')} — prospects</h2>${bcard}
+  return `<h2>${esc(t('beta'))} — prospects</h2>${bcard}
     <div class="card"><table><thead><tr><th>prospect</th><th>details</th><th>LLM judge</th><th>status</th><th></th></tr></thead>
       <tbody>${rows||'<tr><td colspan="5" class="muted">No signups yet.</td></tr>'}</tbody></table></div>`;
 }

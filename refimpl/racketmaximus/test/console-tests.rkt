@@ -1939,3 +1939,80 @@
                       "trigger_input" "trigger_prefix" "trigger_types" "triggeradded"))
   (check-equal? (remove* (append keys elsewhere) shipped) '()
                 "a ui.tr* string nothing asks for means a label was typed in place, or a screen was removed"))
+
+(test-case "a catalog string is escaped where it becomes markup"
+  ;; #282 items 3 and 7. `t()` answers whatever the catalog holds — a translation
+  ;; is written by a person, and one containing `<` or `&` was parsed as MARKUP
+  ;; in every place the console interpolated it into a template literal. 475 of
+  ;; those sites existed.
+  ;;
+  ;; THE RULE IS ESCAPE AT THE SINK, NEVER INSIDE `t()`. A value that is later
+  ;; assigned to `textContent`, put in a `confirm()` or read by a screen reader is
+  ;; plain text: escaping it there would put `&amp;` in front of a reader instead.
+  ;; So the needle is `${t(` inside a template literal, not every `t(` call —
+  ;; `btn.textContent = t('send')` is correct exactly as it stands.
+  (define (sites src) (length (regexp-match* #px"\\$\\{(?!esc\\()t\\(" src)))
+  ;; `for*`, not `for`: a parallel clause cannot see the one before it, and this
+  ;; loop counts in the same breath as it reads the file (line 74's rule).
+  (define offenders
+    (for*/list ([f (in-list script-files)]
+                [n (in-value (sites (console-code f)))]
+                #:when (positive? n))
+      (format "~a: ~a site(s)" f n)))
+  ;; The reported shape is `t('…')`; this scan is deliberately BROADER and takes
+  ;; `t(key)` and `t(org ? 'a' : 'b')` too, which are the same sink. A second
+  ;; scan for the narrower spelling would be a guard duplicating this one, and a
+  ;; reader would take it for the place the rule lives.
+  (check-equal? offenders '()
+                (string-append "escape at the sink: ${esc(t('key'))}. A value bound for "
+                               "textContent or confirm() is plain text — leave that one alone"))
+
+  ;; THE FLOOR. A scan that found nothing would pass above; a scan whose sources
+  ;; went missing would too, because `console-code` reads a directory it is told
+  ;; by name and an empty list of offenders is what a missing file looks like.
+  (define escaped
+    (for/sum ([f (in-list script-files)])
+      (length (regexp-match* #px"\\$\\{esc\\(t\\(" (console-code f)))))
+  (check-true (>= escaped 450)
+              (format "only ~a escaped sink(s) found — the scan is not looking at the console" escaped)))
+
+(test-case "a catalog string carrying markup reaches the DOM as TEXT"
+  ;; The scan above says every sink is `esc(t(…))`. This says the escaping those
+  ;; calls rely on actually neutralises markup.
+  ;;
+  ;; THE CHARACTER MAP IS READ OFF THE SHIPPED `esc`, not written out again
+  ;; here: a copy would agree with any change to the real one, which is the
+  ;; vacuity this pair exists to avoid (the fourth appearance of that shape in
+  ;; these notes). Drop `<` from the map and the loop below fails by name.
+  ;;
+  ;; WHAT THIS DOES NOT DO: run a browser, so it cannot say the payload lands as
+  ;; a text node. That is one `step()` of `test/e2e/demo-validate.mjs` — "a
+  ;; catalog string is text, wherever the console interpolates it" — which calls
+  ;; the shipped `pagerHTML` with this payload in the catalog and counts
+  ;; `img` elements. Racket cannot execute the console; a source file can only
+  ;; pin the structure that makes the browser half true.
+  (define esc-line
+    (for/first ([l (in-list (string-split (console-code "01-base.js") "\n"))]
+                #:when (string-contains? l "const esc ="))
+      l))
+  (check-true (and esc-line #t) "esc is still defined in 01-base.js")
+  (define char-map
+    (for/list ([m (in-list (regexp-match* #px"'([^']{1,7})':'([^']{2,12})'" esc-line
+                                          #:match-select cdr))])
+      (cons (car m) (cadr m))))
+  (for ([c (in-list '("&" "<" ">" "\""))])
+    (check-true (and (assoc c char-map) #t)
+                (format "esc must escape ~s — a catalog string reaches markup through it" c)))
+  ;; ONE PASS, because that is what the shipped function does: a fold that escaped
+  ;; `&` first and then `<` would turn `&lt;` into `&amp;lt;` and prove nothing.
+  (define payload "Daily report <img onerror=x src=y> & the rest")
+  (define escaped-payload
+    (regexp-replace* #rx"[&<>\"]" payload (lambda (c) (cdr (assoc c char-map)))))
+  (check-false (regexp-match? #rx"<img" escaped-payload)
+               "…")
+  (check-false (string-contains? escaped-payload "<") "no `<` survives, so nothing can open a tag")
+  (check-false (string-contains? escaped-payload ">") "no `>` survives either")
+  (check-true (string-contains? escaped-payload "&lt;img onerror=x src=y&gt;")
+              "the payload is still READABLE — escaped, not stripped")
+  (check-true (string-contains? escaped-payload "&amp; the rest")
+              "…and the ampersand is escaped once, not twice"))

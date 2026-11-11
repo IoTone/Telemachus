@@ -5,26 +5,26 @@
 S.kg={q:'',type:'',sel:null};
 async function knowledgeView(){
   const r=await api('/api/kg/entities?q='+encodeURIComponent(S.kg.q)+'&type='+encodeURIComponent(S.kg.type));
-  if(!r.ok) return `<h2>${t('knowledge')}</h2><div class="card"><p class="muted">${esc(r.json.error||'unavailable')}</p></div>`;
+  if(!r.ok) return `<h2>${esc(t('knowledge'))}</h2><div class="card"><p class="muted">${esc(r.json.error||'unavailable')}</p></div>`;
   const ents=r.json.entities||[], st=r.json.stats||{}, types=r.json.types||[];
   const rows=ents.map(e=>`<tr>
       <td><b>${esc(e.name)}</b>${e.description?`<div class="muted" style="font-size:12px">${esc(e.description)}</div>`:''}</td>
       <td><span class="badge">${esc(e.type)}</span></td>
       <td class="muted">${esc(e.relation_count)} · ${esc(e.mention_count)}</td>
-      <td><button class="btn sm ghost" data-h-click="${H((el,ev)=>kgOpen((e.id)))}">${t('details')}</button></td></tr>`).join('');
-  return `<h2>${t('knowledge')}
-      <span class="muted" style="font-size:14px">${esc(st.entities||0)} ${t('kg_entities')} · ${esc(st.relations||0)} ${t('kg_relations')} · ${esc(st.documents||0)} ${t('kg_documents')}${st.unextracted?` · ${esc(st.unextracted)} ${t('kg_unextracted')}`:''}</span></h2>
+      <td><button class="btn sm ghost" data-h-click="${H((el,ev)=>kgOpen((e.id)))}">${esc(t('details'))}</button></td></tr>`).join('');
+  return `<h2>${esc(t('knowledge'))}
+      <span class="muted" style="font-size:14px">${esc(st.entities||0)} ${esc(t('kg_entities'))} · ${esc(st.relations||0)} ${esc(t('kg_relations'))} · ${esc(st.documents||0)} ${esc(t('kg_documents'))}${st.unextracted?` · ${esc(st.unextracted)} ${esc(t('kg_unextracted'))}`:''}</span></h2>
     <div class="card">
-      <div class="muted" style="font-size:12px;margin-bottom:8px">${t('kg_hint')}</div>
+      <div class="muted" style="font-size:12px;margin-bottom:8px">${esc(t('kg_hint'))}</div>
       <div class="row" style="align-items:end">
-        <div style="flex:2"><label>${t('kg_search')}</label><input id="kgq" value="${esc(S.kg.q)}" data-h-keydown="${H((el,ev)=>{if(ev.key==='Enter')kgSearch()})}"></div>
-        <div style="flex:1"><label>${t('kg_type')}</label>
-          <select id="kgtype"><option value="">${t('kg_alltypes')}</option>${types.map(x=>`<option value="${esc(x)}"${S.kg.type===x?' selected':''}>${esc(x)}</option>`).join('')}</select></div>
-        <div style="flex:none"><button class="btn" data-h-click="${H((el,ev)=>kgSearch())}">${t('search')}</button>
-          ${canPerm('workflows:run')?`<button class="btn ghost" data-h-click="${H((el,ev)=>kgExtract())}">${t('kg_extract')}</button>`:''}</div>
+        <div style="flex:2"><label>${esc(t('kg_search'))}</label><input id="kgq" value="${esc(S.kg.q)}" data-h-keydown="${H((el,ev)=>{if(ev.key==='Enter')kgSearch()})}"></div>
+        <div style="flex:1"><label>${esc(t('kg_type'))}</label>
+          <select id="kgtype"><option value="">${esc(t('kg_alltypes'))}</option>${types.map(x=>`<option value="${esc(x)}"${S.kg.type===x?' selected':''}>${esc(x)}</option>`).join('')}</select></div>
+        <div style="flex:none"><button class="btn" data-h-click="${H((el,ev)=>kgSearch())}">${esc(t('search'))}</button>
+          ${canPerm('workflows:run')?`<button class="btn ghost" data-h-click="${H((el,ev)=>kgExtract())}">${esc(t('kg_extract'))}</button>`:''}</div>
       </div>
-      ${ents.length?`<table style="margin-top:10px"><thead><tr><th>${t('kg_entity')}</th><th>${t('kg_type')}</th><th>${t('kg_relations')} · ${t('kg_mentions')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-                   :`<p class="muted" style="margin-top:10px">${t('kg_none')}</p>`}
+      ${ents.length?`<table style="margin-top:10px"><thead><tr><th>${esc(t('kg_entity'))}</th><th>${esc(t('kg_type'))}</th><th>${esc(t('kg_relations'))} · ${esc(t('kg_mentions'))}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+                   :`<p class="muted" style="margin-top:10px">${esc(t('kg_none'))}</p>`}
     </div>
     <div id="kgdetail">${S.kg.sel?await kgDetailHtml(S.kg.sel):''}</div>`;
 }
@@ -49,11 +49,11 @@ async function kgDetailHtml(id){
   return `<div class="card" style="margin-top:14px">
     <div class="row" style="justify-content:space-between;align-items:center">
       <h3 style="margin:0">${esc(e.name)} <span class="badge">${esc(e.type)}</span></h3>
-      <div style="flex:none"><button class="btn sm ghost" data-h-click="${H((el,ev)=>{S.kg.sel=null;document.getElementById('kgdetail').innerHTML=''})}">${t('close')}</button></div></div>
+      <div style="flex:none"><button class="btn sm ghost" data-h-click="${H((el,ev)=>{S.kg.sel=null;document.getElementById('kgdetail').innerHTML=''})}">${esc(t('close'))}</button></div></div>
     ${e.description?`<p class="muted" style="margin:6px 0 0">${esc(e.description)}</p>`:''}
-    <h4 style="margin:12px 0 6px">${t('kg_relations')}</h4>
-    ${rels?`<table><tbody>${rels}</tbody></table>`:`<p class="muted">${t('kg_norelations')}</p>`}
-    <h4 style="margin:12px 0 6px">${t('kg_mentions')}</h4>
+    <h4 style="margin:12px 0 6px">${esc(t('kg_relations'))}</h4>
+    ${rels?`<table><tbody>${rels}</tbody></table>`:`<p class="muted">${esc(t('kg_norelations'))}</p>`}
+    <h4 style="margin:12px 0 6px">${esc(t('kg_mentions'))}</h4>
     <table><tbody>${ments}</tbody></table></div>`;
 }
 
@@ -64,10 +64,10 @@ async function kgDetailHtml(id){
 // `sendKey` is #174's shared Enter rule; the field has always sent on Enter and
 // it must go on doing so.
 async function searchView(){
-  return `<h2>${t('search')}</h2>
+  return `<h2>${esc(t('search'))}</h2>
     <div class="card">
       <div class="searchbar">
-        <input id="sq" data-h-keydown="${H((el,ev)=>sendKey(ev,doSearch))}" placeholder="${t('searchph')}">
+        <input id="sq" data-h-keydown="${H((el,ev)=>sendKey(ev,doSearch))}" placeholder="${esc(t('searchph'))}">
         <button class="btn" title="${esc(t('search'))}" aria-label="${esc(t('search'))}"
           data-h-click="${H((el,ev)=>doSearch())}">\u{1F50D}</button>
       </div>
@@ -82,11 +82,11 @@ async function doSearch(){
   const r=await api('/api/search?q='+encodeURIComponent(q));
   const res=r.ok?r.json.results:[];
   el.innerHTML = res.length
-    ? `<table><thead><tr><th>type</th><th>title</th><th>${t('results')}</th><th></th></tr></thead><tbody>`+
+    ? `<table><thead><tr><th>type</th><th>title</th><th>${esc(t('results'))}</th><th></th></tr></thead><tbody>`+
       res.map(x=>`<tr><td><span class="badge${x.type==='file'?' run':''}">${esc(x.type)}</span></td>
         <td class="${x.type==='file'?'mono':''}">${esc(x.title||'')}${(x.key&&x.key!==x.title)?`<div class="muted mono" style="font-size:12px">${esc(x.key)}</div>`:''}</td>
         <td class="muted">${esc(x.snippet||'')}</td>
-        <td>${x.type==='file'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>repoDownload((x.id),(x.title||'')))}">${t('download')}</button>`:''}</td></tr>`).join('')+`</tbody></table>`
+        <td>${x.type==='file'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>repoDownload((x.id),(x.title||'')))}">${esc(t('download'))}</button>`:''}</td></tr>`).join('')+`</tbody></table>`
     : `<p class="muted">${esc(t('noresults'))}</p>`;
 }
 // `render` awaits at several points (two rounds of fetches, then the tab's own).

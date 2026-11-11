@@ -31,38 +31,38 @@ function emailTransportCard(){
   const modes = (S.mailT && S.mailT.security_modes) || ['none','starttls','tls'];
   const sel = (T && T.security) || 'starttls';
   const test = T && T.last_test_epoch
-    ? `<p class="muted" style="font-size:12px;margin:6px 0 0">${t('mltested')}: ${esc(new Date(T.last_test_epoch*1000).toLocaleString())} — ${
-         T.last_test_ok === true ? `<span class="badge ok">${t('mlok')}</span>`
+    ? `<p class="muted" style="font-size:12px;margin:6px 0 0">${esc(t('mltested'))}: ${esc(new Date(T.last_test_epoch*1000).toLocaleString())} — ${
+         T.last_test_ok === true ? `<span class="badge ok">${esc(t('mlok'))}</span>`
        : T.last_test_ok === false ? `<span class="badge bad">${esc(T.last_test_error||t('error'))}</span>` : '—'}</p>`
     : '';
-  return `<div class="card" id="mlcard" style="margin-top:14px"><h3>${t('mltransport')}</h3>
-    <p class="muted" style="margin-top:0">${t('mltransporthint')}</p>
-    ${T ? '' : `<p class="badge">${t('mlnone')}</p>`}
+  return `<div class="card" id="mlcard" style="margin-top:14px"><h3>${esc(t('mltransport'))}</h3>
+    <p class="muted" style="margin-top:0">${esc(t('mltransporthint'))}</p>
+    ${T ? '' : `<p class="badge">${esc(t('mlnone'))}</p>`}
     <div class="row">
-      <div><label>${t('mlhost')}</label><input id="mlh" value="${esc((T&&T.host)||'')}" placeholder="smtp.example.com"></div>
-      <div><label>${t('mlport')}</label><input id="mlp" type="number" min="1" max="65535" value="${esc(String((T&&T.port)||587))}"></div>
-      <div><label>${t('mlsec')}</label><select id="mls">${modes.map(m=>`<option value="${esc(m)}"${sel===m?' selected':''}>${esc(m)}</option>`).join('')}</select></div>
+      <div><label>${esc(t('mlhost'))}</label><input id="mlh" value="${esc((T&&T.host)||'')}" placeholder="smtp.example.com"></div>
+      <div><label>${esc(t('mlport'))}</label><input id="mlp" type="number" min="1" max="65535" value="${esc(String((T&&T.port)||587))}"></div>
+      <div><label>${esc(t('mlsec'))}</label><select id="mls">${modes.map(m=>`<option value="${esc(m)}"${sel===m?' selected':''}>${esc(m)}</option>`).join('')}</select></div>
     </div>
     <div class="row">
-      <div><label>${t('mluser')}</label><input id="mlu" value="${esc((T&&T.username)||'')}" autocomplete="off"></div>
-      <div><label>${t('mlpass')}</label><input id="mlw" type="password" autocomplete="new-password" placeholder="${T&&T.has_password?esc(t('mlpasskeep')):''}"></div>
+      <div><label>${esc(t('mluser'))}</label><input id="mlu" value="${esc((T&&T.username)||'')}" autocomplete="off"></div>
+      <div><label>${esc(t('mlpass'))}</label><input id="mlw" type="password" autocomplete="new-password" placeholder="${T&&T.has_password?esc(t('mlpasskeep')):''}"></div>
     </div>
     <div class="row">
-      <div><label>${t('mlfrom')}</label><input id="mlf" value="${esc((T&&T.from_address)||'')}" placeholder="tmach@example.com"></div>
-      <div><label>${t('mlfromname')}</label><input id="mln" value="${esc((T&&T.from_name)||'')}" placeholder="TMach"></div>
+      <div><label>${esc(t('mlfrom'))}</label><input id="mlf" value="${esc((T&&T.from_address)||'')}" placeholder="tmach@example.com"></div>
+      <div><label>${esc(t('mlfromname'))}</label><input id="mln" value="${esc((T&&T.from_name)||'')}" placeholder="TMach"></div>
     </div>
-    <label>${t('mlbase')}</label><input id="mlb" value="${esc((T&&T.base_url)||'')}" placeholder="https://tmach.example.com">
-    <p class="muted" style="font-size:12px;margin:4px 0 0">${t('mlbasehint')}</p>
+    <label>${esc(t('mlbase'))}</label><input id="mlb" value="${esc((T&&T.base_url)||'')}" placeholder="https://tmach.example.com">
+    <p class="muted" style="font-size:12px;margin:4px 0 0">${esc(t('mlbasehint'))}</p>
     <label class="muted" style="display:flex;align-items:center;gap:8px;font-weight:normal;margin-top:8px">
-      <input type="checkbox" id="mla"${!T || T.active ? ' checked':''}> ${t('mlactive')}</label>
+      <input type="checkbox" id="mla"${!T || T.active ? ' checked':''}> ${esc(t('mlactive'))}</label>
     ${test}
     <div style="margin-top:10px">
-      <button class="btn" data-h-click="${H((el,ev)=>doMailSave())}">${t('save')}</button>
-      ${T?`<button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>doMailClear())}">${t('mlremove')}</button>`:''}
+      <button class="btn" data-h-click="${H((el,ev)=>doMailSave())}">${esc(t('save'))}</button>
+      ${T?`<button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>doMailClear())}">${esc(t('mlremove'))}</button>`:''}
     </div>
     ${T?`<div class="row" style="margin-top:12px;align-items:end">
-      <div><label>${t('mltestto')}</label><input id="mlt" placeholder="you@example.com"></div>
-      <div style="flex:0 0 auto"><button class="btn" data-h-click="${H((el,ev)=>doMailTest())}">${t('mltest')}</button></div>
+      <div><label>${esc(t('mltestto'))}</label><input id="mlt" placeholder="you@example.com"></div>
+      <div style="flex:0 0 auto"><button class="btn" data-h-click="${H((el,ev)=>doMailTest())}">${esc(t('mltest'))}</button></div>
     </div>`:''}</div>`;
 }
 
@@ -80,10 +80,10 @@ function emailNotifyCard(){
       <td><label style="display:flex;align-items:center;gap:8px;font-weight:normal">
         <input type="checkbox" data-cat="${esc(c)}"${doc[c]===true?' checked':''}> ${esc(catLabel(c))}</label></td>
       <td class="muted mono" style="font-size:12px">${(evs[c]||[]).map(esc).join(', ')}</td></tr>`).join('');
-  return `<div class="card" id="mlncard" style="margin-top:14px"><h3>${t('mlnotify')}</h3>
-    <p class="muted" style="margin-top:0">${t('mlnotifyhint')}</p>
-    <table><thead><tr><th>${t('mlcategory')}</th><th>${t('mlevents')}</th></tr></thead><tbody>${rows}</tbody></table>
-    <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doMailNotifySave())}">${t('save')}</button></div></div>`;
+  return `<div class="card" id="mlncard" style="margin-top:14px"><h3>${esc(t('mlnotify'))}</h3>
+    <p class="muted" style="margin-top:0">${esc(t('mlnotifyhint'))}</p>
+    <table><thead><tr><th>${esc(t('mlcategory'))}</th><th>${esc(t('mlevents'))}</th></tr></thead><tbody>${rows}</tbody></table>
+    <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doMailNotifySave())}">${esc(t('save'))}</button></div></div>`;
 }
 
 // ---- a person's own -----------------------------------------------------------
@@ -92,13 +92,13 @@ function myNotifyCard(){
   const A = P.address || {};
   const cats = P.categories || [];
   const state = A.address
-    ? `<span class="badge ok">${t('mlconfirmed')}</span> <span class="mono">${esc(A.address)}</span>`
+    ? `<span class="badge ok">${esc(t('mlconfirmed'))}</span> <span class="mono">${esc(A.address)}</span>`
     : A.pending
-      ? `<span class="badge">${t('mlawaiting')}</span> <span class="mono">${esc(A.pending)}</span>`
-      : `<span class="muted">${t('mlnoaddr')}</span>`;
+      ? `<span class="badge">${esc(t('mlawaiting'))}</span> <span class="mono">${esc(A.pending)}</span>`
+      : `<span class="muted">${esc(t('mlnoaddr'))}</span>`;
   const rows = cats.map(c=>`<tr>
       <td>${esc(catLabel(c.category))}</td>
-      <td>${c.enabled?`<span class="badge ok">${t('enable')}d</span>`:`<span class="badge">${t('disable')}d</span>`}</td>
+      <td>${c.enabled?`<span class="badge ok">${esc(t('enable'))}d</span>`:`<span class="badge">${esc(t('disable'))}d</span>`}</td>
       <td class="muted" style="font-size:12px">${c.disabled_by?esc(t('mlby')+' '+c.disabled_by):''}</td>
       <td>${
         // A PERSON MAY ALWAYS TURN ONE OFF and may never turn one on past a
@@ -106,19 +106,19 @@ function myNotifyCard(){
         // the only possible outcome — FEAT-8's locked row, and for its reason: a
         // control whose only outcome is a 409 is worse than no control.
         c.enabled
-          ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMyNotify(c.category,false))}">${t('disable')}</button>`
+          ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMyNotify(c.category,false))}">${esc(t('disable'))}</button>`
           : c.disabled_by==='user'
-            ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMyNotify(c.category,true))}">${t('enable')}</button>`
+            ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMyNotify(c.category,true))}">${esc(t('enable'))}</button>`
             : ''}</td></tr>`).join('');
-  return `<div class="card" id="mlminecard" style="margin-top:14px"><h3>${t('mlmine')}</h3>
-    <p class="muted" style="margin-top:0">${t('mlminehint')}</p>
+  return `<div class="card" id="mlminecard" style="margin-top:14px"><h3>${esc(t('mlmine'))}</h3>
+    <p class="muted" style="margin-top:0">${esc(t('mlminehint'))}</p>
     <p style="margin:0 0 8px">${state}</p>
     <div class="row" style="align-items:end">
-      <div><label>${t('mladdr')}</label><input id="mlad" value="${esc(emailPendingDraft())}" placeholder="you@example.com"></div>
-      <div style="flex:0 0 auto"><button class="btn" data-h-click="${H((el,ev)=>doMyAddress())}">${t('save')}</button></div>
-      ${(A.address||A.pending)?`<div style="flex:0 0 auto"><button class="btn sm ghost" data-h-click="${H((el,ev)=>doMyAddressClear())}">${t('remove')}</button></div>`:''}
+      <div><label>${esc(t('mladdr'))}</label><input id="mlad" value="${esc(emailPendingDraft())}" placeholder="you@example.com"></div>
+      <div style="flex:0 0 auto"><button class="btn" data-h-click="${H((el,ev)=>doMyAddress())}">${esc(t('save'))}</button></div>
+      ${(A.address||A.pending)?`<div style="flex:0 0 auto"><button class="btn sm ghost" data-h-click="${H((el,ev)=>doMyAddressClear())}">${esc(t('remove'))}</button></div>`:''}
     </div>
-    ${cats.length?`<table style="margin-top:10px"><thead><tr><th>${t('mlcategory')}</th><th>${t('status')}</th><th></th><th></th></tr></thead><tbody>${rows}</tbody></table>`:''}</div>`;
+    ${cats.length?`<table style="margin-top:10px"><thead><tr><th>${esc(t('mlcategory'))}</th><th>${esc(t('status'))}</th><th></th><th></th></tr></thead><tbody>${rows}</tbody></table>`:''}</div>`;
 }
 
 // ---- the handlers -------------------------------------------------------------

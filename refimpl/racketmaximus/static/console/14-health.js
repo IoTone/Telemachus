@@ -41,21 +41,21 @@ function healthBudgets(ur){
     // none is — so a bare pair of numbers would read as an idle team. Say which
     // it is.
     const none = (d.limit==null || d.limit==='null');
-    const bar = none ? `<span class="muted">${t('hnolimit')}</span>`
+    const bar = none ? `<span class="muted">${esc(t('hnolimit'))}</span>`
                      : `${d.used} / ${d.limit} <span class="muted">(${d.remaining})</span>`;
     return `<tr><td class="mono">${esc(d.dimension)}</td><td>${bar}</td>
       <td class="muted">${esc(d.window||'')}</td>
       <td class="muted">${d.resets_at?esc(new Date(d.resets_at*1000).toLocaleString()):'—'}</td></tr>`;
   }).join('');
   return `<div class="card" id="hbudgets" style="margin-top:14px">
-    <h3>${t('hbudgets')} <span class="muted" style="font-size:13px">— ${t('hbudgetshint')}</span></h3>
+    <h3>${esc(t('hbudgets'))} <span class="muted" style="font-size:13px">— ${esc(t('hbudgetshint'))}</span></h3>
     ${quotaHeldCard(ur.json.held)}
-    <table><thead><tr><th>${t('dimension')}</th><th>${t('hused')}</th><th>${t('hwindow')}</th>
-      <th>${t('resets')}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <table><thead><tr><th>${esc(t('dimension'))}</th><th>${esc(t('hused'))}</th><th>${esc(t('hwindow'))}</th>
+      <th>${esc(t('resets'))}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function healthServer(sr){
-  if(!sr || !sr.ok) return `<div class="card" id="hserver"><h3>${t('hserver')}</h3>
+  if(!sr || !sr.ok) return `<div class="card" id="hserver"><h3>${esc(t('hserver'))}</h3>
     <p class="badge bad">${esc((sr&&sr.json&&sr.json.error)||'error')}</p></div>`;
   const st = sr.json;
   const b = (S.me && S.me.build) || {};
@@ -72,20 +72,20 @@ function healthServer(sr){
   const schema = pending.length
     ? `${hBadge(t('hschemapending').replace('{n}', pending.length), 'bad')}
        <span class="mono muted">${pending.map(esc).join(', ')}</span>`
-    : `${hBadge(sch.applied+' / '+sch.known, 'ok')} <span class="muted">${t('hmigrations')}</span>`;
+    : `${hBadge(sch.applied+' / '+sch.known, 'ok')} <span class="muted">${esc(t('hmigrations'))}</span>`;
   const sealed = st.secrets === 'sealed';
   const secrets = sealed
     ? `${hBadge(t('hsealed'), 'ok')}${st.secret_key_id&&st.secret_key_id!=='null'
          ? ` <span class="mono muted">${esc(st.secret_key_id)}</span>`:''}`
-    : `${hBadge(t('hplaintext'), 'warn')} <span class="muted">${t('hplaintexthint')}</span>`;
+    : `${hBadge(t('hplaintext'), 'warn')} <span class="muted">${esc(t('hplaintexthint'))}</span>`;
   const commit = b.commit_short
     ? ` <span class="mono muted" title="${esc(b.commit||'')}">${b.commit==='dev'?esc(t('builddev')):esc(b.commit_short)}</span>`
     : '';
   const drain = (st.drain_seconds===0)
-    ? `<span class="muted">${t('hdrainnow')}</span>`
+    ? `<span class="muted">${esc(t('hdrainnow'))}</span>`
     : `${esc(String(st.drain_seconds))}s`;
   return `<div class="card" id="hserver">
-    <h3>${t('hserver')} <span class="muted" style="font-size:13px">— ${t('healthhint')}</span></h3>
+    <h3>${esc(t('hserver'))} <span class="muted" style="font-size:13px">— ${esc(t('healthhint'))}</span></h3>
     <table>
       ${hRow(t('version'), `<span class="mono">${esc(st.version||'')}</span>${commit}`)}
       ${hRow(t('huptime'), esc(up))}
@@ -94,7 +94,7 @@ function healthServer(sr){
       ${hRow(t('hsecrets'), secrets)}
       ${hRow(t('htls'), st.tls?hBadge(t('featon'),'ok'):hBadge(t('hoff')))}
       ${hRow(t('hblob'), `<span class="mono">${esc((st.blob_store||{}).name||'–')}</span>
-         <span class="muted" style="font-size:12px">${t('hblobhint')}</span>`)}
+         <span class="muted" style="font-size:12px">${esc(t('hblobhint'))}</span>`)}
       ${hRow(t('hdrain'), drain, t('hdrainhint'))}
       ${hRow(t('hmt'), st.multitenant?hBadge(t('featon'),'ok'):hBadge(t('hoff')))}
       ${hRow(t('haccounts'), esc(t('haccountsline')
@@ -117,11 +117,11 @@ async function healthView(){
     // and the figures below them are over the same hours.
     api('/api/admin/queue/flow'+fleetQuery())]);
   const read = hTime(Date.now());
-  return `<h2>${t('health')}</h2>
+  return `<h2>${esc(t('health'))}</h2>
     <p class="muted" style="margin:-.4em 0 1em">
       <span id="hread">${esc(t('hread').replace('{time}', read))}</span>
       <button class="btn sm ghost" style="margin-left:10px"
-        data-h-click="${H(()=>renderTab())}">${t('refresh')}</button></p>
+        data-h-click="${H(()=>renderTab())}">${esc(t('refresh'))}</button></p>
     ${healthServer(sr)}
     ${healthBudgets(ur)}
     ${queueVizCard(vr, fr)}

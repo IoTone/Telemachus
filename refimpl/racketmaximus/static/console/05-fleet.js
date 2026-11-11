@@ -59,11 +59,11 @@ function workersCard(xr, fr){
   const now = Math.floor(Date.now()/1000);
 
   const sum = [
-    `<span class="badge">${fl.pull||0} ${t('workers').toLowerCase()}</span>`,
-    `<span class="badge ok">${fl.active||0} ${t('wkactive')}</span>`,
-    (fl.stale ? `<span class="badge warn">${fl.stale} ${t('wkstale')}</span>` : ''),
-    (fl.drained ? `<span class="badge warn">${fl.drained} ${t('wkdrained')}</span>` : ''),
-    (fl.paused ? `<span class="badge">${fl.paused} ${t('wkpaused')}</span>` : '')
+    `<span class="badge">${fl.pull||0} ${esc(t('workers').toLowerCase())}</span>`,
+    `<span class="badge ok">${fl.active||0} ${esc(t('wkactive'))}</span>`,
+    (fl.stale ? `<span class="badge warn">${fl.stale} ${esc(t('wkstale'))}</span>` : ''),
+    (fl.drained ? `<span class="badge warn">${fl.drained} ${esc(t('wkdrained'))}</span>` : ''),
+    (fl.paused ? `<span class="badge">${fl.paused} ${esc(t('wkpaused'))}</span>` : '')
   ].filter(Boolean).join(' ');
 
   // WHICH MODEL? There are TWO records and the card was reading the wrong one.
@@ -101,10 +101,10 @@ function workersCard(xr, fr){
     const w=e.window||{}, cur=e.current;
     const drained = e.admin_state==='drained';
     const held = cur ? `<span class="mono">${esc(cur.kind)}</span> <span class="muted">${wkAge(cur.seconds_left==null?null:-cur.seconds_left)||''}</span>`
-                     : `<span class="muted">${t('wkidle')}</span>`;
-    const lease = cur ? `<span class="muted" title="${esc(t('wkleasehint'))}">${t('wklease')} ${wkAge(cur.seconds_left)}</span>` : '';
+                     : `<span class="muted">${esc(t('wkidle'))}</span>`;
+    const lease = cur ? `<span class="muted" title="${esc(t('wkleasehint'))}">${esc(t('wklease'))} ${wkAge(cur.seconds_left)}</span>` : '';
     return `<tr${drained?' style="opacity:.62"':''}>
-      <td><span class="badge">${e.mode==='pull'?'🛰️':'↗'} ${esc(e.name)}</span>${drained?` <span class="badge warn" title="${esc(t('wkdrainhint'))}">${t('wkdrained')}</span>`:''}</td>
+      <td><span class="badge">${e.mode==='pull'?'🛰️':'↗'} ${esc(e.name)}</span>${drained?` <span class="badge warn" title="${esc(t('wkdrainhint'))}">${esc(t('wkdrained'))}</span>`:''}</td>
       <td>${wkModels(e)}</td>
       <td>${wkHealth(e.status)}</td>
       <td>${e.worker_state?`<span class="badge">${esc(e.worker_state)}</span>`:`<span class="muted" title="${esc(t('wkunreportedhint'))}">–</span>`}</td>
@@ -112,15 +112,15 @@ function workersCard(xr, fr){
       <td>${cur?`${held} ${lease}`:held}</td>
       <td class="mono" style="white-space:nowrap">${wkFigs(w)}</td>
       <td style="white-space:nowrap;border-left:1px solid var(--line)">${e.mode==='pull'?
-        (drained ? `<button class="btn sm ghost" data-h-click="${H(()=>wkAdmin(e.id,'resume'))}">${t('wkresume')}</button>`
-                 : `<button class="btn sm ghost" data-h-click="${H(()=>wkAdmin(e.id,'drain'))}">${t('wkdrain')}</button>`)
-        + ` <button class="btn sm bad" style="margin-left:14px" data-h-click="${H(()=>wkRetire(e.id,e.name))}">${t('wkretire')}</button>`
+        (drained ? `<button class="btn sm ghost" data-h-click="${H(()=>wkAdmin(e.id,'resume'))}">${esc(t('wkresume'))}</button>`
+                 : `<button class="btn sm ghost" data-h-click="${H(()=>wkAdmin(e.id,'drain'))}">${esc(t('wkdrain'))}</button>`)
+        + ` <button class="btn sm bad" style="margin-left:14px" data-h-click="${H(()=>wkRetire(e.id,e.name))}">${esc(t('wkretire'))}</button>`
         : ''}</td></tr>`;
   };
 
-  const locRow = loc ? `<tr><td><span class="badge ok">${t('wklocal')}</span></td><td class="mono">${esc(loc.model)}</td>
+  const locRow = loc ? `<tr><td><span class="badge ok">${esc(t('wklocal'))}</span></td><td class="mono">${esc(loc.model)}</td>
     <td><span class="badge ${loc.configured?'ok':'warn'}">${loc.configured?t('wkconfigured'):t('simulated')}</span></td>
-    <td colspan="5" class="muted">${t('wklocalhint')}</td></tr>` : '';
+    <td colspan="5" class="muted">${esc(t('wklocalhint'))}</td></tr>` : '';
 
   // Executors declared in executors.json are NOT in the fleet read — that one
   // lists DB rows, which is what a drain or a retire can act on. They still
@@ -131,11 +131,11 @@ function workersCard(xr, fr){
   const fromFile = ((xr&&xr.ok) ? (xr.json.executors||[]) : [])
     .filter(e=>(e.source||'config')==='config' && dbNames.indexOf(e.name)<0);
   const fileRow=(e)=>`<tr>
-      <td><span class="badge">↗ ${esc(e.name)}</span> <span class="badge" title="${esc(t('wkconfighint'))}">${t('wkconfig')}</span></td>
+      <td><span class="badge">↗ ${esc(e.name)}</span> <span class="badge" title="${esc(t('wkconfighint'))}">${esc(t('wkconfig'))}</span></td>
       <td class="mono">${esc(e.model||'–')}</td>
       <td colspan="5" class="mono muted">${esc(e.url||'')}</td><td></td></tr>`;
   const body = [locRow].concat(pulls.map(row)).concat(pushes.map(row)).concat(fromFile.map(fileRow)).join('');
-  const none = pulls.length?'':`<p class="muted">${t('wknone')}</p>`;
+  const none = pulls.length?'':`<p class="muted">${esc(t('wknone'))}</p>`;
 
   // The queue, and the one number a depth count cannot explain. `unclaimable`
   // is jobs NO live worker's capabilities match — never a job a quota holds,
@@ -148,52 +148,52 @@ function workersCard(xr, fr){
   // one number, and it read 0 while a queue sat still.
   const heldp=(q.held_by_paused||{}).count||0;
   const queue=`<div class="row" style="margin-top:10px;align-items:center;gap:14px">
-    <div><label>${t('wkqueued')}</label><h2>${depth.reduce((a,d)=>a+d.queued,0)}</h2>
+    <div><label>${esc(t('wkqueued'))}</label><h2>${depth.reduce((a,d)=>a+d.queued,0)}</h2>
       <span class="muted mono">${depth.length?depth.map(d=>esc(d.kind)+' '+d.queued).join(' · '):'–'}</span></div>
-    <div><label>${t('wkoldest')}</label><h2>${wkAge(q.oldest_queued_seconds)}</h2></div>
-    <div><label title="${esc(t('wkunclaimablehint'))}">${t('wkunclaimable')}</label>
+    <div><label>${esc(t('wkoldest'))}</label><h2>${wkAge(q.oldest_queued_seconds)}</h2></div>
+    <div><label title="${esc(t('wkunclaimablehint'))}">${esc(t('wkunclaimable'))}</label>
       <h2${stuck?' style="color:var(--warn)"':''}>${stuck}</h2>
-      ${stuck?`<span class="muted">${t('wkunclaimablewhy')}</span>`:''}</div>
-    <div><label title="${esc(t('wkheldpausedhint'))}">${t('wkheldpaused')}</label>
+      ${stuck?`<span class="muted">${esc(t('wkunclaimablewhy'))}</span>`:''}</div>
+    <div><label title="${esc(t('wkheldpausedhint'))}">${esc(t('wkheldpaused'))}</label>
       <h2${heldp?' style="color:var(--warn)"':''}>${heldp}</h2>
-      ${heldp?`<span class="muted">${t('wkheldpausedwhy')}</span>`:''}</div>
+      ${heldp?`<span class="muted">${esc(t('wkheldpausedwhy'))}</span>`:''}</div>
   </div>`;
 
   // The window is named on the screen rather than only in a tooltip, and it is
   // selectable: the figures silently change meaning when `hours` does.
   const win = `<div class="row" style="align-items:center;gap:8px;margin:0 0 2px">
-    <div style="flex:0 0 auto"><label>${t('wkwindowsel')}</label></div>
+    <div style="flex:0 0 auto"><label>${esc(t('wkwindowsel'))}</label></div>
     <div style="flex:0 0 auto"><select style="margin:0" data-h-change="${H((el)=>wkSetHours(parseInt(el.value,10)))}">
       ${WKWINDOWS.map(h=>`<option value="${h}"${h===wkHours()?' selected':''}>${wkWindowLabel(h)}</option>`).join('')}
     </select></div>
     </div>`;
 
   const tok = S.wkToken ? `<div class="card" style="margin-top:10px;border-color:var(--warn)">
-      <label>${t('wktoken')}</label>
+      <label>${esc(t('wktoken'))}</label>
       <p class="mono" style="word-break:break-all">${esc(S.wkToken.token)}</p>
-      <p class="muted">${t('wktokenhint')}</p>
-      <p class="mono muted" style="word-break:break-all">racket cli/telemachus-worker.rkt --url ${esc(location.origin)} --token &lt;${t('wktokenph')}&gt;</p>
-      <button class="btn sm ghost" data-h-click="${H(()=>{S.wkToken=null;renderTab();})}">${t('wkgotit')}</button></div>` : '';
+      <p class="muted">${esc(t('wktokenhint'))}</p>
+      <p class="mono muted" style="word-break:break-all">racket cli/telemachus-worker.rkt --url ${esc(location.origin)} --token &lt;${esc(t('wktokenph'))}&gt;</p>
+      <button class="btn sm ghost" data-h-click="${H(()=>{S.wkToken=null;renderTab();})}">${esc(t('wkgotit'))}</button></div>` : '';
 
-  return `<div class="card" id="wkcard" style="margin-top:14px"><h3>${t('workers')} <span class="muted" style="font-size:13px">— ${t('workershint')}</span></h3>
+  return `<div class="card" id="wkcard" style="margin-top:14px"><h3>${esc(t('workers'))} <span class="muted" style="font-size:13px">— ${esc(t('workershint'))}</span></h3>
     <p>${sum}</p>
     ${win}
-    <table><thead><tr><th>${t('name')}</th><th title="${esc(t('wkmodelshint'))}">${t('wkmodels')}</th><th>${t('wkhealth')}</th><th>${t('wkreports')}</th>
-      <th>${t('wklastseen')}</th><th>${t('wkholding')}</th>
-      <th title="${esc(t('wkwindowhint'))}">${t('wkwindow').replace('{window}', wkWindowLabel(wkHours()))}<br>
+    <table><thead><tr><th>${esc(t('name'))}</th><th title="${esc(t('wkmodelshint'))}">${esc(t('wkmodels'))}</th><th>${esc(t('wkhealth'))}</th><th>${esc(t('wkreports'))}</th>
+      <th>${esc(t('wklastseen'))}</th><th>${esc(t('wkholding'))}</th>
+      <th title="${esc(t('wkwindowhint'))}">${esc(t('wkwindow').replace('{window}', wkWindowLabel(wkHours())))}<br>
         <span class="muted" style="font-weight:400;font-size:11px">${esc(t('wklegend'))}</span></th>
       <th style="border-left:1px solid var(--line)"></th></tr></thead>
       <tbody>${body}</tbody></table>
     ${none}
     ${queue}
     <hr>
-    <label>${t('wkadd')}</label>
+    <label>${esc(t('wkadd'))}</label>
     <div class="row">
       <div><input id="wkn" placeholder="${esc(t('name'))}" maxlength="64"></div>
       <div><input id="wkm" placeholder="${esc(t('model'))}" maxlength="64"></div>
-      <div><button class="btn" data-h-click="${H(()=>wkCreate())}">${t('create')}</button></div>
+      <div><button class="btn" data-h-click="${H(()=>wkCreate())}">${esc(t('create'))}</button></div>
     </div>
-    <p class="muted">${t('wkaddhint')}</p>
+    <p class="muted">${esc(t('wkaddhint'))}</p>
     ${tok}</div>`;
 }
 async function wkAdmin(id, what){
@@ -319,11 +319,11 @@ function queueCard(qr, fr){
     // Two different facts, never merged: held by the platform, or runnable by
     // nobody. The first clears itself; the second needs a machine.
     const wait = j.waiting ? `<span class="badge warn" title="${esc(t('wkheldhint'))}">${esc(j.waiting.reason)}</span>` : '';
-    const stuck = (j.runnable===false) ? `<span class="badge warn" title="${esc(t('wkunclaimablehint'))}">${t('qnoworker')}</span>` : '';
+    const stuck = (j.runnable===false) ? `<span class="badge warn" title="${esc(t('wkunclaimablehint'))}">${esc(t('qnoworker'))}</span>` : '';
     const lease = (j.lease_seconds_left==null) ? '' :
-      `<span class="muted" title="${esc(t('wkleasehint'))}">${t('wklease')} ${wkAge(j.lease_seconds_left)}</span>`;
+      `<span class="muted" title="${esc(t('wkleasehint'))}">${esc(t('wklease'))} ${wkAge(j.lease_seconds_left)}</span>`;
     return `<tr>
-      <td class="mono">${esc(j.kind)}${j.sub_job?` <span class="badge" title="${esc(t('qsubhint'))}">${t('qsub')}</span>`:''}</td>
+      <td class="mono">${esc(j.kind)}${j.sub_job?` <span class="badge" title="${esc(t('qsubhint'))}">${esc(t('qsub'))}</span>`:''}</td>
       <td><span class="badge">${esc(j.status)}</span> ${wait} ${stuck}</td>
       <td class="muted">${wkAge(j.age_seconds)}</td>
       <td>${esc(j.team||'–')}${j.org?` <span class="muted">${esc(j.org)}</span>`:''}</td>
@@ -331,22 +331,22 @@ function queueCard(qr, fr){
       <td class="mono muted">${j.attempt}/${j.max_attempts}</td>
       <td class="muted" style="max-width:26em">${j.error?esc(j.error):''}</td>
       <td><button class="btn sm ghost" title="${esc(t('qvpathhint'))}"
-        data-h-click="${H((el)=>jobTrail(j.id, el))}">${t('qvpath')}</button></td></tr>`;
+        data-h-click="${H((el)=>jobTrail(j.id, el))}">${esc(t('qvpath'))}</button></td></tr>`;
   };
   const pager = qPager(Q, rows);
   // `order` is reported rather than assumed: a list that LOOKED like the drain
   // order and was not would mislead about what runs next.
   const ord = Q.order==='drain' ? t('qdrainorder') : t('qrecentorder');
-  return `<div class="card" id="qcard" style="margin-top:14px"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${t('queue')} <span class="muted" style="font-size:13px">— ${esc(ord)}</span></h3>
-      <div class="row" style="align-items:center;gap:10px;margin:0">${live?`<span class="muted" style="font-size:13px">${esc(t('qlive'))}</span>`:''}<button class="btn sm ghost" data-h-click="${H(()=>qRefresh())}">${t('refresh')}</button></div></div>
+  return `<div class="card" id="qcard" style="margin-top:14px"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${esc(t('queue'))} <span class="muted" style="font-size:13px">— ${esc(ord)}</span></h3>
+      <div class="row" style="align-items:center;gap:10px;margin:0">${live?`<span class="muted" style="font-size:13px">${esc(t('qlive'))}</span>`:''}<button class="btn sm ghost" data-h-click="${H(()=>qRefresh())}">${esc(t('refresh'))}</button></div></div>
     <div class="row">
       ${sel('status',['queued','running','canceling','done','error','canceled'],t('status'))}
       ${sel('kind',fr?qKinds(fr):(S.qKinds||[]),t('qkind'))}
     </div>
-    ${rows.length?`<table><thead><tr><th>${t('qkind')}</th><th>${t('status')}</th><th>${t('qage')}</th>
-      <th>${t('team')}</th><th>${t('workers')}</th><th>${t('qattempt')}</th><th></th><th></th></tr></thead>
+    ${rows.length?`<table><thead><tr><th>${esc(t('qkind'))}</th><th>${esc(t('status'))}</th><th>${esc(t('qage'))}</th>
+      <th>${esc(t('team'))}</th><th>${esc(t('workers'))}</th><th>${esc(t('qattempt'))}</th><th></th><th></th></tr></thead>
       <tbody>${rows.map(row).join('')}</tbody></table>`
-     :`<p class="muted">${t('qempty')}</p>`}
+     :`<p class="muted">${esc(t('qempty'))}</p>`}
     ${pager}</div>`;
 }
 
@@ -370,57 +370,57 @@ async function adminView(){
   if(mnr.ok) S.mailN=mnr.json;
   const compute=workersCard(xr, fr) + queueCard(qr, fr);
   const B = S.brand;
-  const brandCard=`<div class="card" style="margin-top:14px"><h3>${t('branding')}</h3>
-    <p class="muted" style="margin-top:0">${t('brandinghint')}</p>
+  const brandCard=`<div class="card" style="margin-top:14px"><h3>${esc(t('branding'))}</h3>
+    <p class="muted" style="margin-top:0">${esc(t('brandinghint'))}</p>
     <div class="row">
-      <div><label>${t('brandtitle')}</label><input id="brt" maxlength="48" value="${esc(B.title||'')}"></div>
-      <div><label>${t('brandtagline')}</label><input id="brg" maxlength="160" placeholder="${esc(t('tagline'))}" value="${esc(B.tagline||'')}"></div>
+      <div><label>${esc(t('brandtitle'))}</label><input id="brt" maxlength="48" value="${esc(B.title||'')}"></div>
+      <div><label>${esc(t('brandtagline'))}</label><input id="brg" maxlength="160" placeholder="${esc(t('tagline'))}" value="${esc(B.tagline||'')}"></div>
     </div>
-    <label>${t('brandlogo')}</label>
+    <label>${esc(t('brandlogo'))}</label>
     <div class="row" style="align-items:center">
       <div style="flex:0 0 auto;min-width:0">
         <span class="brand" style="font-size:20px">${brandLockup(30)}</span>
       </div>
       <div><input type="file" id="brf" accept="image/png,image/jpeg,image/svg+xml,image/webp" data-h-change="${H((el,ev)=>doBrandLogo(el))}"></div>
-      ${B.logo?`<div style="flex:0 0 auto"><button class="btn sm ghost" data-h-click="${H((el,ev)=>doBrandLogoClear())}">${t('brandclearlogo')}</button></div>`:''}
+      ${B.logo?`<div style="flex:0 0 auto"><button class="btn sm ghost" data-h-click="${H((el,ev)=>doBrandLogoClear())}">${esc(t('brandclearlogo'))}</button></div>`:''}
     </div>
     ${brandThemeEditor()}
-    <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doBrandSave())}">${t('save')}</button>
-      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>doBrandReset())}">${t('brandreset')}</button>
-      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>doBrandThemeReset())}">${t('brandthemereset')}</button></div></div>`;
+    <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doBrandSave())}">${esc(t('save'))}</button>
+      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>doBrandReset())}">${esc(t('brandreset'))}</button>
+      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>doBrandThemeReset())}">${esc(t('brandthemereset'))}</button></div></div>`;
   // Localization: instance-wide, `instance:manage`, and the reason it sits beside
   // Branding rather than in a user preference pane — it is what an ANONYMOUS
   // visitor gets, so it cannot live behind a sign-in.
   const I = S.i18n;
-  const locCard=`<div class="card" style="margin-top:14px"><h3>${t('localization')}</h3>
-    <p class="muted" style="margin-top:0">${t('lochint')}</p>
+  const locCard=`<div class="card" style="margin-top:14px"><h3>${esc(t('localization'))}</h3>
+    <p class="muted" style="margin-top:0">${esc(t('lochint'))}</p>
     <div class="row">
-      <div><label>${t('deflocale')}</label>
+      <div><label>${esc(t('deflocale'))}</label>
         <select id="locdef">${(I.available||['en']).map(l=>`<option value="${esc(l)}"${I.default===l?' selected':''}>${esc(LANGNAME[l]||l)}</option>`).join('')}</select></div>
       <div><label>&nbsp;</label>
         <label class="muted" style="display:flex;align-items:center;gap:8px;font-weight:normal">
-          <input type="checkbox" id="locsw"${I.enabled?' checked':''}> ${t('loctoggle')}</label></div>
+          <input type="checkbox" id="locsw"${I.enabled?' checked':''}> ${esc(t('loctoggle'))}</label></div>
     </div>
-    <p class="muted" style="margin-top:6px;font-size:12px">${t('locoffhint')}</p>
-    <p class="muted" style="font-size:12px">${t('locavail')}: ${(I.available||[]).map(l=>esc(LANGNAME[l]||l)).join(' \u00b7 ')}</p>
-    <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doI18nSave())}">${t('save')}</button></div></div>`;
+    <p class="muted" style="margin-top:6px;font-size:12px">${esc(t('locoffhint'))}</p>
+    <p class="muted" style="font-size:12px">${esc(t('locavail'))}: ${(I.available||[]).map(l=>esc(LANGNAME[l]||l)).join(' \u00b7 ')}</p>
+    <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doI18nSave())}">${esc(t('save'))}</button></div></div>`;
   // issue #38: minutes and hours in the UI, seconds on the wire. An operator
   // thinking about "thirty minutes" should not have to multiply.
   const SP=(S.adminPolicy&&S.adminPolicy.policy)||{};
   const mins=(v)=>typeof v==='number'?Math.round(v/60):'';
   const hrs=(v)=>typeof v==='number'?(Math.round(v/360)/10):'';
-  const secCard=`<div class="card" style="margin-top:14px"><h3>${t('sessionsec')}</h3>
+  const secCard=`<div class="card" style="margin-top:14px"><h3>${esc(t('sessionsec'))}</h3>
     <div class="row">
-      <div><label>${t('idlelabel')}</label><input id="spidle" type="number" min="1" value="${mins(SP.idle_seconds)}"></div>
-      <div><label>${t('abslabel')}</label><input id="spabs" type="number" min="1" step="0.5" value="${hrs(SP.absolute_seconds)}"></div>
-      <div><label>${t('warnlabel')}</label><input id="spwarn" type="number" min="0" value="${typeof SP.warn_seconds==='number'?SP.warn_seconds:60}"></div>
+      <div><label>${esc(t('idlelabel'))}</label><input id="spidle" type="number" min="1" value="${mins(SP.idle_seconds)}"></div>
+      <div><label>${esc(t('abslabel'))}</label><input id="spabs" type="number" min="1" step="0.5" value="${hrs(SP.absolute_seconds)}"></div>
+      <div><label>${esc(t('warnlabel'))}</label><input id="spwarn" type="number" min="0" value="${typeof SP.warn_seconds==='number'?SP.warn_seconds:60}"></div>
     </div>
-    <p class="muted" style="margin-top:6px;font-size:12px">${t('sessionhint')}</p>
-    <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doSessionPolicySave())}">${t('save')}</button></div></div>`;
-  const seedCard=`<div class="card" style="margin-top:14px"><h3>${t('testing')}</h3>
+    <p class="muted" style="margin-top:6px;font-size:12px">${esc(t('sessionhint'))}</p>
+    <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doSessionPolicySave())}">${esc(t('save'))}</button></div></div>`;
+  const seedCard=`<div class="card" style="margin-top:14px"><h3>${esc(t('testing'))}</h3>
     <p class="muted" style="margin-top:0">Populate this team with sample notes, documents, and queued jobs (chat · translate · agent).</p>
-    <button class="btn" data-h-click="${H((el,ev)=>doSeedSamples())}">${t('seed')}</button></div>`;
-  return `<h2>${t('admin')}</h2>${body}${compute}${instFeatCard()}${emailTransportCard()}${emailNotifyCard()}${brandCard}${locCard}${secCard}${seedCard}`;
+    <button class="btn" data-h-click="${H((el,ev)=>doSeedSamples())}">${esc(t('seed'))}</button></div>`;
+  return `<h2>${esc(t('admin'))}</h2>${body}${compute}${instFeatCard()}${emailTransportCard()}${emailNotifyCard()}${brandCard}${locCard}${secCard}${seedCard}`;
 }
 
 // #177: the OPERATOR's feature switches. They have existed since #63 and were
@@ -446,8 +446,8 @@ function instFeatCard(){
     return `<tr><td class="mono">${esc(f)}</td><td>${status}</td>
       <td><button class="btn sm ${off?'ghost':'bad'}" data-h-click="${H((el,ev)=>doInstFeature((f),(off)))}">${off?t('featallow'):t('featturnoff')}</button></td></tr>`;
   }).join('');
-  return `<div class="card" style="margin-top:14px"><h3>${t('instfeatures')}</h3>
-    <p class="muted" style="margin-top:0">${t('instfeathint')}</p>
+  return `<div class="card" style="margin-top:14px"><h3>${esc(t('instfeatures'))}</h3>
+    <p class="muted" style="margin-top:0">${esc(t('instfeathint'))}</p>
     <table id="instfeat"><thead><tr><th>feature</th><th>status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 // THE PUT REPLACES THE WHOLE DOCUMENT — there is no per-feature route at this

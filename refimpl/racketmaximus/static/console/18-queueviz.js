@@ -23,7 +23,7 @@ function qvBar(segs, total){
   const key = segs.map(s=>`<span class="qvkey"><i style="background:var(--${s.hue})"></i>${esc(s.label)}
     <b>${s.n}</b></span>`).join('');
   const legend = `<p class="qvlegend">${key}</p>`;
-  if(!total) return `<p class="muted">${t('qvempty')}</p>${legend}`;
+  if(!total) return `<p class="muted">${esc(t('qvempty'))}</p>${legend}`;
   let x = 0;
   const parts = segs.filter(s=>s.n>0).map(s=>{
     const w = (s.n/total)*100, r = `<rect x="${x}%" y="0" width="${w}%" height="22" fill="var(--${s.hue})">
@@ -51,7 +51,7 @@ function qvSpark(label, xs, hue, hint){
     <td><svg class="qvspark" viewBox="0 0 100 28" preserveAspectRatio="none" role="img"
       aria-label="${esc(label)}: ${total}">${bars}</svg></td>
     <td class="mono muted qvtot">${total}</td>
-    <td class="muted qvtot">${t('qvpeak').replace('{n}', max)}</td></tr>`;
+    <td class="muted qvtot">${esc(t('qvpeak').replace('{n}', max))}</td></tr>`;
 }
 
 // Per holding executor, how much of its lease is left. A lease quietly not
@@ -62,7 +62,7 @@ function qvSpark(label, xs, hue, hint){
 function qvLeases(fr){
   if(!fr||!fr.ok) return '';
   const held = (fr.json.executors||[]).filter(e=>e.current);
-  if(!held.length) return `<p class="muted">${t('qvnoleases')}</p>`;
+  if(!held.length) return `<p class="muted">${esc(t('qvnoleases'))}</p>`;
   const lease = (fr.json.lease_seconds) || 120;
   const rows = held.map(e=>{
     const left = e.current.seconds_left;
@@ -116,9 +116,9 @@ async function jobTrail(id, el){
     const all = steps.concat(now);
     row.innerHTML = `<td colspan="${cells}"><div class="qvpath">
       <span class="muted mono">${esc(j.kind)}</span>
-      ${all.length?all.join('<span class="qvarrow">→</span>'):`<span class="muted">${t('qvnopath')}</span>`}
-      <span class="muted">${t('qvattempts').replace('{a}', j.attempt).replace('{m}', j.max_attempts)
-        }${j.releases?' · '+t('qvreleases').replace('{n}', j.releases):''}</span></div></td>`;
+      ${all.length?all.join('<span class="qvarrow">→</span>'):`<span class="muted">${esc(t('qvnopath'))}</span>`}
+      <span class="muted">${esc(t('qvattempts').replace('{a}', j.attempt).replace('{m}', j.max_attempts)
+        )}${j.releases?' · '+t('qvreleases').replace('{n}', j.releases):''}</span></div></td>`;
   }
   tr.parentNode.insertBefore(row, tr.nextSibling);
 }
@@ -150,30 +150,30 @@ function queueVizCard(vr, fr){
   // rule — a figure that stops reporting its own limits is one an operator
   // over-reads.
   const trunc = b.truncated
-    ? ` <span class="badge warn" title="${esc(t('qvtrunchint'))}">${t('qvtrunc').replace('{n}', b.scanned)}</span>`
+    ? ` <span class="badge warn" title="${esc(t('qvtrunchint'))}">${esc(t('qvtrunc').replace('{n}', b.scanned))}</span>`
     : '';
   const mins = Math.round((V.bucket_seconds||60)/60);
-  const grain = mins>1 ? ` <span class="muted">${t('qvgrain').replace('{n}', mins)}</span>` : '';
+  const grain = mins>1 ? ` <span class="muted">${esc(t('qvgrain').replace('{n}', mins))}</span>` : '';
   const every = S.qvEvery||0;
   const opts = [0,15,30,60].map(s=>`<option value="${s}"${every===s?' selected':''}>${
     s?s+'s':t('qvautooff')}</option>`).join('');
   return `<div class="card" id="qvcard" style="margin-top:14px">
-    <h3>${t('qvtitle')} <span class="muted" style="font-size:13px">— ${
+    <h3>${esc(t('qvtitle'))} <span class="muted" style="font-size:13px">— ${
       t('qvwindow').replace('{h}', (V.window||{}).hours)}${grain}</span></h3>
     <div class="row" style="align-items:center">
-      <div><label>${t('qvauto')}</label>
+      <div><label>${esc(t('qvauto'))}</label>
         <select data-h-change="${H((el)=>qvAutoSet(parseInt(el.value,10)||0))}">${opts}</select></div>
-      <p class="muted" style="margin:0 0 0 auto">${t('qvautohint')}</p>
+      <p class="muted" style="margin:0 0 0 auto">${esc(t('qvautohint'))}</p>
     </div>
-    <h4>${t('qvstuck')} <span class="muted" style="font-weight:normal">— ${
+    <h4>${esc(t('qvstuck'))} <span class="muted" style="font-weight:normal">— ${
       t('qvstuckhint')}</span>${trunc}</h4>
     ${qvBar(segs, total)}
-    <h4>${t('qvflow')}</h4>
+    <h4>${esc(t('qvflow'))}</h4>
     <table class="qvtbl"><tbody>
       ${qvSpark(t('qvarrivals'), V.arrivals||[], 'accent2', t('qvarrivalshint'))}
       ${qvSpark(t('qvclaims'), V.claims||[], 'warn', t('qvclaimshint'))}
       ${qvSpark(t('qvcompletions'), V.completions||[], 'ok', t('qvcompletionshint'))}
     </tbody></table>
-    <h4>${t('qvleases')} <span class="muted" style="font-weight:normal">— ${t('qvleaseshint')}</span></h4>
+    <h4>${esc(t('qvleases'))} <span class="muted" style="font-weight:normal">— ${esc(t('qvleaseshint'))}</span></h4>
     ${qvLeases(fr)}</div>`;
 }

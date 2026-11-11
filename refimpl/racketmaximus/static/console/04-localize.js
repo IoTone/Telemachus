@@ -11,7 +11,7 @@ function l10nBadge(st){
 async function localizeView(){
   const S3 = S.l10n;
   const cov = await api(`/api/l10n/coverage?locale=${encodeURIComponent(S3.locale)}`);
-  if(!cov.ok) return `<h2>${t('localize')}</h2><p class="badge bad">${esc(cov.json.error||'error')}</p>`;
+  if(!cov.ok) return `<h2>${esc(t('localize'))}</h2><p class="badge bad">${esc(cov.json.error||'error')}</p>`;
   const c = cov.json;
   const known = Array.from(new Set([...(c.locales||[]), 'ja','nl','es-419'])).filter(x=>x!=='en').sort();
 
@@ -45,9 +45,9 @@ async function localizeView(){
         <textarea id="l10n_${esc(i.message_id)}" rows="2" ${write?'':'disabled'}>${esc(i.text)}</textarea></td>
       <td style="vertical-align:top;white-space:nowrap">${l10nBadge(i.status)}</td>
       <td style="vertical-align:top;white-space:nowrap">
-        ${write?`<button class="btn sm" data-h-click="${H((el,ev)=>l10nSave((i.message_id)))}">${t('save')}</button>`:''}
-        ${canApprove?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nReview((tid),'approve'))}">${t('l10napprove')}</button>
-                      <button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nReview((tid),'reject'))}">${t('l10nreject')}</button>`:''}
+        ${write?`<button class="btn sm" data-h-click="${H((el,ev)=>l10nSave((i.message_id)))}">${esc(t('save'))}</button>`:''}
+        ${canApprove?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nReview((tid),'approve'))}">${esc(t('l10napprove'))}</button>
+                      <button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nReview((tid),'reject'))}">${esc(t('l10nreject'))}</button>`:''}
         ${(review && mine && tid && i.status!=='approved')?`<span class="muted" style="font-size:12px">${esc(t('l10nself'))}</span>`:''}
       </td></tr>`;
   }).join('');
@@ -57,29 +57,29 @@ async function localizeView(){
       ${(S3.offset+50)<total?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nPage((S3.offset+50)))}">next »</button>`:''}
       <span class="muted" style="font-size:12px;align-self:center">${S3.offset+1}–${Math.min(S3.offset+50,total)} / ${total}</span></div>`;
 
-  return `<h2>${t('localize')}</h2>
+  return `<h2>${esc(t('localize'))}</h2>
     <p class="muted" style="margin-top:0">${esc(t('l10nhint'))}</p>
     <div class="card">
       <div class="row" style="align-items:end">
-        <div style="flex:0 0 170px"><label>${t('l10ntarget')}</label>
+        <div style="flex:0 0 170px"><label>${esc(t('l10ntarget'))}</label>
           <select data-h-change="${H((el,ev)=>l10nSetLocale(el.value))}">
             ${known.map(l=>`<option value="${esc(l)}" ${l===S3.locale?'selected':''}>${esc(l)}</option>`).join('')}
           </select></div>
         <div style="flex:2">
-          <label>${t('l10ncoverage')} — ${c.approved} / ${c.total} (${c.pct}%)</label>
+          <label>${esc(t('l10ncoverage'))} — ${c.approved} / ${c.total} (${c.pct}%)</label>
           ${bar}<div style="font-size:12px">${statusCounts}</div></div>
         <div style="flex:0 0 auto">
-          ${manage?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nImport())}">${t('l10nimport')}</button>
-                    <button class="btn sm" data-h-click="${H((el,ev)=>l10nDraft())}">${t('l10ndraft')}</button>
-                    <button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nExport())}">${t('l10nexport')}</button>`:''}
+          ${manage?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nImport())}">${esc(t('l10nimport'))}</button>
+                    <button class="btn sm" data-h-click="${H((el,ev)=>l10nDraft())}">${esc(t('l10ndraft'))}</button>
+                    <button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nExport())}">${esc(t('l10nexport'))}</button>`:''}
         </div>
       </div>
     </div>
     <div class="card" style="margin-top:14px">
       <div class="row" style="align-items:end">
-        <div style="flex:0 0 180px"><label>${t('l10nstatus')}</label>
+        <div style="flex:0 0 180px"><label>${esc(t('l10nstatus'))}</label>
           <select data-h-change="${H((el,ev)=>l10nFilter('status',el.value))}">
-            <option value="">${t('l10nall')}</option>
+            <option value="">${esc(t('l10nall'))}</option>
             ${['missing','machine','drafted','needs_review','approved','stale'].map(x=>
               `<option value="${x}" ${S3.status===x?'selected':''}>${x.replace('_',' ')}</option>`).join('')}
           </select></div>
@@ -88,10 +88,10 @@ async function localizeView(){
             <option value="">all</option>
             ${(c.by_namespace||[]).map(n=>`<option value="${esc(n.namespace)}" ${S3.ns===n.namespace?'selected':''}>${esc(n.namespace)} (${n.approved}/${n.total})</option>`).join('')}
           </select></div>
-        <div style="flex:2"><label>${t('l10nsearch')}</label>
+        <div style="flex:2"><label>${esc(t('l10nsearch'))}</label>
           <input id="l10nq" value="${esc(S3.q)}" data-h-change="${H((el,ev)=>l10nFilter('q',el.value))}"></div>
       </div>
-      ${items.length? `<table><thead><tr><th>${t('l10nkey')}</th><th>${t('l10nsource')}</th><th>${t('l10ntranslation')}</th><th>${t('l10nstatus')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>${pager}`
+      ${items.length? `<table><thead><tr><th>${esc(t('l10nkey'))}</th><th>${esc(t('l10nsource'))}</th><th>${esc(t('l10ntranslation'))}</th><th>${esc(t('l10nstatus'))}</th><th></th></tr></thead><tbody>${rows}</tbody></table>${pager}`
                     : `<p class="muted">${esc(t('l10nnothing'))}</p>`}
     </div>`;
 }

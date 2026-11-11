@@ -155,7 +155,7 @@ function noteGraphSVG(G){
     const cls = 'ng-node' + (nd.missing ? ' ng-missing' : '') + (nd.focus ? ' ng-focus' : '');
     const label = `<text x="${p.x}" y="${p.y + r + 11}" class="ng-label">${esc(graphLabel(nd.title))}</text>`;
     const full = nd.missing
-      ? `${nd.title} — ${t('ngraphmissing')}`
+      ? `${nd.title} — ${esc(t('ngraphmissing'))}`
       : nd.title || '(untitled)';
     const dot = `<circle cx="${p.x}" cy="${p.y}" r="${r}" class="${cls}"><title>${esc(full)}</title></circle>`;
     return nd.missing
@@ -201,12 +201,12 @@ function noteGraphCard(G, focusTitle){
     <div class="row" style="gap:8px;align-items:flex-end">
       <div style="flex:0 0 auto"><button class="btn sm ghost"
         data-h-click="${H(() => graphSetFocus(null))}"
-        ${S.graphNote ? '' : 'disabled'}>${t('ngraphteam')}</button></div>
-      ${S.graphNote ? `<div style="flex:0 0 auto"><label>${t('ngraphdepth')}</label>
+        ${S.graphNote ? '' : 'disabled'}>${esc(t('ngraphteam'))}</button></div>
+      ${S.graphNote ? `<div style="flex:0 0 auto"><label>${esc(t('ngraphdepth'))}</label>
         <select data-h-change="${H(el => graphSetDepth(el.value))}">${sel}</select></div>` : ''}
       <div style="flex:1"></div>
       <div style="flex:0 0 auto"><button class="btn sm ghost"
-        data-h-click="${H(() => graphClose())}">${t('ngraphhide')}</button></div>
+        data-h-click="${H(() => graphClose())}">${esc(t('ngraphhide'))}</button></div>
     </div>
     <p class="muted" style="font-size:12px;margin:6px 0 0">${count}</p>
     ${graphNotes(G)}

@@ -27,19 +27,19 @@ function authView(){
     <p class="muted">${esc(brandTagline())}</p>
     <div class="langtog" style="margin:10px 0 18px">${langBtns()}</div>
     <div class="card">
-      <h2>${t('signin')}</h2>
-      <label>${t('user')}</label><input id="lu" autofocus>
-      <label>${t('pass')}</label><input id="lp" type="password">
-      <label>${t('code')}</label><input id="lc">
-      <button class="btn" style="width:100%" id="lbtn" data-h-click="${H((el,ev)=>doLogin())}">${t('signin')}</button>
+      <h2>${esc(t('signin'))}</h2>
+      <label>${esc(t('user'))}</label><input id="lu" autofocus>
+      <label>${esc(t('pass'))}</label><input id="lp" type="password">
+      <label>${esc(t('code'))}</label><input id="lc">
+      <button class="btn" style="width:100%" id="lbtn" data-h-click="${H((el,ev)=>doLogin())}">${esc(t('signin'))}</button>
     </div>
     ${resetCard()}
     <details class="card" style="margin-top:14px">
-      <summary style="cursor:pointer" class="muted">${t('firstrun')}</summary>
+      <summary style="cursor:pointer" class="muted">${esc(t('firstrun'))}</summary>
       <div style="margin-top:12px">
-        <label>${t('user')}</label><input id="bu" value="alice">
-        <label>${t('pass')}</label><input id="bp" type="password" value="s3cret">
-        <button class="btn ghost" data-h-click="${H((el,ev)=>doBootstrap())}">${t('createop')}</button>
+        <label>${esc(t('user'))}</label><input id="bu" value="alice">
+        <label>${esc(t('pass'))}</label><input id="bp" type="password" value="s3cret">
+        <button class="btn ghost" data-h-click="${H((el,ev)=>doBootstrap())}">${esc(t('createop'))}</button>
       </div>
     </details>
   </div>`;
@@ -56,18 +56,18 @@ function authView(){
 // token in the search string rather than the fragment.
 function resetCard(){
   if(S.resetToken) return `<div class="card" style="margin-top:14px">
-      <h2>${t('prnew')}</h2>
+      <h2>${esc(t('prnew'))}</h2>
       <p class="muted">${esc(t('prnewhint'))}</p>
-      <label>${t('prpass')}</label><input id="prp" type="password" autofocus>
-      <label>${t('prpass2')}</label><input id="prp2" type="password">
-      <button class="btn" style="width:100%" id="prbtn" data-h-click="${H((el,ev)=>doResetConfirm())}">${t('prset')}</button>
+      <label>${esc(t('prpass'))}</label><input id="prp" type="password" autofocus>
+      <label>${esc(t('prpass2'))}</label><input id="prp2" type="password">
+      <button class="btn" style="width:100%" id="prbtn" data-h-click="${H((el,ev)=>doResetConfirm())}">${esc(t('prset'))}</button>
     </div>`;
   return `<details class="card" style="margin-top:14px">
-      <summary style="cursor:pointer" class="muted">${t('prforgot')}</summary>
+      <summary style="cursor:pointer" class="muted">${esc(t('prforgot'))}</summary>
       <div style="margin-top:12px">
         <p class="muted">${esc(t('prhint'))}</p>
-        <label>${t('praddr')}</label><input id="pra" type="email">
-        <button class="btn ghost" id="prask" data-h-click="${H((el,ev)=>doResetRequest())}">${t('prsend')}</button>
+        <label>${esc(t('praddr'))}</label><input id="pra" type="email">
+        <button class="btn ghost" id="prask" data-h-click="${H((el,ev)=>doResetRequest())}">${esc(t('prsend'))}</button>
       </div>
     </details>`;
 }
@@ -225,10 +225,10 @@ function appShell(){
         data-h-click="${H(()=>palOpen())}">${esc(palModLabel()+'K')}</button>
       ${helpBlocked() ? '' : `<button class="kbd-hint" title="${esc(t('helphint'))}"
         data-h-click="${H(()=>helpOpen())}">${esc(t('helpask'))}</button>`}
-      <span class="chip">${esc(S.me.user_id.slice(0,8))}… ${S.me.is_operator?`<span class="badge op">${t('operator')}</span>`:''}</span>
-      <button class="btn ghost sm" data-h-click="${H((el,ev)=>logout())}">${t('logout')}</button>
+      <span class="chip">${esc(S.me.user_id.slice(0,8))}… ${S.me.is_operator?`<span class="badge op">${esc(t('operator'))}</span>`:''}</span>
+      <button class="btn ghost sm" data-h-click="${H((el,ev)=>logout())}">${esc(t('logout'))}</button>
     </header>
-    <nav class="tabs">${tabs.map(x=>`<button data-tab="${x}" class="${S.tab===x?'active':''}" data-h-click="${H((el,ev)=>go((x)))}">${t(x)}</button>`).join('')}</nav>
+    <nav class="tabs">${tabs.map(x=>`<button data-tab="${x}" class="${S.tab===x?'active':''}" data-h-click="${H((el,ev)=>go((x)))}">${esc(t(x))}</button>`).join('')}</nav>
     <main class="wrap" id="main"></main>
     ${buildFooter()}`;
 }
@@ -252,7 +252,7 @@ function buildFooter(){
     <span>${esc(S.brand.title||'TMach')} <span class="mono">${esc(b.version||'')}</span></span>
     ${commit?`<span class="mono" title="${esc(b.commit)}${started?' \u00b7 '+esc(t('buildstarted'))+' '+esc(started):''}">${
         dev ? esc(t('builddev')) : esc(commit)}</span>`:''}
-    ${b.source?`<a href="${esc(b.source)}" target="_blank" rel="noopener noreferrer">${t('buildsource')}</a>`:''}
+    ${b.source?`<a href="${esc(b.source)}" target="_blank" rel="noopener noreferrer">${esc(t('buildsource'))}</a>`:''}
   </footer>`;
 }
 function go(tab){ S.tab=tab; S.newToken=null;
