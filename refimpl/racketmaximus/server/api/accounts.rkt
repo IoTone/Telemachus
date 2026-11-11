@@ -23,6 +23,7 @@
          web-kit
          (only-in "../../config.rkt" app-version app-build)
          "../../domain/authz/authz.rkt"
+         (only-in "../startup.rkt" strict-startup? well-known-secret-key?)
          (only-in "../../domain/authz/passwords.rkt" kdf-name)
          (only-in "../../domain/beta/antispam.rkt" make-limiter limiter-allow?)
          "../../domain/accounts/reset.rkt"
@@ -338,6 +339,18 @@
                             ;; issue #19: is a dump of this database replayable?
                             'secrets (if (secrets-enabled?) "sealed" "plaintext")
                             'secret_key_id (or (secret-key-id) 'null)
+                            ;; Three posture facts that existed only in the boot
+                            ;; log, where nobody reading a dashboard sees them.
+                            ;; `token_pepper` is "default" while tokens and
+                            ;; recovery codes are hashed with the published
+                            ;; development pepper; `secret_key` is "well-known"
+                            ;; for the all-zeros evaluation key, under which
+                            ;; `secrets: sealed` protects nothing.
+                            'token_pepper (if (token-pepper-is-default?) "default" "configured")
+                            'secret_key (cond [(not (secrets-enabled?)) "none"]
+                                              [(well-known-secret-key?) "well-known"]
+                                              [else "configured"])
+                            'strict_startup (strict-startup?)
                             'multitenant (multitenant?)
                             ;; #179. Five facts that existed only in the boot log
                             ;; or in a Racket function nothing served, and that

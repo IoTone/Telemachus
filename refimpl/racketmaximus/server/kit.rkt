@@ -506,4 +506,15 @@
 ;; running on the dev default is loud at boot, not silent
 (define (warn-dev-pepper!)
   (when (token-pepper-is-default?)
-    (printf "WARNING: TMACH_SECRET / TMACH_TOKEN_PEPPER not set — tokens are hashed with the dev pepper; set one in production\n")))
+    (printf (string-append
+             "WARNING: TMACH_SECRET / TMACH_TOKEN_PEPPER not set — tokens AND two-factor recovery codes\n"
+             "  are hashed with the development pepper, which is in the public source. A recovery\n"
+             "  code is short, so with that pepper a copy of this database is enough to guess them\n"
+             "  offline. Set one in production (doing so signs everybody out, workers included).\n")))
+  ;; Its own line, because it has its own condition: TMACH_TOKEN_PEPPER alone
+  ;; silences the warning above and says nothing about the funnel.
+  (unless (tmach-env "SECRET")
+    (printf (string-append
+             "NOTE: TMACH_SECRET is not set — the sign-up funnel's challenge is signed with a key made\n"
+             "  at startup. That is sound on one process; set TMACH_SECRET when running more than one\n"
+             "  replica, or a challenge issued by one will be refused by another.\n"))))

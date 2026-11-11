@@ -18,6 +18,8 @@
          ep-beta-decide)
 
 (require racket/string
+         (only-in racket/random crypto-random-bytes)
+         (only-in file/sha1 bytes->hex-string)
          web-server/http
          web-kit
          (only-in "../../domain/authz/authz.rkt" audit! principal-team-id principal-user-id)
@@ -35,7 +37,19 @@
 ;; ---- beta onboarding (public signup → LLM judge → owner review) -------------
 
 ;; anti-abuse state (in-memory, per-process)
-(define beta-secret (or (tmach-env "SECRET") "telemachus-dev-secret"))     ; set in prod
+;; The key the funnel's proof-of-work challenge is signed with. It used to fall
+;; back to a constant that is in this public repository, so on any instance that
+;; had not set TMACH_SECRET a caller could MINT a challenge instead of earning
+;; one — the anti-abuse gate on a public endpoint, signed with a published key.
+;; The token-pepper warning did not cover it either: setting TMACH_TOKEN_PEPPER
+;; alone silenced that and left this default in place.
+;;
+;; Unset now means a key made at startup. A challenge lives for minutes, so a
+;; restart costs at most one retried sign-up; what it cannot do is span two
+;; replicas, which is why the boot line says to set TMACH_SECRET when running
+;; more than one process (`warn-dev-pepper!` in kit.rkt).
+(define beta-secret (or (tmach-env "SECRET")
+                        (bytes->hex-string (crypto-random-bytes 32))))
 
 (define pow-bits    (or (string->number (or (tmach-env "POW_BITS") "")) 16))
 (define beta-limiter (make-limiter))
