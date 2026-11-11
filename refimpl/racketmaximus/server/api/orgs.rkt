@@ -10,7 +10,8 @@
 (provide ep-orgs-list ep-orgs-create ep-audit-verify ep-audit-export
          ep-org-get ep-org-status ep-org-update ep-org-quota ep-seed-tenants
          ep-my-org ep-my-org-teams ep-my-org-team-create ep-my-org-team-quota
-         ep-my-org-member-role ep-my-org-member-add ep-my-org-audit)
+         ep-my-org-member-role ep-my-org-member-add ep-my-org-member-resend
+         ep-my-org-audit)
 
 (require racket/string
          db-kit/portable
@@ -19,6 +20,10 @@
          web-kit
          (only-in "../../domain/authz/authz.rkt" audit! principal-team-id principal-user-id require-perm set-user-org-role! user-org)
          (only-in "../../domain/authz/permissions.rkt" org-role-key?)
+         ;; the invitation itself, shared with the team plane so the two cannot
+         ;; describe one invitation differently
+         (only-in "../../domain/accounts/invite.rkt" invite-answer invite-member! invite-problem
+                  resend-invitation!)
          "../../domain/orgs/orgs.rkt"
          (only-in "../../domain/samples/tenants.rkt" seed-tenants! tenants-seeded?)
          (only-in "../../domain/quota/quota.rkt" set-limit!)
@@ -271,6 +276,53 @@
                  #:meta (jsexpr->string (hasheq 'org_role (or role 'null))))
          (json-response (hasheq 'ok #t 'user_id uid 'org_role (or role 'null)))]))))))
 
+;; ---- adding somebody to the company -----------------------------------------
+;;
+;; AN `email` ASKS FOR AN INVITATION, exactly as it does on the team plane (see
+;; `domain/accounts/invite.rkt`): the account is created `invited`, a link is
+;; mailed, and the reply carries no session. The two things this plane adds are
+;; the COMPANY — `users.org_id` is what `caller-org` answers with, so an invitee
+;; created without it would join a team in a company they do not belong to — and
+;; an optional org role, which is what makes an invited org_admin an org_admin
+;; when they accept.
+(define (org-invite-branch p email username role org-role body)
+  (define oid (caller-org p))
+  (define addr (format "~a" email))
+  (define uname (if (and username (not (equal? (format "~a" username) ""))) (format "~a" username) addr))
+  ;; Named by id or slug, and NEVER resolved without the company clause: an id is
+  ;; instance-global, so a plain lookup would let a company admin place a person in
+  ;; another company's team (`org-team-resolve`'s own lesson).
+  (define team-ref (let ([t (hash-ref body 'team_id #f)]) (and t (format "~a" t))))
+  (define tid (if team-ref
+                  (org-team-resolve db-conn oid team-ref)
+                  (org-default-team db-conn oid)))
+  (cond
+    [(not tid) (err "no such team in this organization" 400)]
+    [(invite-problem addr) => (lambda (m) (err m 400))]
+    ;; Usernames are instance-global (TEN-2b), so this is the same 409 the
+    ;; username form answers on either plane — never a 500 carrying the INSERT.
+    [(query-maybe-value db-conn "SELECT id FROM users WHERE username = ?" uname)
+     (err "username already exists on this instance" 409)]
+    [else
+     (define res (call-with-values
+                  (lambda ()
+                    (invite-member! db-conn #:team tid #:role role #:address addr
+                                    #:username username #:inviter (principal-user-id p)
+                                    #:org oid #:org-role org-role))
+                  list))
+     (define uid (car res))
+     (define outcome (cadr res))
+     (define link (caddr res))
+     ;; `org.member.invited` beside `invite-member!`'s own `member.invited`, the
+     ;; same pair `org.member.add` makes: the company's trail is where an org
+     ;; administrator's acts are looked for, and the org role granted is the part
+     ;; that is this plane's.
+     (audit! db-conn #:action "org.member.invited" #:actor-type "user"
+             #:actor-id (principal-user-id p) #:team-id tid
+             #:resource-type "user" #:resource-id uid
+             #:meta (jsexpr->string (hasheq 'org_role (or org-role 'null))))
+     (json-response (invite-answer uid uname role org-role outcome link) #:code 201)]))
+
 (define (ep-my-org-member-add req)
   (with-mt req (lambda ()
     (with-auth req (lambda (p)
@@ -278,10 +330,13 @@
       (require-perm db-conn p "members:manage")
       (define b (read-json-body req))
       (define u (hash-ref b 'username #f))
+      (define email (hash-ref b 'email #f))
       (define org-role (let ([r (hash-ref b 'org_role #f)]) (and r (format "~a" r))))
+      (define role (format "~a" (hash-ref b 'role "member")))
       (cond
-        [(not u) (err "username required" 400)]
         [(and org-role (not (org-role-key? org-role))) (err "unknown org_role" 400)]
+        [email (org-invite-branch p email u role org-role b)]
+        [(not u) (err "username or email required" 400)]
         [(query-maybe-value db-conn "SELECT id FROM users WHERE username = ?" (format "~a" u))
          (err "username already exists on this instance" 409)]
         [else
@@ -290,10 +345,41 @@
                                        #:password (let ([pw (hash-ref b 'password #f)]) (and pw (format "~a" pw)))
                                        #:display-name (let ([d (hash-ref b 'display_name #f)]) (and d (format "~a" d)))
                                        #:team (let ([t (hash-ref b 'team_id #f)]) (and t (format "~a" t)))
-                                       #:role (format "~a" (hash-ref b 'role "member"))
+                                       #:role role
                                        #:org-role org-role))
          (if r (json-response r #:code 201)
              (err "no such team in this organization" 400))]))))))
+
+;; Send an invitation again, from the company plane (INVITE-6 at the org tier).
+;; An org administrator is usually NOT a member of the team the person was invited
+;; to, so the team-tier route is unreachable for exactly the caller who manages
+;; the company's people.
+(define (ep-my-org-member-resend req uid)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")      ; the tier gate
+      (require-perm db-conn p "members:manage")
+      (cond
+        ;; 404 FIRST, and before any work: whether a user id belongs to another
+        ;; company is not a question this plane answers.
+        [(not (equal? (user-org db-conn uid) (caller-org p))) (err "not found" 404)]
+        [else
+         (define res (call-with-values
+                      (lambda ()
+                        (resend-invitation! db-conn uid #:inviter (principal-user-id p)))
+                      list))
+         (cond
+           [(equal? res '(#f)) (err "no such member" 404)]
+           [(equal? res '(not-invited))
+            ;; A refusal rather than a convenience: on an active account this
+            ;; would mint a link that sets a password, which is a password reset
+            ;; — its own route, throttle and horizon.
+            (err "that member has already accepted — a password reset is the other route" 409)]
+           [(equal? res '(no-address)) (err "that invitation has no address to send to" 409)]
+           [else
+            (json-response (hasheq 'ok #t
+                                   'queued (eq? (car res) 'queued)
+                                   'activation_token (or (cadr res) 'null)))])]))))))
 
 (define (ep-my-org-audit req)
   (with-mt req (lambda ()

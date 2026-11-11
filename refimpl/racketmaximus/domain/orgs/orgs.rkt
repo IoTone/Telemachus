@@ -26,7 +26,7 @@
          org-create! org-update! org-list org-get
          org-set-domain! org-by-domain normalize-domain
          org-set-status! tenant-read-only?
-         org-teams org-audit org-add-team! org-attach-member!
+         org-teams org-audit org-add-team! org-attach-member! org-default-team
          set-org-limit! org-quota
          tenant-quota-check tenant-quota-record!
          tenant-quota-check/team tenant-quota-record!/team
@@ -248,15 +248,21 @@
              #:resource-type "team" #:resource-id tid)
      (hasheq 'id tid 'slug s 'name name 'org_id org-id)]))
 
+;; The team a new person joins when the caller named none: the company's oldest.
+;; One spelling, because the company plane's two ways of adding somebody —
+;; straight onto the team and by invitation — must not disagree about where a
+;; person lands.
+(define (org-default-team conn org-id)
+  (query-maybe-value conn
+    "SELECT id FROM teams WHERE org_id = ? ORDER BY created_at LIMIT 1" org-id))
+
 ;; add a person to the company (and optionally straight into one of its teams).
 ;; `add-member!` settles users.org_id, which is what seals them into this org.
 (define (org-attach-member! conn actor org-id
                             #:username username #:password [pw #f] #:display-name [dn #f]
                             #:team [team-id #f] #:role [role "member"]
                             #:org-role [org-role #f])
-  (define tid (or team-id
-                  (query-maybe-value conn
-                    "SELECT id FROM teams WHERE org_id = ? ORDER BY created_at LIMIT 1" org-id)))
+  (define tid (or team-id (org-default-team conn org-id)))
   (cond
     [(not tid) #f]
     [(not (equal? (team-org conn tid) org-id)) #f]        ; never place a user outside the org

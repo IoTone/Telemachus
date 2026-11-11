@@ -148,6 +148,56 @@
   (check-true (regexp-match? #px"(?i:no account is)" body))
   (close-db! c))
 
+(test-case "the inviter and the team are looked up when the caller does not name them"
+  ;; BOTH PLANES COMPOSE THIS MESSAGE, so the names come from the domain rather
+  ;; than from each endpoint. A company administrator inviting somebody is not a
+  ;; member of the team they are invited to, so the team plane's own helpers
+  ;; would return the caller's team and name the wrong one.
+  (define c (fresh))
+  (configure! c)
+  (define-values (aid tid) (seed! c))
+  (void (call-with-values
+         (lambda () (invite-member! c #:team tid #:role "member"
+                                    #:address "bob@example.test" #:inviter aid))
+         list))
+  (define body (format "~a" (vector-ref (car (deliveries c)) 3)))
+  (check-true (regexp-match? #px"(?i:acme)" body))
+  (check-true (regexp-match? #px"alice" body))
+  (close-db! c))
+
+(test-case "the company plane's invitation joins the company, and can carry an org role"
+  ;; `users.org_id` is what `caller-org` answers with. An invitee created without
+  ;; it would join a team in a company they do not belong to — and every org-tier
+  ;; route would then answer for the wrong tier, or for none.
+  (define c (fresh))
+  (configure! c)
+  (define-values (aid tid) (seed! c))
+  (define oid (user-org c aid))
+  (check-true (string? oid))
+  (define-values (uid o l)
+    (invite-member! c #:team tid #:role "admin" #:address "hr@acme.test"
+                    #:inviter aid #:org oid #:org-role "org_admin"))
+  (check-equal? (user-org c uid) oid)
+  (check-equal? (format "~a" (query-value c "SELECT org_role_key FROM users WHERE id = ?" uid))
+                "org_admin")
+  ;; and it is still an invitation: the org role is NOT a way in
+  (check-equal? (status-of c uid) "invited")
+  (check-false (authenticate c "hr@acme.test" "anything-at-all"))
+  (close-db! c))
+
+(test-case "the reply carries no session, and hands back the link only with no transport"
+  (define a (invite-answer "u1" "bob@example.test" "member" #f 'queued #f))
+  (check-false (hash-has-key? a 'token))
+  (check-equal? (hash-ref a 'status) "invited")
+  (check-equal? (hash-ref a 'activation_token) 'null)
+  (define b (invite-answer "u1" "bob@example.test" "member" "org_admin" 'no-transport "tk_abc"))
+  (check-equal? (hash-ref b 'activation_token) "tk_abc")
+  (check-equal? (hash-ref b 'org_role) "org_admin")
+  ;; the note says WHICH case it is: "nothing was sent" reading as success is the
+  ;; failure this avoids
+  (check-true (regexp-match? #px"(?i:no email transport)" (hash-ref b 'note)))
+  (check-true (regexp-match? #px"(?i:on its way)" (hash-ref a 'note))))
+
 (test-case "INVITE-5: with no transport the link comes back instead"
   ;; An invitation nobody can act on is worse than one delivered by hand —
   ;; `provision!`'s precedent. It is returned ONLY in that case: a token that was

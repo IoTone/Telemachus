@@ -284,7 +284,8 @@
    'seed-tenants ep-seed-tenants
    'my-org ep-my-org 'my-org-teams ep-my-org-teams 'my-org-team-create ep-my-org-team-create
    'my-org-team-quota ep-my-org-team-quota
-   'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role 'my-org-audit ep-my-org-audit
+   'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role
+   'my-org-member-resend ep-my-org-member-resend 'my-org-audit ep-my-org-audit
    'email-transport-get ep-email-transport-get 'email-transport-put ep-email-transport-put
    'email-transport-delete ep-email-transport-delete 'email-transport-test ep-email-transport-test
    'email-notify-get ep-email-notify-get 'email-notify-put ep-email-notify-put
