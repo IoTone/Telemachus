@@ -184,11 +184,44 @@ plugins/acme/bundle/app.js       →  GET /api/x/acme/bundle/app.js
 ```
 
 Mounted at **`/api/x/<plugin-id>/<path>`** — the prefix is platform-fixed, so you can
-never shadow a core route or another plugin's. Every route requires a bearer token;
-the permission you name is checked through `can?` before your handler runs. A
+never shadow a core route or another plugin's. Every route requires a bearer token
+unless it declares `'public`. By default the permission you name is checked by
+ROLE before your handler runs; declare the optional seventh element `'resource`
+when the handler will weigh the permission itself against one object (the shape a
+grant holder needs, and the only way `files:read` admits a viewer with a share). A
 `raise-user-error` becomes the caller's 400. A malformed entry fails **your plugin's
 load**, not a request an hour later. They appear in
 [api.md](reference/api.md#plugin-routes) and in `GET /api/plugins`.
+
+### A sealed column a rotation must walk
+
+If your plugin seals a column with the platform key (`secret-wrap`, or a
+`define-sealed-column` of your own), declare it — as DATA, the same shape
+`(provide migrations)` uses:
+
+```racket
+(provide secrets)
+(define secrets
+  (list (list "x_acme_notes" "body" "id" "{table}.{id}.{column}")))
+;; (list table column id-columns context-template [form])
+```
+
+- `id-columns` is one name or a list, in template order.
+- `context-template` is the AAD your rows were sealed under. `{table}`,
+  `{column}`, `{id1}..{idN}` (and `{id}` for `{id1}`) are substituted; it must
+  name at least one id, because one AAD for every row is not a per-row binding.
+  The platform's own spelling is `<column>:<id>`, which is
+  `"{column}:{id}"`; a different order is why this is a template and not a prefix.
+- `form` is `'text` (default) or `'bytes`.
+- A bad entry fails YOUR plugin's load, and the table must carry your
+  `x_<id>_` prefix.
+- The entry is written to the platform ledger at boot and never deleted, so a
+  rotation still walks it after your plugin is uninstalled. `rewrap` aborts on a
+  row it cannot open rather than skipping it, which is why the template must be
+  right.
+- What this does NOT cover: a sealed BLOB. A column is one row and one UPDATE; a
+  blob needs a new object and a repointed digest, so a product that seals bytes
+  owns their rotation.
 
 ### A route a stranger may call
 
