@@ -88,7 +88,7 @@ Two consequences worth knowing:
 |---|---|---|
 | `TMACH_SECRET_KEY` | — | Seals the stored credentials that cannot be hashed (the mail relay password, S3 and executor keys, webhook and feed secrets, TOTP seeds, redaction maps) with AES-256-GCM. 64 hex characters is the key itself; anything else is a passphrase, stretched with PBKDF2. **Unset means plaintext at rest** — the server accepts and stores those credentials unencrypted without complaint — which is supported and reported at boot and on `GET /api/admin/status`; set it before entering a live credential — see `docs/ops/secrets-at-rest-runbook.md`. Not the same variable as `TMACH_SECRET`. |
 | `TMACH_SECRET_KEY_OLD` | — | A previous key, read but never written, for `telemachus-secrets rewrap`. |
-| `TMACH_SECRET` | a dev default (warned about at boot) | The general-purpose secret: the fallback pepper for API-token hashes, and the funnel's signing secret. **Rotating it signs everyone out**, which is why it is deliberately not the key that seals secrets at rest. |
+| `TMACH_SECRET` | unset | The general-purpose secret: the fallback pepper for API-token hashes, and the key the sign-up funnel's challenge is signed with. Unset, the pepper falls back to a development value that is in the public source (warned about at boot), and the funnel signs with a key made at startup — sound on one process, so **set it when running more than one replica**. **Rotating it signs everyone out**, which is why it is deliberately not the key that seals secrets at rest. |
 | `TMACH_TOKEN_PEPPER` | `TMACH_SECRET`, else a dev default | Peppers the HMAC-SHA-256 token hashes specifically. |
 | `TMACH_KDF` | PBKDF2-HMAC-SHA256 | Password hashing. Every supported install runs **PBKDF2-HMAC-SHA256 through libcrypto**; the boot line and `GET /api/admin/status` report it as `kdf: pbkdf2_sha256`. argon2id is used only by a build that adds Racket's `crypto` collection, which the Nix closure does not, and `pbkdf2` here forces PBKDF2 on such a build. A hash written under the older PBKDF2-HMAC-SHA1 scheme still verifies and is replaced the next time its owner signs in. |
 | `TMACH_PBKDF2_ITERS` | `600000` | PBKDF2 round count, which is OWASP's figure for HMAC-SHA256. Set it to **raise** the cost: a value under `100000` is ignored, and an unparseable one falls back to the default. Raising it reaches existing accounts one sign-in at a time, because a hash made at a lower count is replaced when its owner next signs in. |
@@ -510,14 +510,21 @@ wrong silently (`server/startup.rkt`). **Errors always refuse to start:**
 - **migrations are still pending** after the boot-time migration ran, which
   means one failed.
 
-**Warnings by default, refusals under `TMACH_STRICT_STARTUP=1`** — both are
-positions a working instance can legitimately hold:
+**Warnings by default, refusals under `TMACH_STRICT_STARTUP=1`** — each is a
+position a working instance can legitimately hold:
 
 - **no `TMACH_SECRET_KEY`.** Plaintext at rest is the supported
   trusted-database position, and the boot line already says which it is.
 - **a non-loopback bind with no TLS.** Plaintext HTTP on `0.0.0.0` across a
   tailnet or a pod network is a real and reasonable deployment; doing it on the
   open internet without knowing is the thing worth saying.
+- **`TMACH_SECRET_KEY` is the all-zeros evaluation key** that `compose.yaml`
+  ships. It is published, so stored secrets are sealed against nobody while the
+  boot line still reads `secrets: sealed`. Generate a real key and `rewrap`.
+
+`GET /api/admin/status` reports the same posture for a dashboard: `secrets`,
+`secret_key` (`none` / `well-known` / `configured`), `token_pepper` (`default`
+while the development pepper is in use), `tls`, `kdf` and `strict_startup`.
 
 ## Where to go next
 

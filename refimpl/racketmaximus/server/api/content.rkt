@@ -21,7 +21,7 @@
          (only-in "../../domain/notes/notes.rkt"
                   notes-create notes-delete notes-get notes-list notes-count notes-share notes-update
                   notes-tag-list note-links-of note-backlinks-of note-graph
-                  notes-import org-text-of)
+                  notes-import org-text-of MAX-TAGS)
          (only-in "../../domain/notes/note-tools.rkt" note-autotag!)
          (only-in "../../domain/tools/faults.rkt" exn:fail:misconfigured?)
          (only-in "../../domain/documents/documents.rkt" documents-create documents-delete documents-get documents-list documents-update)
@@ -88,6 +88,11 @@
   (with-auth req (lambda (p)
     (define scope (scope-of req))
     (define tags (query-params req 'tag))
+    ;; Each filter is one more EXISTS subquery, and the count was whatever the
+    ;; query string held. A note carries at most MAX-TAGS, so a longer filter
+    ;; can match nothing and is refused rather than run.
+    (when (> (length tags) MAX-TAGS)
+      (raise-user-error 'notes (format "at most ~a tag filters; ~a given" MAX-TAGS (length tags))))
     (define lim (page-limit req))
     (define off (page-offset req))
     (json-response

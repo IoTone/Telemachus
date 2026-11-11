@@ -47,7 +47,7 @@
          ;; nothing can be refused here rather than discovered later
          (only-in "../config.rkt" content-encryption-enabled?))
 
-(provide startup-problems blob-probe-problem
+(provide startup-problems blob-probe-problem strict-startup? well-known-secret-key?
          blob-store-problem
          schema-problem
          loopback-bind?
@@ -68,6 +68,10 @@
 ;; neither of which a connected peer ever arrives as; normalize those and let
 ;; peer.rkt answer the actual question.
 (define (loopback-bind? ip) (loopback-host? ip))
+;; The one key value this platform itself publishes. Compared as text and never
+;; echoed: this is the only key it is safe to recognise by sight.
+(define (well-known-secret-key? [v (tmach-env "SECRET_KEY")])
+  (and (string? v) (regexp-match? #px"^0{64}$" v)))
 
 ;; ---- the blob store is writable ---------------------------------------------
 
@@ -214,6 +218,7 @@
                           #:blob-store-name [blob-store-name #f]
                           #:conn [conn #f]
                           #:migrations [migrations #f]
+                          #:well-known-key? [well-known-key? #f]
                           #:strict? [strict? (strict-startup?)])
   ;; Under strict these two become refusals; by default they are advice. See the
   ;; note at the top for why each one is legitimately survivable.
@@ -243,11 +248,24 @@
      (and (not secrets?)
           (startup-problem advisory 'no-secret-key
                            (string-append
-                            "no TMACH_SECRET_KEY — stored secrets (TOTP seeds, S3 and"
-                            "\n  executor keys) are written in PLAINTEXT. A dump, a replica or a"
+                            "no TMACH_SECRET_KEY — stored secrets (the mail relay password,"
+                            "\n  TOTP seeds, S3 and executor keys, webhook and feed secrets,"
+                            "\n  redaction maps) are written in PLAINTEXT. A dump, a replica or a"
                             "\n  volume snapshot of this database is replayable. This is a supported"
                             "\n  position (the trusted-database one); set a key to seal them, and see"
                             "\n  docs/ops/secrets-at-rest-runbook.md.")))
+     ;; The all-zeros key is what `compose.yaml` ships so an evaluation starts
+     ;; with one command. It seals nothing from anybody: the key is published.
+     ;; Advisory rather than fatal, because refusing would break exactly that
+     ;; evaluation — but a compose file is what gets copied into production, and
+     ;; there `secrets: sealed` on the boot line would be read as protection.
+     (and secrets? well-known-key?
+          (startup-problem advisory 'well-known-key
+                           (string-append
+                            "TMACH_SECRET_KEY is the all-zeros evaluation key from compose.yaml."
+                            "\n  It is published, so stored secrets are sealed against nobody. Generate"
+                            "\n  a real one (`telemachus-secrets keygen`), set TMACH_SECRET_KEY_OLD to the"
+                            "\n  zeros key, and run `telemachus-secrets rewrap`.")))
      (and (not (loopback-bind? bind-ip)) (not tls?)
           (startup-problem advisory 'no-tls
                            (format (string-append

@@ -123,7 +123,7 @@
          (only-in "../domain/kg/kg-tools.rkt")           ; slice 61
          ;; issue #89: the checks an instance runs before it serves. Their own
          ;; module so they are unit-testable without a live server.
-         (only-in "startup.rkt" report-startup-problems! startup-problems))
+         (only-in "startup.rkt" report-startup-problems! startup-problems well-known-secret-key?))
 
 ;; #110 r3: the pool, the request accessors, the identity wrappers and the
 ;; response constructors every handler shares, plus the admission gates a
@@ -710,6 +710,7 @@
            (startup-problems #:bind-ip (bind-ip)
                              #:tls? (tls-on?)
                              #:secrets? (secrets-enabled?)
+                             #:well-known-key? (well-known-secret-key?)
                              #:blob-root (blob-root)
                              #:blob-probe blob-store-probe
                              #:blob-store-name (active-blob-store-name)

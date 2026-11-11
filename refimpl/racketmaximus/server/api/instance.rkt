@@ -81,7 +81,9 @@
 (define (require-provision-token req)
   (define want (tmach-env "PROVISION_TOKEN"))
   (define got (req-header req #"x-provision-token"))
-  (and want got (string=? want got)))
+  ;; constant time, as the bootstrap secret above already is: `string=?` leaks
+  ;; the length of the matching prefix to anybody who can time the refusal.
+  (and want (string? got) (constant-time=? want got)))
 
 (define (ep-provision req)
   (cond

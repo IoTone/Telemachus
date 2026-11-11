@@ -134,10 +134,11 @@ services:
       # EVALUATION ONLY: in production leave it unset and bootstrap over an SSH
       # tunnel or `docker exec`, or set a real secret.
       TMACH_BOOTSTRAP_SECRET: compose-evaluation-bootstrap
-      # Refuse to start on anything the startup checks consider wrong. Left ON
-      # here because this file supplies a secret key — the remaining advisory
-      # check is "plaintext HTTP on a non-loopback bind", and inside a compose
-      # network that is the intended posture, so it is waived with TLS below.
+      # Strict startup turns the advisory startup checks into refusals. It is
+      # OFF in this file, and has to be: two of those checks fire here on
+      # purpose — plaintext HTTP on a non-loopback bind, and the all-zeros
+      # evaluation key above. Replace the key and put TLS in front, then
+      # uncomment this for anything that is not an evaluation.
       # TMACH_STRICT_STARTUP: "1"
       #
       # NO TLS TERMINATES HERE. For production put a reverse proxy in front and

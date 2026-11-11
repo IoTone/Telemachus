@@ -200,6 +200,12 @@ refute "…nor the commit"                "$(curl -s $B/health)" 'commit'
 assert "the monitoring read has it too" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"commit_short":"'
 assert "admin operator"  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"ok":true'
 assert "admin status carries the version now" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"kdf":"'
+# The security posture, for a dashboard: three facts that lived only in the boot log.
+PST="$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")"
+assert "status says whether the token pepper is the published default" "$PST" '"token_pepper":"'
+assert "status says what kind of sealing key is in use"               "$PST" '"secret_key":"'
+assert "status says whether startup is strict"                        "$PST" '"strict_startup":false'
+refute "…and never a key or a pepper itself"                           "$PST" 'telemachus-dev-secret'
 # issue #179: the facts a health screen needs that existed only in the boot log
 # or in a Racket function nothing served. The dialect is asserted by NAME rather
 # than by a literal, because this suite runs on both engines.
@@ -2749,6 +2755,11 @@ curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
 assert "?tag= narrows"            "$(curl -s "$B/api/notes?tag=budget" -H "Authorization: Bearer $OP")" 'Budget review'
 refute "…excluding the others"    "$(curl -s "$B/api/notes?tag=budget" -H "Authorization: Bearer $OP")" 'Levee 7 survey'
 refute "two tags are an AND"      "$(curl -s "$B/api/notes?tag=budget&tag=survey" -H "Authorization: Bearer $OP")" '"title":'
+# A note carries at most 20 tags, so a longer filter can match nothing; each
+# one is a subquery, so it is refused rather than run.
+TAGQ20="$(printf 'tag=t%s&' $(seq 1 20))"; TAGQ21="$(printf 'tag=t%s&' $(seq 1 21))"
+assert "twenty tag filters are answered"   "$(curl -s "$B/api/notes?$TAGQ20" -H "Authorization: Bearer $OP")" '"notes":'
+assert "twenty-one are refused by name"    "$(curl -s "$B/api/notes?$TAGQ21" -H "Authorization: Bearer $OP")" 'at most 20 tag filters'
 assert "an unknown tag is empty"  "$(curl -s "$B/api/notes?tag=nonesuch" -H "Authorization: Bearer $OP")" '"notes":[]'
 
 # [] CLEARS, a missing key leaves alone — or the last tag could never be removed

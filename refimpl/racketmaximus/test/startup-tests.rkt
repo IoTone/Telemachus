@@ -133,6 +133,35 @@
                                         #:strict? #f))
                 '(no-tls)))
 
+(test-case "the all-zeros evaluation key is named, and only when it is the key in use"
+  ;; compose.yaml ships it so an evaluation starts with one command. It is
+  ;; published, so `secrets: sealed` under it protects nothing.
+  (check-true (well-known-secret-key? (make-string 64 #\0)))
+  (check-false (well-known-secret-key? (make-string 63 #\0)) "not the key unless it is all of it")
+  (check-false (well-known-secret-key? (string-append (make-string 63 #\0) "1")))
+  (check-false (well-known-secret-key? #f))
+  (define loose (startup-problems #:bind-ip "127.0.0.1" #:tls? #f #:secrets? #t
+                                  #:well-known-key? #t #:strict? #f))
+  (check-equal? (keys loose) '(well-known-key))
+  (check-equal? (sev loose 'well-known-key) 'warning)
+  ;; advisory, so `docker compose up` still starts…
+  (check-true (report-startup-problems! loose #:out (open-output-nowhere)))
+  ;; …and a refusal once an operator has asked for refusals
+  (check-equal? (sev (startup-problems #:bind-ip "127.0.0.1" #:tls? #f #:secrets? #t
+                                       #:well-known-key? #t #:strict? #t)
+                     'well-known-key)
+                'error)
+  ;; a real key says nothing
+  (check-equal? (keys (startup-problems #:bind-ip "127.0.0.1" #:tls? #f #:secrets? #t
+                                        #:well-known-key? #f #:strict? #t))
+                '()))
+
+(test-case "the plaintext warning names the credentials an operator is most likely to have stored"
+  (define msg (startup-problem-message
+               (car (startup-problems #:bind-ip "127.0.0.1" #:tls? #f #:secrets? #f #:strict? #f))))
+  (for ([needle (in-list '("mail relay password" "TOTP" "webhook"))])
+    (check-true (regexp-match? (regexp-quote needle) msg) needle)))
+
 (test-case "errors are listed before warnings, and an error is always fatal"
   ;; An operator reads the top of the block; the thing that stops the boot
   ;; belongs there rather than under two paragraphs of advice.
