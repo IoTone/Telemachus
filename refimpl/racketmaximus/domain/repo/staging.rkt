@@ -88,11 +88,23 @@
 ;; the team clause is what stops one team's id reaching another's row —
 ;; `org-team-resolve`'s lesson, and the reason this is one function rather than a
 ;; lookup each surface writes.
+;;
+;; …AND TO THE PERSON WHO BEGAN IT. `user_id` was written at Begin and read by
+;; nothing, so the team clause was the whole of the check: a colleague holding
+;; the id could add parts, abort, or COMPLETE — and `staging-complete!` writes
+;; through `repo-put!` as the caller, so completing somebody's upload made the
+;; completer the OWNER of the result, including one begun as `private`. The id is
+;; random and listed nowhere, but it rides in the URL path, which proxies log.
+;; An in-flight upload has one writer in time order (STG-6), so there is nobody
+;; else for the lookup to admit. Somebody else's id is a MISS, not a refusal:
+;; whether a colleague has an upload open is not this lookup's to answer.
+;; There is deliberately no steward override — an upload nobody finishes is the
+;; reaper's (S3-7), and that is the only other thing that may end one.
 (define (staging-row conn p upload-id)
   (define r (query-maybe-row conn
     (string-append "SELECT id, org_id, team_id, user_id, key, content_type, visibility "
-                   "FROM repo_uploads WHERE id = ? AND team_id = ?")
-    upload-id (principal-team-id p)))
+                   "FROM repo_uploads WHERE id = ? AND team_id = ? AND user_id = ?")
+    upload-id (principal-team-id p) (principal-user-id p)))
   (and r (hasheq 'id (vector-ref r 0) 'org_id (vector-ref r 1) 'team_id (vector-ref r 2)
                  'user_id (vector-ref r 3) 'key (vector-ref r 4)
                  'content_type (vector-ref r 5)

@@ -175,6 +175,24 @@
   (check-true (and (staging-row conn p uid) #t))
   (close-db! conn))
 
+(test-case "6b. …and to the PERSON who began it: a teammate holding the id reaches nothing"
+  ;; The team clause alone admitted any colleague with files:write, and Complete
+  ;; writes as the caller — so finishing somebody's PRIVATE upload made the
+  ;; finisher its owner. Same team, owner role, so nothing but the user clause
+  ;; can be what refuses.
+  (define-values (conn p tid) (seed!))
+  (define uid (staging-begin! conn p "private/memo.txt" "text/plain" #:visibility "private"))
+  (part! conn (staging-row conn p uid) 1 "for alice only")
+  (define bob (create-user! conn #:username "bob" #:password "pw"))
+  (add-member! conn #:team tid #:user bob #:role "owner")
+  (define pb (user-principal conn bob tid))
+  (check-false (staging-row conn pb uid) "a teammate's lookup of somebody else's upload is a miss")
+  ;; the upload is untouched and its owner can still finish it, as its owner
+  (define o (staging-complete! conn p (staging-row conn p uid)))
+  (check-equal? (hash-ref o 'owner_user_id) (principal-user-id p))
+  (check-equal? (text-of conn p (hash-ref o 'id)) "for alice only")
+  (close-db! conn))
+
 (test-case "7. the refusals: no parts, a gap in the numbering, a bad number"
   (define-values (conn p tid) (seed!))
   (define uid (staging-begin! conn p "a.bin" "application/octet-stream"))
