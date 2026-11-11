@@ -383,6 +383,18 @@
      (cond
        [(sql-null? ph) (verify-absent-password password)]
        [(not (verify-password password ph)) #f]
+       ;; The password is right, so this is the one moment its plaintext is in
+       ;; hand: move a row hashed under an older scheme or a lower cost forward
+       ;; now. Before the second factor on purpose — what was proven is the
+       ;; password, and the stored hash is about nothing else. A failed write
+       ;; must never cost somebody their sign-in.
+       [(and (password-needs-rehash? ph)
+             (begin
+               (with-handlers ([exn:fail? void])
+                 (query-exec conn "UPDATE users SET password_hash = ? WHERE id = ? AND password_hash = ?"
+                             (hash-password password) uid ph))
+               #f))
+        #f]
        [(and (not (sql-null? secret)) (string? secret) (not (string=? secret "")))
         ;; the stored seed may be sealed (issue #19); a row written before a key was
         ;; configured is plaintext and passes through unchanged
