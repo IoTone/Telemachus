@@ -93,7 +93,11 @@
          (only-in "../domain/ai/roles.rkt" model-role-executor)
          (only-in "../domain/agent/run.rkt" agent-configured? run-agent-flow)
          (only-in "../domain/agent/plugins.rkt" load-plugins! plugin-failures plugin-routes
-                  plugin-migrations plugin-seals)
+                  plugin-migrations plugin-seals plugin-csp-mode)
+         ;; 0.13.0: the policy a bundle page is served under — the console's own
+         ;; posture unless the plugin's manifest declares the escape hatch. One
+         ;; home with the manifest's closed vocabulary; see surface/csp.rkt.
+         "../surface/csp.rkt"
          (only-in "../domain/agent/seals.rkt" record-plugin-seals!)
          ;; #121: a plugin's tables go through the platform's own runner
          (only-in db-kit/migrate migrate!)
@@ -203,9 +207,13 @@
                        (serve-file (apply build-path impl-root "static" "console" segs)
                                    #:cache #"no-store")
                        (err "not found" 404)))
+   ;; 0.13.0: the PUBLIC landing bundle is a plugin's page too, so it carries the
+   ;; same policy the authenticated one does. A funnel is the surface a stranger
+   ;; meets first, which is the last place to leave inline script permitted.
    'bundle-file (lambda (req plugin path)
                   (define f (bundle-file-path (request-path req)))
-                  (if f (serve-file f) (err "not found" 404)))
+                  (if f (serve-file f #:headers (list (bundle-csp-header (plugin-csp-mode plugin))))
+                      (err "not found" 404)))
    ;; issue #20: authenticated, and never publicly cached. `Vary: Authorization`
    ;; so no intermediary can hand one principal's request to another.
    'plugin-bundle (lambda (req plugin path)
@@ -225,7 +233,13 @@
                       (if f
                           (serve-file f #:cache #"private, no-store"
                                       #:headers (append
-                                                 (list (make-header #"Vary" #"Authorization, Cookie"))
+                                                 (list (make-header #"Vary" #"Authorization, Cookie")
+                                                       ;; 0.13.0: the STRICT bundle policy
+                                                       ;; unless this plugin's manifest asks
+                                                       ;; for the escape hatch. Set here rather
+                                                       ;; than left to the baseline, which
+                                                       ;; permits inline script.
+                                                       (bundle-csp-header (plugin-csp-mode plugin)))
                                                  (if set-cookie?
                                                      (list (make-header
                                                             #"Set-Cookie"
@@ -567,49 +581,29 @@
 ;; and tokens never, but the origin is enough for anyone), frame denial (the
 ;; console is not meant to be framed — the Tier-C funnel template is served
 ;; INTO an iframe by the console itself, same origin, which SAMEORIGIN allows),
-;; and HSTS only when the instance says it is behind TLS. A Content-Security-Policy
-;; for the console is a separate audit (it has inline scripts); the download path
-;; already sends a denying one per object. A route that sets one of these itself
-;; wins — headers already present are left alone.
-;; The console's Content-Security-Policy (issue #11 part 2, #27, and #110 r6).
+;; and HSTS only when the instance says it is behind TLS. A route that sets one of
+;; these itself wins — headers already present are left alone, which is how the
+;; console, a download and a plugin bundle each carry their own policy.
 ;;
-;; What it buys: no script, style, image, font, frame or connection from any
-;; origin but our own, no plugins, no <base> hijack, no form posting elsewhere,
-;; no framing by other origins — so an injected payload can neither load remote
-;; code nor beacon data out. Downloads keep their own, stricter, per-object CSP
-;; (a header already present wins).
+;; The console's Content-Security-Policy (issue #11 part 2, #27, and #110 r6), the
+;; baseline every other response carries, and the BUNDLE policy (0.13.0), all live
+;; in `surface/csp.rkt`. They moved out of this file because the manifest validator
+;; in domain/agent/plugins.rkt has to judge the same closed vocabulary, and a
+;; policy defined here and asked about there is a cycle out of a two-string
+;; decision. That module is also free of the connection pool, which is what lets a
+;; unit test assert the policy without a database (#123's rule).
 ;;
-;; THE CONSOLE NOW HAS NO INLINE SCRIPT AT ALL, so `script-src` is plain
-;; `'self'`. The history is worth keeping because each step depended on the one
-;; before it: the policy could not drop `'unsafe-inline'` while 141 inline event
-;; handlers existed (an attribute cannot be nonced), so #27 moved them to
-;; delegated listeners and the policy became a per-request NONCE over one inline
-;; block; #110 r6 moved that block into static/console/*.js, which `'self'`
-;; already permitted. A nonce only ever authorized OUR OWN inline script — it
-;; protects nothing on its own — so with none left it authorizes nothing and is
-;; gone. An injected inline script was blocked by the absence of
-;; `'unsafe-inline'` before and is blocked by it now.
-;;
-;; `inline?` is for the BASELINE policy every OTHER response carries, which keeps
-;; `'unsafe-inline'`: a plugin's own bundle page may legitimately ship inline
-;; script, and that page is not the console.
-;;
-;; style-src keeps `'unsafe-inline'` either way, deliberately: there are still
-;; ~250 style attributes in the console, and injected CSS is a far smaller prize
-;; than injected script. That is a separate tranche.
-(define (console-csp [inline? #f])
-  (string-append "default-src 'self'; "
-                 "script-src 'self'" (if inline? " 'unsafe-inline'" "") "; "
-                 "style-src 'self' 'unsafe-inline'; "
-                 "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
-                 "frame-src 'self' blob: data:; frame-ancestors 'self'; form-action 'self'; "
-                 "base-uri 'self'; object-src 'none'"))
-(define CONSOLE-CSP (console-csp #t))
+;; What the baseline buys: no script, style, image, font, frame or connection from
+;; any origin but our own, no plugins, no <base> hijack, no form posting
+;; elsewhere, no framing by other origins — so an injected payload can neither load
+;; remote code nor beacon data out. Downloads keep their own, stricter, per-object
+;; CSP, and a plugin bundle page gets the STRICTER bundle policy unless its
+;; manifest asks for the escape hatch; a header already present wins either way.
 (define BASE-SECURITY-HEADERS
   (list (make-header #"X-Content-Type-Options" #"nosniff")
         (make-header #"Referrer-Policy" #"strict-origin-when-cross-origin")
         (make-header #"X-Frame-Options" #"SAMEORIGIN")
-        (make-header #"Content-Security-Policy" (string->bytes/utf-8 CONSOLE-CSP))))
+        (csp-header CONSOLE-CSP)))
 (define HSTS-HEADER (make-header #"Strict-Transport-Security" #"max-age=31536000; includeSubDomains"))
 (define (with-security-headers resp)
   (define have (map header-field (response-headers resp)))

@@ -2235,6 +2235,22 @@ assert "plugin bundle serves index.html" "$(curl -s $B/api/x/example-tools/bundl
 assert "…the same file by name"       "$(curl -s $B/api/x/example-tools/bundle/index.html -H "Authorization: Bearer $OP")" 'Word count'
 assert "…is never publicly cached"    "$(curl -s -D- -o /dev/null $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP" | tr -d '\r' | grep -i '^cache-control:')" 'private, no-store'
 assert "…and varies by Authorization" "$(curl -s -D- -o /dev/null $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP" | tr -d '\r' | grep -i '^vary:')" 'Authorization'
+# 0.13.0: a bundle page carries the STRICT policy — no inline script, this origin
+# only — unless its manifest declares the `"csp": "relaxed"` escape hatch. The
+# header is asserted as a WHOLE directive sequence rather than a keyword, because
+# `style-src` legitimately keeps its 'unsafe-inline' in both policies and a grep
+# for that token alone would pass against the wrong one.
+PBCSP=$(curl -s -D- -o /dev/null $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP" | tr -d '\r' | grep -i '^content-security-policy:')
+assert "plugin bundle: the STRICT content policy" "$PBCSP" "script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self';"
+assert "…with object-src closed"                  "$PBCSP" "object-src 'none'"
+refute "…and no inline script in script-src"      "$PBCSP" "script-src 'self' 'unsafe-inline'"
+assert "…a sub-resource carries it too"  "$(curl -s -D- -o /dev/null $B/api/x/example-tools/bundle/app.js -H "Authorization: Bearer $OP" | tr -d '\r' | grep -i '^content-security-policy:')" "script-src 'self'; style-src"
+# …and the PUBLIC funnel bundle, which is the first page a stranger meets
+assert "landing bundle: the STRICT content policy too" \
+  "$(curl -s -D- -o /dev/null $B/beta/bundle/beta-onboarding/ | tr -d '\r' | grep -i '^content-security-policy:')" "script-src 'self'; style-src"
+assert "…and the page's own code is a file, not an inline block" "$(curl -s $B/beta/bundle/beta-onboarding/)" '<script src="./app.js"></script>'
+assert "…which is served"  "$(curl -s -o /dev/null -w '%{http_code}' $B/beta/bundle/beta-onboarding/app.js)" '200'
+assert "the plugins listing names each plugin's policy" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"csp":"strict"'
 assert "the public landing path is NOT the authenticated one" "$(curl -s -o /dev/null -w '%{http_code}' $B/beta/bundle/example-tools/index.html)" '404'
 # --path-as-is, or curl collapses the ../ itself and the server never sees it
 assert "plugin bundle: no traversal out of the directory" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/../main.rkt" -H "Authorization: Bearer $OP")" '404'

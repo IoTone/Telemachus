@@ -6,7 +6,14 @@
 <title>Founders Program — apply</title>
 <!-- Tier-B example bundle (slice 43): a fully hand-coded landing that owns its own
      markup/CSS and routes signups through the core anti-abuse gate via the SDK. This
-     is the "total control" path — no TMach chrome, no Tier-A shell. -->
+     is the "total control" path — no TMach chrome, no Tier-A shell.
+
+     0.13.0: the PUBLIC landing bundle carries the same STRICT policy the
+     authenticated one does (`script-src 'self'`, no inline script), so the
+     funnel's own code is `app.js` beside this file and the SDK is the one script
+     from this origin. A funnel is the first page a stranger meets, which is the
+     last place to leave inline script permitted. A plugin that needs one declares
+     `"csp": "relaxed"` in its manifest. -->
 <style>
   :root{ --ink:#1a1a2e; --muted:#6b6b83; --line:#e7e7ef; --paper:#ffffff; --wash:#f6f5fb; --accent:#e0483b; }
   *{box-sizing:border-box} html,body{margin:0}
@@ -54,31 +61,6 @@
   <div class="foot"><span class="badge">Powered by TMach — self-hosted. This page is a Tier-B plugin bundle; the built-in Tier-A editor is the no-code alternative.</span></div>
 
   <script src="/beta-sdk.js"></script>
-  <script>
-    // stay in sync with the admin-configured copy when present (optional)
-    Telemachus.beta.config().then(function (c) {
-      if (!c) return;
-      if (c.title) document.getElementById('title').textContent = c.title;
-      if (c.subtitle) document.getElementById('lede').textContent = c.subtitle;
-      if (c.eyebrow) document.getElementById('kicker').textContent = c.eyebrow;
-    }).catch(function () {});
-    // warm a challenge on load so the human fill-time gate passes
-    Telemachus.beta.challenge();
-    var form = document.getElementById('f'), msg = document.getElementById('msg'), btn = document.getElementById('btn');
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      msg.className = 'msg'; msg.textContent = 'Verifying you’re human…'; btn.disabled = true;
-      Telemachus.beta.submit({
-        name: document.getElementById('name').value,
-        email: document.getElementById('email').value,
-        company: document.getElementById('company').value,
-        use_case: document.getElementById('use_case').value,
-        _hp: document.getElementById('hp').value
-      }).then(function (r) {
-        if (r.ok) { form.querySelectorAll('input,textarea,button').forEach(function (el) { el.disabled = true; }); msg.textContent = r.message || 'Thanks — your request is in review.'; }
-        else { btn.disabled = false; msg.className = 'msg err'; msg.textContent = r.error || 'Something went wrong.'; }
-      });
-    });
-  </script>
+  <script src="./app.js"></script>
 </body>
 </html>

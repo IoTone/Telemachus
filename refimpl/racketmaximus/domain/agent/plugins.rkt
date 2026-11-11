@@ -30,7 +30,12 @@
          db-kit/portable
          (only-in db-kit/migrate migration migration-id)
          "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt"
-         (only-in "seals.rkt" check-seals!))
+         (only-in "seals.rkt" check-seals!)
+         ;; the policy a bundle page is served under is `surface/csp.rkt`'s; the
+         ;; closed vocabulary is asked for here rather than restated, because a
+         ;; mode declared in this file with no policy behind it would be a
+         ;; manifest value nothing implements. No cycle: csp.rkt requires nothing.
+         (only-in "../../surface/csp.rkt" PLUGIN-CSP-MODES PLUGIN-CSP-DEFAULT plugin-csp-mode?))
 
 (provide load-plugins! loaded-plugins plugin-routes plugin-dir plugin-failures
          ;; G13: the closed vocabulary a route's auth may name, and the check itself,
@@ -39,7 +44,12 @@
          ;; issue #121: a plugin that owns data
          plugin-migrations plugin-table-prefix check-migrations!
          ;; a plugin that seals a column the platform key rotates
-         plugin-seals)
+         plugin-seals
+         ;; 0.13.0: the policy its bundle page is served under. The closed
+         ;; vocabulary and the check itself are exported FOR the tests, as the
+         ;; route auth/scope vocabulary above is — a bad value must fail the
+         ;; plugin's LOAD, not a request later.
+         PLUGIN-CSP-MODES check-csp! plugin-csp-mode)
 
 (define *loaded* (box '()))
 (define (loaded-plugins) (unbox *loaded*))
@@ -51,6 +61,30 @@
 ;; TELEMACHUS_PLUGINS work for the loader and not for the pages.
 (define *dirs* (make-hash))                       ; plugin id -> its directory
 (define (plugin-dir id) (hash-ref *dirs* id #f))
+
+;; plugin id -> the Content-Security-Policy mode its bundle pages are served
+;; under (0.13.0). Beside `*dirs*` because it is the same kind of fact — a
+;; property of the loaded plugin that a ROUTE asks about, kept out of the listing
+;; only where the listing is JSON about seams rather than HTTP.
+(define *csp* (make-hash))
+(define (plugin-csp-mode id) (hash-ref *csp* id PLUGIN-CSP-DEFAULT))
+
+;; The manifest field, judged like every other one: absent means the default, and
+;; a value outside the closed vocabulary fails THIS plugin's load. A plugin that
+;; asked for a mode nobody wrote a policy for would otherwise be served the wrong
+;; policy with nothing anywhere saying so.
+(define (check-csp! id m)
+  (define v (hash-ref m 'csp #f))
+  (cond
+    [(not v) PLUGIN-CSP-DEFAULT]
+    [(not (string? v))
+     (error 'plugins "~a: \"csp\" must be a string, one of ~a, not ~s" id PLUGIN-CSP-MODES v)]
+    [else
+     (define mode (string->symbol v))
+     (unless (plugin-csp-mode? mode)
+       (error 'plugins "~a: \"csp\" must be one of ~a, not \"~a\" — \"relaxed\" is the escape hatch for a page that needs an inline script"
+              id PLUGIN-CSP-MODES v))
+     mode]))
 
 ;; Plugins that did NOT load (issue #48). One bad plugin must not stop the
 ;; server — but an instance that is quietly missing a tool, a workflow or a job
@@ -245,6 +279,10 @@
   (set-box! *seals* '())
   (set-box! *failed* '())
   (hash-clear! *dirs*)
+  ;; a reload must not keep a mode from a manifest that has since changed: the
+  ;; second load runs in the same process (the tests do it constantly), and a
+  ;; stale entry is a page served under a policy its plugin no longer asks for.
+  (hash-clear! *csp*)
   (for ([dir (in-list (if (list? dirs) dirs (list dirs)))])
     (load-plugin-dir! dir log skip-links?))
   (unbox *loaded*))
@@ -319,6 +357,10 @@
           (define seals (check-seals! id (plugin-table-prefix id)
                                       (dynamic-require entry 'secrets (lambda () '()))))
           (set-box! *seals* (append (unbox *seals*) seals))
+          ;; 0.13.0: strict unless the manifest asks for the escape hatch. Recorded
+          ;; per plugin id so both bundle routes can ask without re-reading a file.
+          (define csp (check-csp! id m))
+          (hash-set! *csp* id csp)
           (set-box! *loaded*
             (append (unbox *loaded*)
                     (list (hasheq 'id id 'name (hash-ref m 'name id) 'version (hash-ref m 'version "")
@@ -349,6 +391,12 @@
                                   ;; on an API and the server's layout is not the
                                   ;; caller's business.
                                   'bundle (directory-exists? (build-path pdir "bundle"))
+                                  ;; 0.13.0: which policy its pages are served under.
+                                  ;; Reported because "relaxed" is a deliberate
+                                  ;; narrowing of what this instance enforces on
+                                  ;; that page, and an operator should be able to
+                                  ;; see which installed plugins chose it.
+                                  'csp (symbol->string csp)
                                   'routes (for/list ([r (in-list routes)])
                                             (string-append (hash-ref r 'method) " " (hash-ref r 'path)))
                                   ;; G13: which of those a stranger may call. Reported as

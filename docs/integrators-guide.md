@@ -148,8 +148,23 @@ plugins/acme/bundle/index.html   →  GET /api/x/acme/bundle/
 plugins/acme/bundle/app.js       →  GET /api/x/acme/bundle/app.js
 ```
 
-- **Ship every asset in the bundle.** The console's Content-Security-Policy is
-  same-origin: a CDN font or script is blocked. This is deliberate.
+- **A bundle page is served under the STRICT policy**, which is the console's own
+  posture: `script-src 'self'` with no `'unsafe-inline'`, and script, connections
+  and frames reach this origin only. So your page's code is a **file beside it** —
+  `<script src="./app.js"></script>`, as `plugins/example-tools/bundle/` does — not
+  a `<script>` block, and no inline `onclick=` either; the policy refuses both. Ship
+  every other asset in the bundle too: a CDN font or script is blocked, and that is
+  deliberate.
+- **The escape hatch is `"csp": "relaxed"` in `plugin.json`.** It serves your
+  pages under the baseline policy every other response carries, which does permit
+  inline script. Reach for it when a page genuinely needs one — a third-party widget
+  you cannot bundle, or a page written before this existed — and know what it costs:
+  an injected script on that page runs. The declaration is per PLUGIN, not per page,
+  it is validated (an unknown value fails the plugin's load by name rather than
+  being ignored), and `GET /api/plugins` reports it so the operator who installed
+  you can see which policy your pages are under. Both directories are governed by
+  it: a `landing/` funnel is served by the public bundle route under the same
+  policy, and is the page a stranger meets first.
 - **`bundle/` is reserved** by the platform under your prefix, and core routes match
   before plugin ones, so do not declare a route there.
 - **Opening a page in a browser needs a ticket.** The route wants a bearer token, and

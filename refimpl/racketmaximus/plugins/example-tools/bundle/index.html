@@ -4,9 +4,13 @@
 <!-- The worked example for an AUTHENTICATED plugin bundle (issue #20). The
      platform serves this directory at /api/x/example-tools/bundle/ to a caller
      with a bearer token, with `Cache-Control: private, no-store`, so a plugin's
-     customer screens never sit behind a public cached path. Assets must ship in
-     the bundle: the console's Content-Security-Policy is same-origin, so a CDN
-     script or font is blocked. -->
+     customer screens never sit behind a public cached path.
+
+     0.13.0: this page is served under the STRICT bundle policy
+     (`script-src 'self'` and no inline script), which is what every plugin gets
+     unless its manifest declares `"csp": "relaxed"`. So the code below is
+     `app.js` beside this file, not a `<script>` block, and assets must ship in the
+     bundle: no CDN script, style or font is reachable. -->
 <style>
   body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 34rem; }
   input, button { font: inherit; padding: .4rem .6rem; }
@@ -16,16 +20,4 @@
 <p>A plugin screen calling its own API route.</p>
 <p><input id="t" size="40" placeholder="Type something"> <button id="go">Count</button></p>
 <output id="out"></output>
-<script>
-  // The token the console signed in with; the bundle and the API route below
-  // are served by the same origin and both require it.
-  const token = localStorage.getItem('tmx_token');
-  document.getElementById('go').onclick = async () => {
-    const text = document.getElementById('t').value;
-    const r = await fetch('/api/x/example-tools/word-count?text=' + encodeURIComponent(text),
-                          { headers: { Authorization: 'Bearer ' + token } });
-    const j = await r.json();
-    document.getElementById('out').textContent =
-      r.ok ? `${j.words} words, ${j.chars} characters` : (j.error || 'failed');
-  };
-</script>
+<script src="./app.js"></script>

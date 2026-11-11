@@ -692,12 +692,23 @@
   (string-append
    "# Plugins\n\n"
    "A plugin is a directory under `plugins/` with a `plugin.json` manifest "
-   "(`id`, `name`, `version`, `description`, `entry`) and an entry module. Plugins run "
-   "in-process with platform privileges; placing one in the directory is the consent.\n\n"
+   "(`id`, `name`, `version`, `description`, `entry`, and optionally `csp`) and an entry "
+   "module. Plugins run in-process with platform privileges; placing one in the directory "
+   "is the consent.\n\n"
    "## Loaded plugins\n\n"
-   (table '("Plugin" "Version" "Tools" "Workflows" "Routes" "Public routes" "Job kinds" "Formats" "Description")
+   "**CSP** is the Content-Security-Policy its bundle pages are served under: `strict` is "
+   "the default and the console's own posture (no inline script, this origin only), and "
+   "`relaxed` is the escape hatch a manifest asks for with `\"csp\": \"relaxed\"` — the "
+   "baseline policy every other response carries, which permits an inline `<script>`. An "
+   "operator reads it here because a relaxed page is a deliberate narrowing of what this "
+   "instance enforces on code it links to.\n\n"
+   (table '("Plugin" "Version" "CSP" "Tools" "Workflows" "Routes" "Public routes" "Job kinds" "Formats" "Description")
           (for/list ([p (in-list plugins)])
             (list (string-append (hash-ref p 'name) " (" (code (hash-ref p 'id)) ")") (hash-ref p 'version)
+                  ;; 0.13.0: which policy its pages are served under. Its own column
+                  ;; rather than a marker, for the reason `public routes` has one —
+                  ;; "relaxed" is a fact an operator should meet, not infer.
+                  (let ([c (hash-ref p 'csp "strict")]) (if (equal? c "relaxed") (code c) c))
                   (let ([t (hash-ref p 'tools)]) (if (null? t) "—" (string-join (map code t) ", ")))
                   (let ([w (hash-ref p 'workflows)]) (if (null? w) "—" (string-join (map code w) ", ")))
                   (let ([r (hash-ref p 'routes '())]) (if (null? r) "—" (string-join (map code r) ", ")))
@@ -714,8 +725,8 @@
    "| Job kinds | `(provide init!)` calling `register-job-kind!`; the kind must be named `x.<plugin-id>.<name>` | the same queue as core kinds: per-team cap, quota admission, the org gate, cancel and the lease |\n"
    "| Formats | `(provide init!)` calling `register-extractor!` with a content type | the search index, `doc_text` and every workflow over them. Claiming a type the platform already reads REPLACES its reader — that is how a local OCR engine takes over `application/pdf` |\n"
    "| Anything else | `(provide init!)` — runs with full SDK access at load | e.g. `register-blob-store!` (the `rs3` local store), `register-onboarding!` (a beta funnel experience) |\n"
-   "| A beta funnel bundle | a `landing/` directory, served PUBLICLY at `/beta/bundle/<id>/` | a Tier-B custom frontend over `window.Telemachus.beta`, for prospects who have no token |\n"
-   "| Authenticated screens | a `bundle/` directory, served at `/api/x/<id>/bundle/` | a bearer token is required and the response is `private, no-store`; assets must ship in the bundle (the CSP is same-origin) |\n\n"
+   "| A beta funnel bundle | a `landing/` directory, served PUBLICLY at `/beta/bundle/<id>/` | a Tier-B custom frontend over `window.Telemachus.beta`, for prospects who have no token. Served under the strict policy unless the manifest declares `\"csp\": \"relaxed\"` |\n"
+   "| Authenticated screens | a `bundle/` directory, served at `/api/x/<id>/bundle/` | a bearer token is required and the response is `private, no-store`; served under the strict policy (no inline script), so its own code is a file in the bundle — `\"csp\": \"relaxed\"` is the escape hatch |\n\n"
    "See [sdk.md](sdk.md) for the authoring surfaces.\n"))
 
 (define (render-sdk model L)
