@@ -25,6 +25,10 @@
 
 ;; the same connector the server uses — sqlite:/// or postgres://, resolved
 ;; against the implementation root exactly as main.rkt resolves it
+;; Exported FOR `test/sealed-coverage-tests.rkt`: the lists are what that gate
+;; compares against the declarations, and `rewrap`/`status` are what it runs.
+(provide CREDENTIAL-SECRETS CONTENT-SECRETS rewrap status)
+
 (define (open-db) ((db-connector (database-url) #:base-dir impl-root)))
 
 (define (die msg) (eprintf "~a\n" msg) (exit 2))
@@ -103,14 +107,60 @@
         ;; (ENC-21), so the cost of that would be a diagnostic nobody can read
         ;; rather than a row nobody can open — which is exactly why it is easy
         ;; to forget and worth the line.
-        (list "research_sources" "last_error" "id" "research_sources.last_error")))
+        (list "research_sources" "last_error" "id" "research_sources.last_error")
+        ;; THE THIRTEEN THAT WERE DECLARED AND NOT WALKED. Each is sealed under
+        ;; the content switch by `define-sealed-column`, and none was listed, on
+        ;; the reasoning the schedule payload's note records: "a job row settles
+        ;; in minutes and #59 purges it". That is true of the row's usefulness
+        ;; and false of the row. Nothing deletes a job, a run, a step or a
+        ;; translation unless a team configured retention, which is off by
+        ;; default (DEL-9) — so on a content-encrypted instance they accumulate,
+        ;; sealed under whichever key was current. A read falls back to
+        ;; TMACH_SECRET_KEY_OLD while it is set, and the runbook's last step is
+        ;; to drop it: from then on every earlier run, step, job and translation
+        ;; raises on read, and "Processed by" on a document loses its history.
+        ;; A payload that will not open RAISES by design (ENC-21), so this was
+        ;; not a degraded read but a 500 on `GET /api/runs/:id`.
+        ;;
+        ;; `test/sealed-coverage-tests.rkt` now fails when a column is declared
+        ;; through the macro and absent from this file, in both directions, so
+        ;; the list cannot fall behind the declarations again.
+        (list "jobs" "payload" "id" "jobs.payload")
+        (list "jobs" "result"  "id" "jobs.result")
+        (list "jobs" "error"   "id" "jobs.error")
+        (list "workflow_runs" "input"  "id" "workflow_runs.input")
+        (list "workflow_runs" "output" "id" "workflow_runs.output")
+        ;; The CONTEXT is `workflow_runs.cursor` and the COLUMN is `cursor_json`.
+        ;; The mismatch is history — rows exist under it — so both are spelled.
+        (list "workflow_runs" "cursor_json" "id" "workflow_runs.cursor")
+        (list "workflow_runs" "error"  "id" "workflow_runs.error")
+        (list "workflow_steps" "input"  "id" "workflow_steps.input")
+        (list "workflow_steps" "output" "id" "workflow_steps.output")
+        (list "workflow_steps" "error"  "id" "workflow_steps.error")
+        (list "translations" "source_text" "id" "translations.source_text")
+        (list "translations" "result_text" "id" "translations.result_text")
+        ;; The one column keyed by TWO values: its context is
+        ;; `doc_trigger_fires.error:<trigger_id>:<version_id>`, so the id column
+        ;; here is a LIST, in the order the declaration names its keys.
+        (list "doc_trigger_fires" "error" (list "trigger_id" "version_id")
+              "doc_trigger_fires.error")))
 
 (define (SECRETS)
   (append CREDENTIAL-SECRETS
           (if (content-encryption-enabled?) CONTENT-SECRETS '())))
 
+;; A spec's id column is one name or a LIST of names. A row comes back as
+;; (ids . stored), `ids` always a list, so every caller has one shape.
+(define (id-columns idcol) (if (list? idcol) idcol (list idcol)))
 (define (rows-of conn table col idcol)
-  (query-rows conn (format "SELECT ~a, ~a FROM ~a WHERE ~a IS NOT NULL" idcol col table col)))
+  (define ids (id-columns idcol))
+  (for/list ([r (in-list (query-rows conn (format "SELECT ~a, ~a FROM ~a WHERE ~a IS NOT NULL"
+                                                  (string-join ids ", ") col table col)))])
+    (define n (length ids))
+    (cons (for/list ([i (in-range n)]) (vector-ref r i)) (vector-ref r n))))
+;; `<table>.<column>:<key>[:<key>…]` — sealed.rkt's `sealed-context`, by its
+;; own rule: the string is authenticated data in every row ever written.
+(define (context-of prefix ids) (string-append prefix ":" (string-join ids ":")))
 
 ;; A spec is (table column id-column context) and may carry a fifth element, the
 ;; STORED FORM: 'text (the default, and every column until #189) or 'bytes.
@@ -140,15 +190,30 @@
   (printf "secret key : ~a\n" (if (secrets-enabled?) (format "configured (id ~a)" (secret-key-id)) "NOT configured"))
   (when (current-previous-secret-key)
     (printf "previous   : configured — a rotation is in progress\n"))
+  (define previous 0)
   (define totals
     (for/list ([spec (in-list (SECRETS))])
       (define rows (rows-of conn (car spec) (cadr spec) (caddr spec)))
       (define form (spec-form spec))
-      (define sealed (for/sum ([r (in-list rows)]) (if (is-sealed? form (vector-ref r 1)) 1 0)))
-      (printf "~a.~a: ~a stored, ~a sealed, ~a in the clear\n"
-              (car spec) (cadr spec) (length rows) sealed (- (length rows) sealed))
+      (define sealed (for/sum ([r (in-list rows)]) (if (is-sealed? form (cdr r)) 1 0)))
+      ;; Sealed, but not by the CURRENT key. During a rotation this is the figure
+      ;; that says whether TMACH_SECRET_KEY_OLD may be dropped: while it is not
+      ;; zero, dropping the previous key makes those rows unreadable.
+      (define other (for/sum ([r (in-list rows)])
+                      (if (and (is-sealed? form (cdr r))
+                               (not (equal? (sealed-by? form (cdr r)) (secret-key-id))))
+                          1 0)))
+      (set! previous (+ previous other))
+      (printf "~a.~a: ~a stored, ~a sealed, ~a in the clear~a\n"
+              (car spec) (cadr spec) (length rows) sealed (- (length rows) sealed)
+              (if (zero? other) "" (format ", ~a under ANOTHER key" other)))
       (- (length rows) sealed)))
   (define plain (apply + totals))
+  (when (positive? previous)
+    (printf (string-append "\n~a row(s) are sealed under a key that is not the current one. "
+                           "Run `rewrap` with TMACH_SECRET_KEY_OLD set, and do not drop the "
+                           "previous key until this reads zero.\n")
+            previous))
   (cond
     [(and (zero? plain) (secrets-enabled?)) (printf "\nA dump of this database carries no replayable secret.\n")]
     [(secrets-enabled?) (printf "\n~a secret(s) are still in the clear — run `rewrap`.\n" plain)]
@@ -164,9 +229,10 @@
       (define-values (table col idcol prefix) (apply values (take spec 4)))
       (define form (spec-form spec))
       (for/sum ([r (in-list (rows-of conn table col idcol))])
-        (define id (vector-ref r 0))
-        (define stored (vector-ref r 1))
-        (define context (string-append prefix ":" id))
+        (define ids (car r))
+        (define id (string-join ids ":"))
+        (define stored (cdr r))
+        (define context (context-of prefix ids))
         (cond
           ;; already sealed by the CURRENT key — leave it alone (idempotent)
           [(equal? (sealed-by? form stored) (secret-key-id)) 0]
@@ -179,8 +245,11 @@
                                           (die (format "~a ~a: ~a\nNothing further was written."
                                                        table id (exn-message e))))])
                (unwrap-of form context stored)))
-           (query-exec conn (format "UPDATE ~a SET ~a = ? WHERE ~a = ?" table col idcol)
-                       (wrap-of form context plain) id)
+           (apply query-exec conn
+                  (format "UPDATE ~a SET ~a = ? WHERE ~a" table col
+                          (string-join (for/list ([c (in-list (id-columns idcol))]) (format "~a = ?" c))
+                                       " AND "))
+                  (wrap-of form context plain) ids)
            (printf "  ~a.~a ~a\n" table col id)
            1]))))
   (printf "rewrapped ~a secret(s) with key ~a\n" changed (secret-key-id)))
