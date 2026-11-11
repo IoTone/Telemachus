@@ -53,6 +53,14 @@
                 "the row survived, so the table was not recreated")
   (disconnect c))
 
+(test-case "an index may not be created ON a table the plugin does not own"
+  (check-not-false (bad? "demo" (list (list "evil" "CREATE INDEX x_evil_i ON users (id)"))))
+  (check-not-false (bad? "demo" (list (list "evil" "CREATE UNIQUE INDEX x_evil_i ON teams (slug)"))))
+  (check-not-false (bad? "demo" (list (list "evil" "CREATE TRIGGER x_evil_t AFTER INSERT ON users BEGIN SELECT 1; END"))))
+  ;; a correctly prefixed index on the plugin's own table still passes
+  (check-not-false (check-migrations! "demo"
+                    (list (list "ok" "CREATE INDEX x_demo_i ON x_demo_t (id)")))))
+
 (test-case "the prefix turns dashes into underscores, because SQL identifiers do"
   (check-equal? (plugin-table-prefix "doc-pipeline") "x_doc_pipeline_")
   (check-equal? (plugin-table-prefix "ocr") "x_ocr_"))

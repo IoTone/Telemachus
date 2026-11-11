@@ -21,7 +21,8 @@
 (require racket/string racket/list db-kit/portable db-kit racket/random
          (only-in file/sha1 bytes->hex-string)
          "../config.rkt"
-         "../domain/authz/secretbox.rkt")
+         "../domain/authz/secretbox.rkt"
+         (only-in "../domain/agent/seals.rkt" ledger-specs))
 
 ;; the same connector the server uses — sqlite:/// or postgres://, resolved
 ;; against the implementation root exactly as main.rkt resolves it
@@ -149,6 +150,12 @@
   (append CREDENTIAL-SECRETS
           (if (content-encryption-enabled?) CONTENT-SECRETS '())))
 
+;; The platform's own lists plus every column a plugin declared, read from the
+;; ledger so an UNINSTALLED plugin's rows are still rotated. A ledger entry's
+;; fourth element is a procedure (the template needs the row's ids), while the
+;; platform's is a prefix string; `context-of` accepts both.
+(define (all-specs conn) (append (SECRETS) (ledger-specs conn)))
+
 ;; A spec's id column is one name or a LIST of names. A row comes back as
 ;; (ids . stored), `ids` always a list, so every caller has one shape.
 (define (id-columns idcol) (if (list? idcol) idcol (list idcol)))
@@ -160,7 +167,10 @@
     (cons (for/list ([i (in-range n)]) (vector-ref r i)) (vector-ref r n))))
 ;; `<table>.<column>:<key>[:<key>…]` — sealed.rkt's `sealed-context`, by its
 ;; own rule: the string is authenticated data in every row ever written.
-(define (context-of prefix ids) (string-append prefix ":" (string-join ids ":")))
+(define (context-of prefix ids)
+  (if (procedure? prefix)
+      (prefix ids)
+      (string-append prefix ":" (string-join ids ":"))))
 
 ;; A spec is (table column id-column context) and may carry a fifth element, the
 ;; STORED FORM: 'text (the default, and every column until #189) or 'bytes.
@@ -192,7 +202,7 @@
     (printf "previous   : configured — a rotation is in progress\n"))
   (define previous 0)
   (define totals
-    (for/list ([spec (in-list (SECRETS))])
+    (for/list ([spec (in-list (all-specs conn))])
       (define rows (rows-of conn (car spec) (cadr spec) (caddr spec)))
       (define form (spec-form spec))
       (define sealed (for/sum ([r (in-list rows)]) (if (is-sealed? form (cdr r)) 1 0)))
@@ -225,7 +235,7 @@
   (unless (secrets-enabled?)
     (die "TMACH_SECRET_KEY is not set — there is nothing to seal secrets with."))
   (define changed
-    (for/sum ([spec (in-list (SECRETS))])
+    (for/sum ([spec (in-list (all-specs conn))])
       (define-values (table col idcol prefix) (apply values (take spec 4)))
       (define form (spec-form spec))
       (for/sum ([r (in-list (rows-of conn table col idcol))])

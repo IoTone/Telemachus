@@ -71,6 +71,10 @@
          oa-path-template oa-parameters oa-tag oa-security oa-paths
          OPENAPI-VERSION OPENAPI-NOTE)
 
+;; a route's scope is a symbol in the platform's table and a string in the
+;; plugin model built below; one spelling for the renderers
+(define (scope-name v) (if (symbol? v) (symbol->string v) v))
+
 (define (usage)
   (eprintf "usage: telemachus-docs <describe|render|check> [--out DIR] [--locale xx] [--locales DIR]\n")
   (exit 2))
@@ -163,7 +167,7 @@
               ;; column. Before that field existed every plugin route was "bearer",
               ;; which is why it was written as a literal.
               'auth (if (eq? (hash-ref r 'auth 'bearer) 'public) "public" "bearer")
-              'permission (or (hash-ref r 'perm) 'null) 'scope "role" 'feature 'null
+              'permission (or (hash-ref r 'perm) 'null) 'scope (scope-name (hash-ref r 'scope 'role)) 'feature 'null
               'description (hash-ref r 'doc) 'plugin (hash-ref r 'plugin))))
   ;; every route permission must be described, like every role permission is
   (for ([r (in-list ROUTES)]) (when (rt-perm r) (permission-doc (rt-perm r))))
@@ -456,7 +460,7 @@
             (list (hash-ref r 'method) (code (hash-ref r 'path)) (hash-ref r 'auth)
                   (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
                   (let ([p (hash-ref r 'permission)])
-                    (if (string? p) (hash-ref r 'scope "role") "—"))
+                    (if (string? p) (scope-name (hash-ref r 'scope 'role)) "—"))
                   (let ([f (hash-ref r 'feature)]) (if (string? f) (code f) "—"))
                   (L (route-id r) (hash-ref r 'description)))))
    "\n"
@@ -611,7 +615,7 @@
          [op (if (null? params) op (hash-set op 'parameters params))]
          [op (if (string? perm)
                  (hash-set* op 'x-tmach-permission perm
-                            'x-tmach-permission-checked (hash-ref r 'scope "role"))
+                            'x-tmach-permission-checked (scope-name (hash-ref r 'scope 'role)))
                  op)]
          [op (if (string? feat) (hash-set op 'x-tmach-feature feat) op)]
          [op (if (string? plug) (hash-set op 'x-tmach-plugin plug) op)])

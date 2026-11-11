@@ -29,14 +29,17 @@
          (only-in "../feeds/adapters.rkt" feed-adapters-of-plugin) json racket/list racket/string
          db-kit/portable
          (only-in db-kit/migrate migration migration-id)
-         "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt")
+         "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt"
+         (only-in "seals.rkt" check-seals!))
 
 (provide load-plugins! loaded-plugins plugin-routes plugin-dir plugin-failures
          ;; G13: the closed vocabulary a route's auth may name, and the check itself,
          ;; exported FOR the tests — a bad declaration must fail the plugin's LOAD
-         PLUGIN-ROUTE-AUTHS check-route!
+         PLUGIN-ROUTE-AUTHS PLUGIN-ROUTE-SCOPES check-route!
          ;; issue #121: a plugin that owns data
-         plugin-migrations plugin-table-prefix check-migrations!)
+         plugin-migrations plugin-table-prefix check-migrations!
+         ;; a plugin that seals a column the platform key rotates
+         plugin-seals)
 
 (define *loaded* (box '()))
 (define (loaded-plugins) (unbox *loaded*))
@@ -63,6 +66,12 @@
 ;; every loaded plugin's migrations, in load order, ready for `migrate!`
 (define *migrations* (box '()))
 (define (plugin-migrations) (unbox *migrations*))
+
+;; every sealed column a plugin declared, in load order, as
+;; (plugin-id table column id-columns context-template form). Written to the
+;; ledger at boot so a rotation still covers an UNINSTALLED plugin's rows.
+(define *seals* (box '()))
+(define (plugin-seals) (unbox *seals*))
 
 (define METHODS '("GET" "POST" "PUT" "PATCH" "DELETE"))
 
@@ -92,17 +101,41 @@
 ;; one is a long random token in the path rather than a guessed parameter.
 (define PLUGIN-ROUTE-AUTHS '(bearer public))
 
+;; WHOSE AUTHORITY A ROUTE'S PERMISSION IS WEIGHED AGAINST. `'role` is the
+;; default and what every route was before this existed: the dispatcher (and, for
+;; a plugin route, the wrapper) asks `require-perm` with no resource, so a role
+;; grant is the whole test. `'resource` says the HANDLER will weigh the
+;; permission against one object it names, which is the only way a grant holder
+;; on a single document is admitted — the role pre-check would refuse them,
+;; which is DSH-1's whole point. Core routes have had this distinction since
+;; #110 r2; a plugin route could not express it and `docs/integrators-guide.md`
+;; said the opposite of what the code did.
+;;
+;; A resource-scoped route must name a permission (a scope with nothing to weigh
+;; is a rule nothing enforces) and may not be public (there is no principal).
+(define PLUGIN-ROUTE-SCOPES '(role resource))
+
 (define (check-route! id r)
   (unless (and (list? r) (>= (length r) 4))
     (error 'plugins "~a: a route is (list method path perm handler [doc] [auth])" id))
   (define-values (method path perm handler) (values (list-ref r 0) (list-ref r 1) (list-ref r 2) (list-ref r 3)))
   (define doc (if (and (>= (length r) 5) (string? (list-ref r 4))) (list-ref r 4) ""))
   (define auth (if (>= (length r) 6) (list-ref r 5) 'bearer))
+  (define scope (if (>= (length r) 7) (list-ref r 6) 'role))
   (unless (member method METHODS) (error 'plugins "~a: route method must be one of ~a" id METHODS))
   (unless (and (string? path) (regexp-match? #px"^/?[A-Za-z0-9_.:*/-]+$" path))
     (error 'plugins "~a: route path ~s is not a plain path (letters, digits, :name, *rest)" id path))
   (unless (or (not perm) (string? perm)) (error 'plugins "~a: route permission must be a string or #f, not ~s" id perm))
   (unless (procedure? handler) (error 'plugins "~a: route handler must be a procedure" id handler))
+  (unless (and (memq scope PLUGIN-ROUTE-SCOPES) #t)
+    (error 'plugins "~a: the scope of route ~a ~a must be one of ~a, not ~s"
+           id method path PLUGIN-ROUTE-SCOPES scope))
+  (when (and (eq? scope 'resource) (not perm))
+    (error 'plugins "~a: route ~a ~a is resource-scoped and names no permission; a scope means nothing without one"
+           id method path))
+  (when (and (eq? scope 'resource) (eq? auth 'public))
+    (error 'plugins "~a: route ~a ~a is public and resource-scoped; a public route has no principal"
+           id method path))
   (unless (and (memq auth PLUGIN-ROUTE-AUTHS) #t)
     (error 'plugins "~a: the auth of route ~a ~a must be one of ~a, not ~s"
            id method path PLUGIN-ROUTE-AUTHS auth))
@@ -116,7 +149,7 @@
   (when (eq? auth 'bearer)
     (unless (procedure-arity-includes? handler 3)
       (error 'plugins "~a: the handler for route ~a ~a must take (conn principal args)" id method path)))
-  (hasheq 'plugin id 'method method 'path path 'perm perm 'handler handler 'auth auth 'doc doc))
+  (hasheq 'plugin id 'method method 'path path 'perm perm 'handler handler 'auth auth 'scope scope 'doc doc))
 
 ;; `dirs` is one directory or a LIST of them, searched in order (issue #45): the
 ;; built-in directory and an operator's own, rather than one replacing the other.
@@ -168,7 +201,13 @@
 (define (ddl-targets sql)
   (define s (string-downcase sql))
   (for*/list ([rx (in-list (list #px"create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
+                                 ;; the INDEX NAME is not a target: the table it is
+                                 ;; ON is. Without this second pattern
+                                 ;; `CREATE INDEX x_foo_i ON users (email)` passed the
+                                 ;; prefix check and landed an index on a platform table.
+                                 #px"create\\s+(?:unique\\s+)?index\\s+(?:if\\s+not\\s+exists\\s+)?[a-z0-9_\"\\.]+\\s+on\\s+([a-z0-9_\"\\.]+)"
                                  #px"create\\s+(?:unique\\s+)?index\\s+(?:if\\s+not\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
+                                 #px"create\\s+trigger\\s+[a-z0-9_\"\\.]+\\s+.*?\\bon\\s+([a-z0-9_\"\\.]+)"
                                  #px"alter\\s+table\\s+([a-z0-9_\"\\.]+)"
                                  #px"drop\\s+table\\s+(?:if\\s+exists\\s+)?([a-z0-9_\"\\.]+)"))]
               [m (in-list (regexp-match* rx s #:match-select cadr))])
@@ -203,6 +242,7 @@
 (define (load-plugins! dirs #:log [log void] #:skip-links? [skip-links? #f])
   (set-box! *loaded* '())
   (set-box! *routes* '())
+  (set-box! *seals* '())
   (set-box! *failed* '())
   (hash-clear! *dirs*)
   (for ([dir (in-list (if (list? dirs) dirs (list dirs)))])
@@ -273,6 +313,12 @@
           ;; recorded and run once instead of raced on first use.
           (define migs (check-migrations! id (dynamic-require entry 'migrations (lambda () '()))))
           (set-box! *migrations* (append (unbox *migrations*) migs))
+          ;; a plugin that sealed a column with the platform key declares it here,
+          ;; validated against its own table prefix so it cannot name anybody
+          ;; else's table; a bad entry fails THIS plugin's load
+          (define seals (check-seals! id (plugin-table-prefix id)
+                                      (dynamic-require entry 'secrets (lambda () '()))))
+          (set-box! *seals* (append (unbox *seals*) seals))
           (set-box! *loaded*
             (append (unbox *loaded*)
                     (list (hasheq 'id id 'name (hash-ref m 'name id) 'version (hash-ref m 'version "")
@@ -283,6 +329,10 @@
                                   ;; an operator reading `\dt` should be able to
                                   ;; tell who owns what
                                   'migrations (for/list ([m (in-list migs)]) (migration-id m))
+                                  ;; the sealed columns a rotation must walk, so the
+                                  ;; operator sees who owns what before a rotation
+                                  'sealed_columns (for/list ([x (in-list seals)])
+                                                   (format "~a.~a" (list-ref x 1) (list-ref x 2)))
                                   ;; LAY-7: which content types this plugin claims
                                   ;; an extractor for. Reported for the same reason
                                   ;; job kinds are — an operator should be able to

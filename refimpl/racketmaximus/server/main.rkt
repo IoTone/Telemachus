@@ -93,7 +93,8 @@
          (only-in "../domain/ai/roles.rkt" model-role-executor)
          (only-in "../domain/agent/run.rkt" agent-configured? run-agent-flow)
          (only-in "../domain/agent/plugins.rkt" load-plugins! plugin-failures plugin-routes
-                  plugin-migrations)
+                  plugin-migrations plugin-seals)
+         (only-in "../domain/agent/seals.rkt" record-plugin-seals!)
          ;; #121: a plugin's tables go through the platform's own runner
          (only-in db-kit/migrate migrate!)
          (only-in "../domain/mcp/connect.rkt" connect-mcp-servers!)
@@ -436,6 +437,7 @@
   (set-box! PLUGIN-ROUTES
     (for/list ([r (in-list (plugin-routes))])
       (define auth (hash-ref r 'auth 'bearer))
+      (define scope (hash-ref r 'scope 'role))
       ;; Built through `R` rather than the `rt` constructor POSITIONALLY. It was
       ;; positional, and adding #110 r2's `scope` field broke plugin routes at
       ;; BOOT with an arity mismatch — which the full suite had already passed
@@ -449,6 +451,7 @@
                        ;; the behaviour cannot drift apart
                        #:auth (if (eq? auth 'public) 'public 'bearer)
                        #:perm (hash-ref r 'perm)
+                       #:scope scope
                        #:doc (hash-ref r 'doc)))
       (define perm (hash-ref r 'perm))
       (define handler (hash-ref r 'handler))
@@ -462,7 +465,10 @@
                     (plugin-route-call auth handler db-conn #f (plugin-route-args req names vals))))
                 (lambda (req . vals)
                   (with-auth req (lambda (p)
-                    (when perm (require-perm db-conn p perm))
+                    ;; a resource-scoped route weighs the permission itself, on
+                    ;; the object it serves; a role pre-check here would refuse
+                    ;; exactly the grant holder the scope exists for
+                    (when (and perm (eq? scope 'role)) (require-perm db-conn p perm))
                     (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
                       (plugin-route-call auth handler db-conn p (plugin-route-args req names vals)))))))))))
 
@@ -694,6 +700,12 @@
   (let ([pm (plugin-migrations)])
     (unless (null? pm)
       (migrate! db-conn pm #:log (lambda (id) (printf "  plugin migration: ~a\n" id)))))
+  ;; SEAL-1: remember the sealed columns every loaded plugin declared, so a
+  ;; rotation still walks them after the plugin is uninstalled. After the
+  ;; migrations, because the ledger table itself is one of them.
+  (define sealed (record-plugin-seals! db-conn (plugin-seals) (current-seconds)))
+  (when (positive? sealed)
+    (printf "  sealed columns declared by plugins: ~a\n" sealed))
   ;; Refuse to serve with a RELATIVE blob root. `serve/servlet` repoints
   ;; `current-directory` at the web server's own web root while it handles a
   ;; request, so a relative root aims writes at whatever that is — for a Nix
