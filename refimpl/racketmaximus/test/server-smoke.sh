@@ -386,6 +386,33 @@ assert "beta member 403"  "$(curl -s $B/api/beta/prospects -H "Authorization: Be
 PS=''; for i in $(seq 1 40); do PS=$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $OP"); printf '%s' "$PS" | grep -q '"status":"reviewed"' && break; sleep 0.25; done
 assert "beta judged"      "$PS" '"status":"reviewed"'
 assert "beta decide"      "$(curl -s -X POST $B/api/beta/prospects/$PID/decide -H "Authorization: Bearer $OP" -d '{"decision":"qualified"}')" '"status":"qualified"'
+
+echo "== beta: the experience document, its draft and its publish =="
+# THREE ROUTES NOTHING REACHED BY PATH: GET/PUT /api/beta/experience and
+# /api/beta/experience/publish. They are the team's own funnel document behind
+# `settings:manage`, and the question that matters is what a PUBLISHED draft does
+# to the PUBLIC read — the funnel a prospect is linked to, which carries no token
+# and no judge prompt.
+assert "beta: a member may not read the experience" \
+  "$(curl -s $B/api/beta/experience -H "Authorization: Bearer $BOB")" 'Forbidden: settings:manage'
+EXP=$(curl -s $B/api/beta/experience -H "Authorization: Bearer $OP")
+assert "beta: it carries the form the funnel renders" "$EXP" '"fields"'
+# the key is `judge-system`, not `judge`: the prompt a model is given to vet
+# applicants, and the one field of this document a public read must never carry
+assert "beta: …and the judge prompt, which the operator edits here" "$EXP" '"judge-system"'
+refute "beta: …and the PUBLIC slice never carries the prompt" "$(curl -s $B/api/beta/config)" '"judge-system"'
+# ROUND-TRIP what was read, so publishing it cannot change anything a later block
+# depends on: publishing somebody else's idea of the funnel would make this block
+# a fixture that changes global state.
+assert "beta: a draft saves" \
+  "$(curl -s -X PUT $B/api/beta/experience -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d "$EXP")" '"status":"draft"'
+assert "beta: publishing it succeeds" \
+  "$(curl -s -X POST $B/api/beta/experience/publish -H "Authorization: Bearer $OP")" '"status":"published"'
+assert "beta: …and the public funnel still answers the same experience" \
+  "$(curl -s $B/api/beta/config)" '"name":"beta"'
+assert "beta: a member may not publish either" \
+  "$(curl -s -X POST $B/api/beta/experience/publish -H "Authorization: Bearer $BOB")" 'Forbidden: settings:manage'
 assert "plugin loaded"   "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'example-tools'
 assert "onboarding plug" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'beta-onboarding'
 assert "plugin tool"     "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'word_count'
@@ -1296,6 +1323,11 @@ assert "policy is public"        "$CFG" '"localization"'
 assert "…default is en"          "$CFG" '"default":"en"'
 assert "…negotiation on"         "$CFG" '"enabled":true'
 assert "…advertises its catalogs" "$CFG" '"ja"'
+# …and ADVERTISES is not "lists the files on disk": `nl` and `es-419` are drafts
+# of 190 strings each, so offering them would promise a page that answers five
+# strings of every six in English. The floor is LOCALE-COVERAGE-FLOOR in
+# domain/i18n/catalog.rkt; the file stays, the switcher does not offer it.
+assert "…and only the languages it can answer in" "$CFG" '"available":["en","ja"]'
 # with negotiation ON, the header decides
 assert "ja honoured"   "$(curl -s $B/api/whoami -H 'Accept-Language: ja')" '認証が必要です'
 assert "en honoured"   "$(curl -s $B/api/whoami -H 'Accept-Language: en')" 'Authentication required'
@@ -2183,6 +2215,17 @@ assert "plugin route: a user error is a 400" "$(curl -s -X POST $B/api/x/example
 assert "plugin route in the plugin listing" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"GET /word-count"'
 assert "no plugin route outside its prefix"  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/word-count?text=x" -H "Authorization: Bearer $OP")" '404'
 assert "plugin job kind is listed for its plugin" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"x.example-tools.word-count"'
+
+# ---- G13: the PUBLIC door. A plugin may declare a route 'public, and then it is
+# served with no session, no token and no principal — the handler is (conn args),
+# which the loader enforces. The default is unchanged: the word-count route above
+# still 401s without a bearer, asserted two lines up.
+assert "a public plugin route answers with no token at all" "$(curl -s $B/api/x/example-tools/ping)" 'pong'
+assert "…and keeps its own media type"  "$(curl -s -D- -o /dev/null $B/api/x/example-tools/ping | tr -d '\r' | grep -i '^content-type:')" 'text/plain'
+assert "…it is still a 200, not an empty body" "$(curl -s -o /dev/null -w '%{http_code}' $B/api/x/example-tools/ping)" '200'
+assert "…a bearer changes nothing about it" "$(curl -s $B/api/x/example-tools/ping -H "Authorization: Bearer $OP")" 'pong'
+assert "…and the plugin listing reports which route is public" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"public_routes":["GET /ping"]'
+assert "…while an undeclared route is still bearer-only" "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/word-count?text=x")" '401'
 
 # ---- issue #20: a plugin's AUTHENTICATED bundle. The funnel's landing bundle is
 # public and publicly cached; customer screens must not be, so they come from a
@@ -3546,6 +3589,29 @@ assert "email: …with a console link, not an API one" "$MONE" '#/jobs'
 # IDS, A STATUS AND A LINK — NEVER CONTENT (MTX-8). The prompt went into the job
 # payload; it must not be anywhere near the message.
 refute "email: the message carries no prompt"      "$MONE" 'mail probe'
+# TWO MORE ROUTES NOTHING REACHED BY PATH, and they are the team's own view of
+# one delivery plus the redelivery lever. The operator's copy of both is asserted
+# above; this is the team plane, and the permission is `webhooks:manage` on each.
+assert "email: a team may read ONE of its own deliveries, with the message" \
+  "$(curl -s "$B/api/email-deliveries/$MDID" -H "Authorization: Bearer $OP")" '"body":'
+assert "email: …a viewer may not" \
+  "$(curl -s "$B/api/email-deliveries/$MDID" -H "Authorization: Bearer $VERA")" 'Forbidden'
+assert "email: …and an id that does not exist is a 404, not an empty 200" \
+  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/email-deliveries/no-such-delivery" -H "Authorization: Bearer $OP")" '404'
+# REDELIVERY: the row goes back to pending with its attempts RESET, and the id
+# does not change — so the Message-ID is the same and a relay that already
+# accepted the message recognises it.
+assert "email: a delivery can be sent again" \
+  "$(curl -s -X POST $B/api/email-deliveries/$MDID/redeliver -H "Authorization: Bearer $OP")" '"ok":true'
+assert "email: …and asking twice is a 404, because a pending row is nothing to decide" \
+  "$(curl -s -X POST $B/api/email-deliveries/$MDID/redeliver -H "Authorization: Bearer $OP")" 'already pending'
+# #124's SPLIT, AT THE ID: `instance:read` may see the instance's delivery and may
+# not make it send again. Asserted with the monitoring token, because an operator
+# passes both checks and would say nothing about either (HELP-7's lesson).
+assert "email: a monitoring token reads one of the instance's deliveries" \
+  "$(curl -s "$B/api/admin/email-deliveries/$MDID" -H "Authorization: Bearer $MONTOK")" '"recipient"'
+assert "email: …and may not redeliver it" \
+  "$(curl -s -X POST $B/api/admin/email-deliveries/$MDID/redeliver -H "Authorization: Bearer $MONTOK")" 'Forbidden'
 
 echo "== email: a person's own opt-out =="
 OPTOUT=$(curl -s -X PUT $B/api/email-prefs -H "Authorization: Bearer $OP" \

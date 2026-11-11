@@ -77,7 +77,7 @@ screen has to know which language to render in before anyone has an account.
 |---|---|---|
 | `default` | `en` | the locale a request gets when it names none, names one this build has no catalog for, or when negotiation is off |
 | `enabled` | `true` | `false` pins **every** request to `default` and tells the console to drop its language switcher |
-| `available` | *derived* | not a setting — whichever `<locale>.json` files the build ships |
+| `available` | *derived* | not a setting — whichever `<locale>.json` files the build ships **and can answer in**: a locale below the coverage floor is on disk and is not offered |
 
 Three properties worth stating, because each replaced a wrong behaviour:
 
@@ -89,6 +89,17 @@ Three properties worth stating, because each replaced a wrong behaviour:
   the instance can never advertise a language it cannot render — and `default` is
   validated against it, so `{"default":"de"}` on a build with no German catalog is
   a `400`, not an instance quietly serving English under a German label.
+- **"ships a catalog" and "can answer in it" are two questions, and the second
+  needs a floor.** A file can be opened with ten strings in it; the switcher would
+  then offer a language that answers most of a page in English, which is the
+  half-translated page that looks finished. So a locale is ADVERTISED only when
+  `coverage` — present, non-empty, still pinned to the English it was translated
+  from — reaches `LOCALE-COVERAGE-FLOOR` (80%) of `en`. Below the floor the file
+  stays, the Localization Manager still imports it, a translator still works on
+  it, and the switcher does not offer it: `nl` and `es-419` are drafts of 190
+  strings out of 1,179 and appear in neither the switcher nor the default list.
+  `telemachus-localize check` reports `coverage_floor` and an `advertised` flag
+  per locale, so the report and the switcher cannot disagree.
 - **Turning negotiation off is not the same as shipping one catalog.** The other
   catalogs stay; a bilingual instance can still choose to answer everyone in one
   voice — support scripts, manual screenshots and audit conversations all get

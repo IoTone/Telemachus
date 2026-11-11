@@ -471,7 +471,7 @@
     },
     "/api/admin/workers": {
       "get": {
-        "description": "The worker fleet (FLEET-2): every executor with its health, what the worker reports, the job it holds, its outcomes and lease expiries over a window (?hours=, default 24), its recent failures — plus the queue: depth by kind, the oldest queued job's age, and how many queued remote jobs NO live executor can run. That last figure is the one a deep queue cannot otherwise explain: a stalled fleet and a busy one look the same from a count. Every number is derived, and a job held by a quota is NOT counted unclaimable — GET /api/jobs already says `waiting` for that.",
+        "description": "The worker fleet (FLEET-2): every executor with its health, what the worker reports, the job it holds, its outcomes and lease expiries over a window (?hours=, default 24), its recent failures — plus the queue: depth by kind, the oldest queued job's age, and how many queued remote jobs NO live executor can run. That last figure is the one a deep queue cannot otherwise explain: a stalled fleet and a busy one look the same from a count. Every number is derived, and a job held by a quota is NOT counted unclaimable — GET /api/jobs already says `waiting` for that. Beside it is `held_by_paused`: queued remote work a matching host could run but has said it is not taking any. It is counted apart from unclaimable because nothing needs buying or clearing, since the host may resume on its own. The two are ordered rather than exclusive, so work nothing can run stays unclaimable however many hosts are paused, and each report names up to twenty of its jobs.",
         "operationId": "get.api.admin.workers",
         "security": [
           {
@@ -5808,6 +5808,19 @@
         "x-tmach-handler": "workflow-run",
         "x-tmach-permission": "workflows:run",
         "x-tmach-permission-checked": "role"
+      }
+    },
+    "/api/x/example-tools/ping": {
+      "get": {
+        "description": "A public liveness ping: the plain text `pong`, with no token and no principal. Declared public in the route table; it reads no team data.",
+        "operationId": "get.api.x.example-tools.ping",
+        "security": [],
+        "tags": [
+          "x"
+        ],
+        "x-tmach-auth": "public",
+        "x-tmach-handler": "plugin:example-tools",
+        "x-tmach-plugin": "example-tools"
       }
     },
     "/api/x/example-tools/word-count": {

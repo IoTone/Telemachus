@@ -1,9 +1,9 @@
-import { chromium } from '@playwright/test';
+import { launchChromium } from './browser.mjs';
 const BASE = process.env.BASE || 'http://127.0.0.1:8877';
 const errs = []; let pass = 0, fail = 0;
 const ok = (n, c, d='') => { if (c) { console.log('  ok   ' + n); pass++; } else { console.log('  FAIL ' + n + (d?' — '+d:'')); fail++; } };
 
-const b = await chromium.launch({ args: ['--no-sandbox','--disable-dev-shm-usage'] });
+const b = await launchChromium();
 const page = await b.newPage();
 page.on('pageerror', e => errs.push(String(e)));
 // The browser logs "Failed to load resource" for every 4xx, and the deliberate

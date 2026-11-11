@@ -10,8 +10,13 @@
 
 (require rackunit
          racket/file
+         racket/runtime-path
          racket/list
          "../domain/i18n/catalog.rkt"
+         "../domain/i18n/policy.rkt"
+         db-kit/portable db-kit/migrate
+         "db-fixture.rkt"
+         "../domain/db/migrations.rkt"
          (file "../cli/telemachus-localize.rkt"))
 
 (define (with-locales-dir proc)
@@ -69,3 +74,118 @@
    (define r (en-report dir (base-of (list "a.one" "One"))))
    (check-false (hash-ref r 'present))
    (check-true (en-stale? r) "a missing source catalog cannot be current")))
+
+;; ---- a key that appears TWICE in the file -----------------------------------
+;; `read-json` keeps the last copy, so `diff` saw a single message and the gate
+;; stayed green while locales/en.json carried two texts for `ui.troverlimit` —
+;; the stale wording first and the current one second. Any reader that is not
+;; this parser picks the other one.
+(with-locales-dir
+ (lambda (dir)
+   (define f (build-path dir "en.json"))
+   (display-to-file
+    (string-append
+     "{\n  \"meta\": {\"locale\": \"en\"},\n  \"messages\": {\n"
+     "    \"a.one\": {\"text\": \"One\", \"hash\": \"x\"},\n"
+     "    \"a.two\": {\"text\": \"Two\", \"hash\": \"y\"},\n"
+     "    \"a.one\": {\"text\": \"One, again\", \"hash\": \"z\"}\n"
+     "  }\n}\n")
+    f #:exists 'truncate)
+   (check-equal? (catalog-duplicate-keys f) '("a.one"))))
+
+;; ---- the same LEAF NAME in different messages is not a duplicate ------------
+;; Every message carries a `text` and a `hash` key. A scan that counted the leaf
+;; name rather than the message id would fail every catalog ever written.
+(with-locales-dir
+ (lambda (dir)
+   (define f (build-path dir "en.json"))
+   (write-en! dir (base-of (list "a.one" "One") (list "a.two" "Two")))
+   (check-equal? (catalog-duplicate-keys f) '())))
+
+;; ---- a target catalog is checked too ----------------------------------------
+(with-locales-dir
+ (lambda (dir)
+   (define f (build-path dir "ja.json"))
+   (display-to-file
+    (string-append
+     "{\n  \"meta\": {\"locale\": \"ja\", \"fallback\": \"en\"},\n  \"messages\": {\n"
+     "    \"a.one\": {\"text\": \"一\", \"hash\": \"x\"},\n"
+     "    \"a.one\": {\"text\": \"壱\", \"hash\": \"x\"}\n"
+     "  }\n}\n")
+    f #:exists 'truncate)
+   (check-equal? (catalog-duplicate-keys f) '("a.one"))))
+
+;; ---- a locale is ADVERTISED only if it is translated ------------------------
+;;
+;; `available` was "whichever `<locale>.json` files exist", which is right about
+;; what the build can OPEN and wrong about what it can OFFER: `nl` and `es-419`
+;; ship 190 of 1,179 messages (16%), so the console offered Dutch and answered
+;; five strings of every six in English. The switcher derives from `available`,
+;; so a floor is the rule that makes those two questions different — a locale
+;; below it keeps its file, keeps its rows in the manager and stops being offered.
+(with-locales-dir
+ (lambda (dir)
+   (define base (build-en-catalog (for/list ([i (in-range 10)])
+                                    (list (format "a.~a" i) (format "T~a" i)))))
+   (write-en! dir base)
+   ;; one locale at the floor (8 of 10) and one below it (7 of 10). A catalog
+   ;; names only the strings it has, so the missing ones are missing rather than
+   ;; blank — both count as uncovered in `coverage`, which is what makes this the
+   ;; same number the report prints.
+   (define (partial! loc n)
+     (define msgs (catalog-messages base))
+     (define kept
+       (for/hash ([(k v) (in-hash msgs)] [i (in-naturals)] #:when (< i n)) (values k v)))
+     (write-catalog (build-path dir (format "~a.json" loc)) (make-catalog loc "en" kept)))
+   (partial! "atfloor" 8)
+   (partial! "under" 7)
+   (check-equal? LOCALE-COVERAGE-FLOOR 80)
+   (check-equal? (locale-coverage dir "en") 100)
+   (check-equal? (locale-coverage dir "atfloor") 80)
+   (check-equal? (locale-coverage dir "under") 70)
+   (check-true (advertised? dir "atfloor") "the floor is inclusive")
+   (check-false (advertised? dir "under"))
+   (check-equal? (sort (available-locales dir) string<?) '("atfloor" "en" "under"))
+   (check-equal? (sort (advertised-locales dir) string<?) '("atfloor" "en"))
+   ;; …AND THE COVERAGE IS MEMOISED WITH THE FILE LIST, because it is answered on
+   ;; a PUBLIC route: `GET /api/config` is where the sign-in screen picks its
+   ;; language before anybody has a token, and each call used to read `en.json`
+   ;; plus every target catalog and compare every id.
+   ;;
+   ;; Proving a re-read does NOT happen needs the second call to answer from the
+   ;; FIRST answer while the file under it changes, so the catalog is EMPTIED by
+   ;; name — removing it would prove nothing, because the file list is memoised
+   ;; too and would have lost it either way.
+   (write-catalog (build-path dir "atfloor.json") (make-catalog "atfloor" "en" (hash)))
+   (check-equal? (locale-coverage dir "atfloor") 0 "the file really is empty now")
+   (check-equal? (sort (advertised-locales dir) string<?) '("atfloor" "en")
+                 "a cache means the emptied catalog was never re-read (it would answer 'en')")
+   ;; THE CONTROL: a directory the memo has not seen answers from the files
+   (with-locales-dir
+    (lambda (fresh-dir)
+      (write-en! fresh-dir base)
+      (write-catalog (build-path fresh-dir "atfloor.json") (make-catalog "atfloor" "en" (hash)))
+      (check-equal? (sort (advertised-locales fresh-dir) string<?) '("en")
+                    "an unseen directory is still measured")))
+   ;; …and the POLICY the instance serves from uses the advertised set, so a
+   ;; language too thin to answer in cannot be chosen as the default any more
+   (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations)
+   (check-false (member "under" (hash-ref (i18n-policy c dir) 'available)))
+   (check-exn exn:fail? (lambda () (i18n-policy-set! c dir (hasheq 'default "under"))))
+   (check-equal? (hash-ref (i18n-policy-set! c dir (hasheq 'default "atfloor")) 'default) "atfloor")
+   (close-db! c)))
+
+;; ---- the catalogs this build actually ships --------------------------------
+;;
+;; Measured, not asserted from a comment: `ja` is complete and must stay
+;; advertised, and `nl`/`es-419` are drafts the switcher must not offer. If a
+;; translation is finished, this case fails and is updated deliberately — which
+;; is the point of a floor that a report and a switcher both read.
+(define-runtime-path locales-dir-path "../locales")
+(test-case "the shipped catalogs: ja is offered, nl and es-419 are not"
+  (define dir (path->string locales-dir-path))
+  (check-true (advertised? dir "ja"))
+  (check-equal? (locale-coverage dir "ja") 100)
+  (check-false (advertised? dir "nl"))
+  (check-false (advertised? dir "es-419"))
+  (check-equal? (sort (advertised-locales dir) string<?) '("en" "ja")))

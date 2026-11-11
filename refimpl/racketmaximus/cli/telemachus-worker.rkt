@@ -288,6 +288,37 @@
            (let ([b (string-trim body)]) (substring b 0 (min 300 (string-length b))))))
   (hasheq 'verdict_json body))
 
+;; → (values code resp), and it NEVER RAISES. A heartbeat that raises kills only
+;; its own thread, and the worker goes on generating against a lease that is no
+;; longer being renewed: the reaper re-queues the job, another host runs the same
+;; model call, and this host's result is then refused 409. That is a duplicate
+;; generation and a duplicate token bill on exactly the long jobs where it costs
+;; most, with nothing in the log to say why — so a transport error is retried
+;; twice inside the beat interval before it is believed.
+;;
+;; The interval is a third of the lease, so two quick retries plus the sleep
+;; still leaves the lease renewed comfortably inside its window.
+(define (beat! id token)
+  (let loop ([tries 0])
+    (define-values (code resp)
+      (with-handlers ([exn:fail? (lambda (e) (values 0 (hasheq 'error (exn-message e))))])
+        ;; `state` rides on the heartbeat (issue #58), so an operator reading
+        ;; GET /api/executors sees "busy" rather than inferring it from a
+        ;; timestamp
+        (post (format "/api/workers/jobs/~a/heartbeat" id)
+              (hasheq 'claim_token token 'state "busy"))))
+    (if (and (= code 0) (< tries 2))
+        (begin (sleep 2) (loop (add1 tries)))
+        (values code resp))))
+
+;; → (values code resp) for the one-way posts, and it NEVER RAISES either. These
+;; run INSIDE an exception handler on the way out of a job, where a second
+;; exception would escape the handler, unwind the claim loop and take the process
+;; down mid-job — losing the result the handler was trying to report.
+(define (post-quietly path body)
+  (with-handlers ([exn:fail? (lambda (e) (values 0 (hasheq 'error (exn-message e))))])
+    (post path body)))
+
 (define (run-job job)
   (define id (hash-ref job 'id))
   (define kind (hash-ref job 'kind))
@@ -302,33 +333,88 @@
   ;; A 409 means this attempt is no longer ours to finish: the lease lapsed and
   ;; somebody re-claimed it, or the job was canceled (SCHED-8). Either way the
   ;; right move is to stop, because the result can no longer land. The beat
-  ;; thread breaks the thread doing the work; the handler below posts /fail,
-  ;; which is what lets the server settle the row at once instead of waiting the
-  ;; lease out. A worker in another language does the same thing: stop when the
-  ;; heartbeat stops saying 200.
+  ;; thread breaks the thread doing the work, and the handler below then POSTS a
+  ;; settle — which is what frees the row and the team's slot at once instead of
+  ;; waiting the lease out. A worker in another language does the same thing:
+  ;; stop when the heartbeat stops saying 200, and settle the attempt.
   (define worker-thd (current-thread))
   (define stopped (box #f))
   (define beat (thread (lambda ()
                          (let loop ()
                            (sleep (max 1 (quotient lease 3)))
-                           (define-values (code resp)
-                             ;; `state` rides on the heartbeat (issue #58), so an
-                             ;; operator reading GET /api/executors sees "busy"
-                             ;; rather than inferring it from a timestamp
-                             (post (format "/api/workers/jobs/~a/heartbeat" id)
-                                   (hasheq 'claim_token token 'state "busy")))
+                           (define-values (code resp) (beat! id token))
                            (cond
                              [(= code 200) (loop)]
                              [else
-                              (set-box! stopped (let ([e (and (hash? resp) (hash-ref resp 'error #f))])
-                                                  (if (string? e) e (format "heartbeat refused (HTTP ~a)" code))))
+                              (set-box! stopped
+                                        ;; code 0 is a heartbeat that never reached the platform,
+                                        ;; after the two retries above — a different thing from a
+                                        ;; refusal, and the log should not call it a status
+                                        (if (zero? code)
+                                            "the heartbeat could not be delivered"
+                                            (let ([e (and (hash? resp) (hash-ref resp 'error #f))])
+                                              (if (string? e) e (format "heartbeat refused (HTTP ~a)" code)))))
                               (break-thread worker-thd)])))))
   (with-handlers ([exn:break? (lambda (_)
                                 (kill-thread beat)
                                 (define why (or (unbox stopped) "interrupted"))
-                                (post (format "/api/workers/jobs/~a/fail" id)
-                                      (hasheq 'error why 'claim_token token))
-                                (eprintf "job ~a (~a): STOPPED — ~a\n" id kind why))]
+                                (if (unbox stopped)
+                                    ;; THE PLATFORM SAYS THIS ATTEMPT IS NOT OURS, or it never
+                                    ;; reached it. One of three things happened: the job was
+                                    ;; CANCELED (the heartbeat answers 409 `canceled`), the lease
+                                    ;; lapsed and somebody re-claimed it (409 `not-holder`), or the
+                                    ;; heartbeat could not be delivered at all (code 0).
+                                    ;;
+                                    ;; POSTING IS WHAT SETTLES THE ROW, and this arm posted
+                                    ;; nothing: the premise was that "posting either terminal call
+                                    ;; would be refused", which is true of a re-claimed lease and
+                                    ;; FALSE of a cancel. Both `/complete` and `/fail` settle a
+                                    ;; `canceling` row (SCHED-8's `settle-canceling!`), so an
+                                    ;; operator's cancel held one of the team's two
+                                    ;; `ai.concurrency` slots until the 120-second lease expired —
+                                    ;; and a run whose heartbeat could not be delivered stayed
+                                    ;; `running`, so the reaper re-queued it and another host re-ran
+                                    ;; and re-billed the same generation.
+                                    ;;
+                                    ;; `/release` rather than `/fail`, because the third case is
+                                    ;; real: a transport failure leaves the row OURS and RUNNING,
+                                    ;; where `/fail` is terminal and would destroy a job nothing is
+                                    ;; wrong with (issue #93 — a model this host cannot serve is
+                                    ;; this HOST's problem). A release spends no attempt, lets
+                                    ;; another worker take the job at once, and on a cancel it is
+                                    ;; the same `settle-canceling!` a fail would have called.
+                                    (let-values ([(rcode _resp)
+                                                  (post-quietly (format "/api/workers/jobs/~a/release" id)
+                                                                (hasheq 'claim_token token 'reason "busy"))])
+                                      ;; a refused settle is EXPECTED for a lease somebody else now
+                                      ;; holds, so it is reported as what it is
+                                      (eprintf "job ~a (~a): STOPPED — ~a~a\n" id kind why
+                                              (if (= rcode 200) ""
+                                                  (format " (settle refused: HTTP ~a)" rcode))))
+                                    ;; A STOP IS NOT A FAILURE, and Racket delivers
+                                    ;; SIGTERM as a break, so this is the ordinary
+                                    ;; `systemctl stop` path. /fail is terminal and
+                                    ;; would spend one of the job's three attempts
+                                    ;; for something that was this HOST's business;
+                                    ;; /release spends none and lets another host
+                                    ;; take it at once. The unit file and
+                                    ;; `worker-release!`'s own comment both claim
+                                    ;; this is what happens — before this, they
+                                    ;; were describing a flush that ran too late.
+                                    (let-values ([(rcode _resp)
+                                                  (post-quietly (format "/api/workers/jobs/~a/release" id)
+                                                                (hasheq 'claim_token token 'reason "shutdown"))])
+                                      (eprintf "job ~a (~a): handed back on the way out~a\n" id kind
+                                              (if (= rcode 200) "" (format " (release refused: HTTP ~a)" rcode)))))
+                                ;; A STOP IS A STOP. Handling the break and then
+                                ;; looping would keep claiming work after
+                                ;; `systemctl stop`, which systemd would have to
+                                ;; escalate to SIGKILL. The claim is already
+                                ;; released, so the held box is cleared by hand —
+                                ;; otherwise the plumber flush at exit posts it a
+                                ;; second time.
+                                (set-box! held #f)
+                                (exit 0))]
                   ;; BEFORE the exn:fail? clause below, which would otherwise
                   ;; match this too — the first matching clause wins.
                   ;;
@@ -342,24 +428,37 @@
                      (kill-thread beat)
                      (set-box! no-capacity #t)
                      (define-values (code _r)
-                       (post (format "/api/workers/jobs/~a/release" id)
-                             (hasheq 'claim_token token 'reason "busy")))
+                       (post-quietly (format "/api/workers/jobs/~a/release" id)
+                                     (hasheq 'claim_token token 'reason "busy")))
                      (eprintf "job ~a (~a): HANDED BACK — ~a~a\n" id kind (exn-message e)
                              (if (= code 200) "" (format " (release refused: HTTP ~a)" code))))]
                   [exn:fail? (lambda (e)
                                (kill-thread beat)
-                               (post (format "/api/workers/jobs/~a/fail" id)
-                                     (hasheq 'error (exn-message e) 'claim_token token))
-                               (eprintf "job ~a (~a): FAILED — ~a\n" id kind (exn-message e)))])
+                               (define-values (_code _resp)
+                                 (post-quietly (format "/api/workers/jobs/~a/fail" id)
+                                               (hasheq 'error (exn-message e) 'claim_token token)))
+                               (eprintf "job ~a (~a): FAILED — ~a~a\n" id kind (exn-message e)
+                                       (if (= _code 200) "" (format " (fail refused: HTTP ~a)" _code))))])
     (define result
       (case kind
         [("infer.chat") (run-infer-chat (hash-ref job 'payload (hasheq)))]
         [("judge.typed") (run-judge-typed (hash-ref job 'payload (hasheq)))]
         [else (error 'worker "this worker does not run ~a" kind)]))
     (kill-thread beat)
-    (define-values (code resp) (post (format "/api/workers/jobs/~a/complete" id)
-                                     (hasheq 'result result 'claim_token token)))
-    (eprintf "job ~a (~a): ~a\n" id kind (if (= code 200) "done" (format "complete refused (HTTP ~a)" code)))))
+    ;; THE RESULT STILL HAS TO LAND, AND A TRANSPORT ERROR HERE IS NOT A CRASH.
+    ;; This used to sit outside every handler, so one network error at the end of
+    ;; a long generation unwound the claim loop and exited the process with the
+    ;; result still in hand. It is reported instead: the lease then lapses and the
+    ;; job is re-queued, which is honest, and the process stays up to be told.
+    (define-values (code resp)
+      (with-handlers ([exn:fail? (lambda (e) (values 0 (hasheq 'error (exn-message e))))])
+        (post (format "/api/workers/jobs/~a/complete" id)
+              (hasheq 'result result 'claim_token token))))
+    (eprintf "job ~a (~a): ~a\n" id kind
+            (cond
+              [(= code 200) "done"]
+              [(= code 0) (format "complete could not be delivered (~a)" (hash-ref resp 'error "?"))]
+              [else (format "complete refused (HTTP ~a)" code)]))))
 
 ;; ---- rotating this host's own credential (issue #60) -------------------------
 

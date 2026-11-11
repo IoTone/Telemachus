@@ -19,6 +19,7 @@
 ;; a production KDF drops in. Password auth (login/2FA) is a later slice.
 
 (require racket/date db-kit/portable
+         racket/string          ; string-join — the visibility refusal's one message
          json
          racket/random          ; crypto-random-bytes — recovery codes (issue #26)
          file/sha1
@@ -43,6 +44,9 @@
          seed-builtin-roles! bootstrap!
          user-permissions
          can? require-perm
+         ;; the visibility vocabulary, and its one refusal — the writers and the
+         ;; reachability rule above read the same set
+         VISIBILITIES visibility-problem
          issue-token! resolve-token list-tokens revoke-token! API-TOKEN-TTL
          ;; issue #118: a person's own browser sessions, which are their own rows
          token-id-for-bearer user-sessions revoke-session! revoke-other-sessions!
@@ -503,6 +507,23 @@
     (raise (exn:fail:forbidden (format "forbidden: ~a" required)
                                (current-continuation-marks) required))))
 
+;; THE VISIBILITY VOCABULARY HAS ONE HOME, and it is here because this is the
+;; module whose reachability rule reads it — a set defined beside the writers and
+;; consulted here as a default would be a rule enforced by assumption. Three
+;; ownable resources carry the same triple (notes, repository objects, and the
+;; documents shim over them), so a second copy anywhere is a set that can gain a
+;; member this module then treats as team-visible (`[else #t]` was exactly that:
+;; an unrecognised string reached EVERY team member, which is what made storing
+;; a typo a disclosure rather than a no-op).
+(define VISIBILITIES '("private" "team" "shared"))
+
+;; → #f when the value may be stored, or the message a caller should raise. One
+;; check, so the two writers that used to spell the message differently now say
+;; the same thing, and a third cannot invent a fourth spelling.
+(define (visibility-problem v)
+  (and (not (member v VISIBILITIES))
+       (format "visibility must be one of ~a" (string-join VISIBILITIES ", "))))
+
 ;; resource: a hash with 'team_id 'owner_user_id 'visibility (+ 'resource_type
 ;; 'resource_id for grant lookups). #f means a team-level (non-resource) action.
 (define (resource-reachable? conn p res required)
@@ -522,13 +543,27 @@
             ;; and nothing at this tier reaches a `private` resource (TEN-2a).
             (and (or (org-tier-covers? conn p required)
                      (org-data-reader? conn p required))              ; TEN-2h
-                 (not (equal? (hash-ref res 'visibility "team") "private")))
+                 ;; `#t`, because `member` answers a TAIL: a caller that
+                 ;; decides with this must be handed a boolean (this file has the
+                 ;; `check-true`-demands-#t trap recorded twice)
+                 (and (member vis (list "team" "shared")) #t))
             (has-grant? conn res p required))]
        [(or (equal? vis "private") (equal? vis "shared"))
         (or (equal? owner (principal-user-id p))
             (principal-is-operator p)
             (has-grant? conn res p required))]
-       [else #t])]))                                                          ; team-visible
+       ;; TEAM-VISIBLE, AND NOT "ANYTHING ELSE". This arm used to be the
+       ;; fallthrough, so a visibility nothing recognised — a typo a writer had
+       ;; stored verbatim, or a value from a build that knew a word this one does
+       ;; not — was reachable by the whole team. A closed vocabulary means the
+       ;; unknown case answers NO, and the write is refused now (see
+       ;; `visibility-problem`) so a row can only carry one from another build or
+       ;; a hand-edited database. It fails SHUT, with the owner as the single
+       ;; exception: they are the one person entitled to their own resource, and
+       ;; they are also the person who can put a legible value back — a rule that
+       ;; locked them out too would leave the row repairable only with SQL.
+       [(equal? vis "team") #t]
+       [else (equal? owner (principal-user-id p))])]))
 
 (define (has-grant? conn res p required)
   (define rtype (hash-ref res 'resource_type #f))

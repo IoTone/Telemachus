@@ -7,6 +7,7 @@
 ;; This whole file is the extension contract.
 
 (require racket/string racket/port
+         web-server/http
          (only-in "../../domain/sched/scheduler.rkt" register-job-kind!)
          (only-in "../../domain/repo/extract.rkt" register-extractor!))
 
@@ -69,9 +70,31 @@
   (unless (string? text) (raise-user-error 'word_count "text is required"))
   (hasheq 'words (length (string-split text)) 'chars (string-length text)))
 
+;; A PUBLIC route (G13): the optional sixth element is the auth, and the default
+;; is 'bearer. `'public` means no session, no token and NO PRINCIPAL — which is
+;; why the handler takes `(conn args)` and not `(conn principal args)`. The loader
+;; checks that arity, so a public handler cannot be handed a principal by mistake.
+;;
+;; What this route gives up, and therefore what it must not do: it has no team
+;; context and no `can?`, so it reads nothing that belongs to a team. A plugin
+;; that needs to serve one team's data without a session has to carry something
+;; that identifies the team — a long random token in the path, say — and that
+;; token is then a credential the plugin owns.
+;;
+;; It also demonstrates the other half: a handler may return a RESPONSE and keep
+;; the media type. This one is `text/plain`; a calendar feed would be
+;; `text/calendar` and a document download its own type. Anything else a handler
+;; returns stays JSON.
+(define (ping-route conn args)
+  (response/output #:code 200 #:mime-type #"text/plain; charset=utf-8"
+                   (lambda (out) (write-string "pong" out))))
+
 (define routes
   (list (list "GET"  "/word-count" "chat:use" word-count-route "Count the words in ?text=.")
-        (list "POST" "/word-count" "chat:use" word-count-route "Count the words in {text}.")))
+        (list "POST" "/word-count" "chat:use" word-count-route "Count the words in {text}.")
+        (list "GET"  "/ping" #f ping-route
+              "A public liveness ping: the plain text `pong`, with no token and no principal. Declared public in the route table; it reads no team data."
+              'public)))
 
 ;; A background JOB KIND (issue #21). `init!` runs at load with full SDK access,
 ;; and this is the documented route for a plugin to add one. The platform binds

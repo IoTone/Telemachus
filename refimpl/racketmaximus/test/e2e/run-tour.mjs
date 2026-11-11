@@ -7,7 +7,7 @@
 // or absent model won't fail the tour, the screenshot is still captured).
 //
 //   BASE_URL=http://127.0.0.1:8835 node run-tour.mjs
-import { chromium } from '@playwright/test';
+import { launchChromium } from './browser.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,7 +42,7 @@ async function model(page, fn, label, ms = 45000) {
   catch (e) { console.warn(`  ~ ${label}: ${e.message} (continuing)`); }
 }
 
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const browser = await launchChromium({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 try {
   // 1 — sign-in

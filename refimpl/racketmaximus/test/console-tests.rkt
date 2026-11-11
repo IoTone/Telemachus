@@ -966,6 +966,70 @@
       p))
   (check-equal? others '() "Hk is for the shell-resident overlays only"))
 
+(test-case "clearing the note form goes through the one helper, DOM and draft together"
+  ;; `renderTab()` reads the form into `S.noteDraft` BEFORE it replaces it — that
+  ;; is what keeps a typed title across a toolbar press — so seeding an empty
+  ;; draft and rendering read the just-saved title back out of the DOM and put it
+  ;; in the next note. Its tags came back with it, and the next note created as
+  ;; org then failed with a 400 because a Markdown note's tags are refused on
+  ;; one. Caught by demo-validate §3b2/§3c; pinned here so the reset cannot drift
+  ;; back to state-only in one path while the others keep the DOM in step.
+  (define tabs (console-code "03-tabs.js"))
+  ;; SLICED, not matched: these bodies contain object literals, so a pattern that
+  ;; stops at the first `}` stops inside the request body. Every literal goes
+  ;; through regexp-quote — a hand-written pattern with an escaped paren is the
+  ;; trap this file has paid for twice, and `#rx` has no `\\(` escape at all.
+  (define (literal s) (regexp-quote s))
+  (define (fn-body name)
+    (define at (regexp-match-positions (regexp (literal (string-append "function " name))) tabs))
+    (and at
+         (let* ([rest (substring tabs (car (car at)))]
+                [next (regexp-match-positions (regexp "\nfunction ") rest)])
+           (if next (substring rest 0 (car (car next))) rest))))
+  (check-true (and (fn-body "noteFormReset") #t) "the helper exists")
+  (for ([fn (in-list (list "doCreateNote" "doSaveNote" "noteEditCancel"))])
+    (define body (fn-body fn))
+    (check-true (and body (regexp-match? (regexp (literal "noteFormReset(")) body) #t)
+                (format "~a clears the DOM as well as the draft" fn)))
+  ;; …and no path seeds an empty draft by hand any more: that spelling is exactly
+  ;; the one that left the title behind. Exactly ONE occurrence is allowed — the
+  ;; helper's own call — and it has to be inside the helper.
+  (define empty-seed (regexp (literal "noteDraftSeed('', 'team', [])")))
+  (check-equal? (length (regexp-match* empty-seed tabs)) 1
+                "an empty reset is noteFormReset, never noteDraftSeed")
+  (check-true (and (regexp-match? empty-seed (fn-body "noteFormReset")) #t)
+              "…and the one that remains is the helper's own"))
+
+(test-case "the handler registry H is declared once, and no file shadows it"
+  ;; FOUND BY THE E2E GATE, WHICH IS THE WHOLE ARGUMENT FOR HAVING ONE: §3b3 of
+  ;; demo-validate.mjs had been written and never run on a box with a browser,
+  ;; and the notes graph's own `const W = 760, H = 460` shadowed 01-base.js's `H`
+  ;; inside that one function — so every `H(() => noteShow(…))` in the builder
+  ;; threw "H is not a function", and the entire Notes tab blanked for any team
+  ;; holding one readable note. A static check is cheap, and this class is
+  ;; invisible until something actually draws.
+  (check-equal? (for/list ([p (in-list script-files)]
+                           #:when (regexp-match? #rx"function H\\(fn\\)" (console-code p)))
+                  p)
+                '("01-base.js")
+                "H is declared in 01-base.js and nowhere else")
+  (define shadows
+    (for*/list ([p (in-list script-files)]
+                #:unless (string=? p "01-base.js")
+                ;; one LINE at a time, because a declaration list is what did it:
+                ;; `const W = 760, H = 460` puts a second declarator on the line
+                ;; and a pattern anchored on `const` cannot reach past the first
+                ;; `=`. A declaration is `const`/`let`/`var` on the line, and the
+                ;; shadow is an `H` in value position on that same line.
+                [ln (in-list (string-split (console-code p) "\n"))]
+                #:when (and (regexp-match? #rx"(^|[^A-Za-z0-9_$.])(const|let|var) " ln)
+                            (regexp-match? #rx"(^|[^A-Za-z0-9_$])H[ ]*=" ln)))
+      (format "~a: ~a" p (string-trim ln))))
+  ;; NOT COVERED, stated rather than implied: a FUNCTION PARAMETER named `H`
+  ;; shadows it the same way, and no pattern tells that apart from an argument
+  ;; called H without parsing. No console file does it today.
+  (check-equal? shadows '() "no console file shadows the handler registry"))
+
 (test-case "the SHELL is kept across passes, and freed when it is replaced"
   ;; THE BUG THIS PINS KILLED THE TAB BAR AFTER TWO CLICKS, and was reported
   ;; from outside: "once I click on a few of the tabs, none of the tabs stay
@@ -1355,6 +1419,50 @@
   (check-true (and (regexp-match? #rx"countAll\\(\\)" rv) #t)
               "counted after a render, as the fields are sized after a render"))
 
+(test-case "a render keeps the note form, and a filter does not hide the opened note"
+  ;; TWO REPORTS FROM USE, both runtime behaviour a static gate can only pin the
+  ;; SEAM of:
+  ;;   * a toolbar press re-rendered the tab, and the tab rebuilt the title from
+  ;;     its template, so a typed title vanished while the body survived in S;
+  ;;   * opening a note under a tag filter found nothing in the FILTERED list, so
+  ;;     the card fell through to the NEW-NOTE form.
+  ;; The browser cases are §3b2 of `demo-validate.mjs`; what can be read here is
+  ;; that the draft is READ before the DOM is replaced and that the fallback fetch
+  ;; exists — the two seams the defects lived behind.
+  (define tabs (console-code "03-tabs.js"))
+  (define rv (console-code "07-render.js"))
+  (define ed (console-code "15-editor.js"))
+  (check-true (and (regexp-match? #px"function noteDraftRead\\(" tabs) #t))
+  (check-true (and (regexp-match? #px"function noteDraftSeed\\(" tabs) #t))
+  ;; THE READ IS BEFORE THE REPLACEMENT, which is the whole fix: reading it after
+  ;; `innerHTML=…` would read an empty form and lose exactly what it was saving.
+  (check-true
+   (and (regexp-match? #px"(?s:noteDraftRead\\(\\);\\s*el\\.innerHTML=)" rv) #t)
+   "the form is read before the tab is replaced")
+  ;; …AND A DRAFT SOMEBODY REPLACED ON PURPOSE IS NOT READ BACK OVER IT. `noteEdit`
+  ;; seeds the note's own title, and the render it triggers reads the form on
+  ;; screen — the note you are LEAVING — straight back over the seed, so opening a
+  ;; note to edit it showed a blank title and Save then stored the blank. One
+  ;; shot, consumed by the read.
+  (check-true (and (regexp-match? #px"S[.]noteDraftFresh = true;" (fn-body "noteEdit")) #t)
+              "opening a note declares the draft the source")
+  (check-true (and (regexp-match? #px"if \\(S[.]noteDraftFresh\\) \\{ S[.]noteDraftFresh = false;"
+                                 (fn-body "noteDraftRead")) #t)
+              "…and the read consumes it instead of overwriting it")
+  ;; and the note in focus is fetched BY ID — pagination is what forces it, and
+  ;; one fetch covers view and edit because they share the state slot
+  (check-true (and (regexp-match? #px"api\\('/api/notes/'\\+encodeURIComponent\\(focus\\)\\)" tabs) #t))
+  ;; the reveal: the view card has an id and the render reveals it
+  (check-true (and (regexp-match? #px"id=\"notecard\"" tabs) #t))
+  (check-true (and (regexp-match? #px"revealEl\\('notecard'\\)" rv) #t))
+  ;; ORG-12 in the form: the tags field follows the format through the editor's
+  ;; own announcement (`tagsField`/`edFormatChanged`), which is asserted where
+  ;; that seam lives rather than a second time here.
+  ;; the catalog keys the new controls use
+  (for ([k (in-list '("mine" "nonotes" "notedelconfirm"))])
+    (check-true (string-contains? ui-strings (format "\"ui.~a\"" k))
+                (format "ui.~a is missing from static/ui-strings.json" k))))
+
 (test-case "a note can be READ, not only edited"
   ;; Reported from outside: "the notes view should have a view button, not just
   ;; edit." The list has rendered each body since #180, so what was missing is a
@@ -1535,6 +1643,33 @@
                 "the builder and its two callers")
   (check-true (string-contains? (fn-body "noteWriteBody") "b.tags = readTags()"))
   (check-true (and (regexp-match? #rx"id=\"ntags\"" src) #t)))
+
+(test-case "an org note's tags are OMITTED from the write, never emptied"
+  ;; ORG-12 IS ENFORCED BY THE SERVER against the format the note will have, and
+  ;; the console defeated it in both directions: the tags field hides the box but
+  ;; leaves `#ntags` in the DOM, and `noteEdit` seeds that input from the note's
+  ;; own tags. So an org note could not be saved at all (the refusal names a field
+  ;; a reader cannot see), and marking a note `org` in the editor sent `tags: []`
+  ;; — a deliberate CLEAR on the server, which wins over the tags the body's own
+  ;; `#+FILETAGS:` line carries.
+  (define src (console-code "03-tabs.js"))
+  (define b (fn-body "noteWriteBody"))
+  (check-true (and b #t) "the body is composed in one place")
+  (check-true (and (regexp-match? #px"b[.]format !== 'org'" b) #t)
+              "the format decides whether the key exists")
+  (check-true (and (regexp-match? #px"b[.]tags = readTags\\(\\)" b) #t)
+              "a Markdown note still sends its field")
+  ;; the KEY is absent, not empty: `tags:[]` is a clear, and the difference is the
+  ;; whole bug — `#:tags #f` is what leaves a body's own tags alone
+  (check-false (and (regexp-match? #rx"tags:" b) #t)
+               "the key is assigned conditionally, never spelled into the literal")
+  ;; and neither writer composes a body of its own, which is how the rule was
+  ;; spelled twice and wrong once
+  (for ([f '("doSaveNote" "doCreateNote")])
+    (check-false (and (regexp-match? #px"readTags\\(\\)" (fn-body f)) #t)
+                 (format "~a asks for the tags itself" f))
+    (check-false (and (regexp-match? #rx"tags:" (fn-body f)) #t)
+                 (format "~a sends a tags key" f))))
 
 (test-case "auto-tag is ONE send, with a visible pending state"
   ;; #174's shape: the flag IS the guard and the pending state, nothing awaits

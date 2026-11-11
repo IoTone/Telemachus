@@ -151,7 +151,7 @@ A machine-readable form of this same table is [openapi.json](openapi.json) (Open
 | GET | `/api/executors` | bearer | — | — | — | ローカルエグゼキュータ、環境変数で設定されたプッシュ型、API で作成されたもの（プッシュ型、またはワーカー付きのプル型）を、状態とともに。 |
 | POST | `/api/executors` | bearer | `instance:manage` | role | — | エグゼキュータを作成する：{name, mode: pull\|push, model?, url?, key?, capabilities?, org_id?}。プル型エグゼキュータのワーカートークンはこのレスポンスに含まれ、二度と表示されません。 |
 | DELETE | `/api/executors/:id` | bearer | `instance:manage` | role | — | エグゼキュータを退役させる：ワーカートークンは失効し、保持していたジョブはキューに戻ります。 |
-| GET | `/api/admin/workers` | bearer | `instance:read` | role | — | ワーカー群（FLEET-2）：各エグゼキュータの稼動状態、ワーカー自身の申告、保持中のジョブ、一定期間（?hours=、既定 24）の処理結果とリース失効の回数、直近の失敗 — さらにキュー：種別ごとの件数、最も古い待機ジョブの経過時間、そして稼動中のどのエグゼキュータでも実行できないリモートジョブの件数。この最後の数値は、深いキューを他の方法では説明できないものである：停止したワーカー群と稼動中のワーカー群は、件数だけでは同じように見える。すべての数値は導出され、クォータで保留されているジョブは実行不能には数えない — それは GET /api/jobs が `waiting` としてすでに示している。 |
+| GET | `/api/admin/workers` | bearer | `instance:read` | role | — | ワーカー群（FLEET-2）：各エグゼキュータの稼動状態、ワーカー自身の申告、保持中のジョブ、一定期間（?hours=、既定 24）の処理結果とリース失効の回数、直近の失敗 — さらにキュー：種別ごとの件数、最も古い待機ジョブの経過時間、そして稼動中のどのエグゼキュータでも実行できないリモートジョブの件数。この最後の数値は、深いキューを他の方法では説明できないものである：停止したワーカー群と稼動中のワーカー群は、件数だけでは同じように見える。すべての数値は導出され、クォータで保留されているジョブは実行不能には数えない — それは GET /api/jobs が `waiting` としてすでに示している。 その隣に `held_by_paused` がある：対応するホストが実行できるのに、作業を受け取らないと申告している待機中のリモート作業である。実行不能とは別に数えるのは、購入も解除も必要がなく、ホストが自力で再開しうるためである。両者は排他ではなく順序づけられており、どのホストも実行できない作業は、休止中のホストが何台あっても実行不能として数える。どちらの報告も最大二十件のジョブを挙げる。 |
 | GET | `/api/admin/queue/flow` | bearer | `instance:read` | role | — | AIキューを流れる処理を、図として描くための数値（QVIZ, #184）: `?hours=`（既定24、最大720）の期間を固定した分刻みのグリッドで区切った投入・取得・完了の件数と、`breakdown`（待機中ジョブを分割する4つの状態を1回の走査で数えたもの。バーの合計が一致します）。すべての数値はジョブ行そのものから導出されるため、カウンタ用テーブルも保持期間の設定も不要で、遡れる範囲は既存の保持ルールが残している分です。空の分も0として返します。停止したキューが繁忙なキューと同じ形に描かれてはならないためです。1,440区間を超える場合は期間を縮めるのではなく区間幅を広げます。どちらかは `bucket_seconds` が示します。 |
 | GET | `/api/admin/jobs/:id/trail` | bearer | `instance:read` | role | — | 1件のジョブがフリートを渡り歩いた経路を古い順に返します: 各試行をどの機器が保持し、どれがいつ、なぜ手放したか。リーパーと返却がすでに書いている監査エントリから読み戻します。いずれも行が再キューされる前に書かれます。再キューは `executor_id` を消すため、その後はどのホストが処理を落としたかを示すものが残らないからです。3台が1回ずつと1台が3回は別の話であり、試行カウンタでは区別できません。ペイロード・結果・エラーメッセージは含みません。 |
 | GET | `/api/admin/queue` | bearer | `instance:read` | role | — | キューを全チーム横断でジョブ単位に表示する（FLEET-4）：各行の待機時間、試行回数、保持しているホスト、リースの残り時間、そして待機中のジョブについては、プラットフォームがなぜ保留しているか（`waiting`、GET /api/jobs が返すものと同じ理由）と、そもそも稼働中のワーカーで実行できるのか（`runnable`）。絞り込みは `kind`、`status`、`executor`、`team`。`limit`（最大200）と `offset` でページングし、`total` は絞り込み後の総件数である。`status=queued` を指定した場合、並び順は要求処理そのものの順序になるため、先頭が本当に次のジョブである — どの並び順になったかは `order` が示す。ペイロードと結果は含まない：キューは種別、待機時間、チーム、保持しているホストで管理するものであり、この読み取りはインスタンス上のすべてのチームにまたがる。 |
@@ -303,29 +303,30 @@ A machine-readable form of this same table is [openapi.json](openapi.json) (Open
 
 ## Plugin routes
 
-Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every one requires a bearer token; the permission, when named, is checked before the plugin's handler runs. Matched after the core routes above.
+Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. **Auth** is the route's own declaration. `bearer` — the default, and every route before G13 — needs a session or API token, and the permission, when named, is checked before the plugin's handler runs. `public` needs no credential at all: the handler gets no principal, so it has no team context and no `can?`, and it must read no team data unless the route carries something that identifies the team itself. A public route is still subject to the platform's request limits, and it is declared in the plugin's route table — never inferred from a path. Matched after the core routes above.
 
-| Method | Path | Plugin | Permission | Description |
-|---|---|---|---|---|
-| GET | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | ?text= の単語数を数える。 |
-| POST | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | {text} の単語数を数える。 |
-| GET | `/api/x/feeds/queue` | `feeds` | `files:read` | チームのフィード作業キュー。優先度の高い順、次に期限の近い順。?status= は open\|claimed\|done\|dropped\|all（既定：対応中の 2 つ）、?feed= はフィードのスラッグ、?skill= は 1 つのスキル、?limit= と ?offset= でページングします。各行は参照先のドキュメントに対してあらためて権限確認されるので、件数は「そこにある数」ではなく「呼び出し側が読める数」です。 |
-| POST | `/api/x/feeds/items/:id/status` | `feeds` | `files:read` | キューの 1 件を別の状態へ移します：{"status": "claimed"}。オブジェクト ID はインスタンス全体で一意なので、ドキュメントに加えて行そのもののチームでも保護しています。 |
-| POST | `/api/x/inbox/items` | `inbox` | `inbox:write` | 項目を登録するか、登録し直します。`{source, key, title, severity?: critical\|high\|normal\|low, kind?, scope?, body?, url?, data?, revision?}`。生きた行は `(source, key)` ごとにひとつです。同じ revision は証拠だけを更新し、異なる revision は内容を置き換えて、確認済みまたはスヌーズ中の項目を open に戻します。解決済みのキーは新しい行として開きます。応答はどれだったかを返し、outcome は created、reopened、refreshed、revised、resurfaced のいずれかです。 |
-| POST | `/api/x/inbox/items/batch` | `inbox` | `inbox:write` | 最大100件の項目をひとつのトランザクションで登録または再登録します。すべて成功するか、すべて失敗するかのどちらかです。`{items: [{source, key, title, severity?, kind?, scope?, body?, url?, data?, revision?}]}` を渡します。応答は `{key, outcome}` を順に返します。指摘を一ページ分まとめて登録する呼び出し側が、部分的に成功することはありません。 |
-| GET | `/api/x/inbox/items` | `inbox` | `inbox:read` | チームの受信箱を、重要度の高い順、次に待ち時間の長い順で返します。`?state=` は open\|acknowledged\|snoozed\|suppressed\|resolved のいずれか、カンマ区切りの複数、または all（既定は open と acknowledged）です。ほかに `?severity=`、`?source=`、`?kind=`、`?scope=`（完全一致のスコープ・ラベル）、`?scope_prefix=`（その接頭辞で始まるすべてのラベル）、`?limit=`/`?offset=` を使えます。期限が過ぎたスヌーズは open として返ります。 |
-| GET | `/api/x/inbox/items/:id` | `inbox` | `inbox:read` | ひとつの項目とそのイベントを、起きた順の番号付きで返します。誰がいつ確認したか、そのときのメモ、すべての改訂と自動復帰を含みます。 |
-| POST | `/api/x/inbox/items/:id/ack` | `inbox` | `inbox:write` | 未対応の項目を確認済みにします。`{note?}` を渡します。誰かが内容を見て対応中であることを示し、項目は受信箱に残りますが、対応待ちとしては数えません。生産側から新しい revision が届くと open に戻ります。 |
-| POST | `/api/x/inbox/items/:id/snooze` | `inbox` | `inbox:write` | 指定した時刻まで項目を隠します。`{until: エポック秒, 最大90日先まで, note?}` を渡します。時刻を過ぎると open に戻ります。 |
-| POST | `/api/x/inbox/items/:id/suppress` | `inbox` | `inbox:write` | 終了時刻を定めずに項目を静かに保ちます。`{note?}` を渡します。生産側が登録し続けても、証拠が動いても、項目が呼び戻されることはありません。戻すには再オープンします。 |
-| POST | `/api/x/inbox/items/:id/reopen` | `inbox` | `inbox:write` | 確認済み、スヌーズ中、抑止中の項目を open に戻します。 |
-| POST | `/api/x/inbox/items/:id/resolve` | `inbox` | `inbox:write` | 項目を確定して閉じます。`{note?}` を渡します。解決済みは終端の状態です。同じ `(source, key)` が後から登録されると、次の occurrence を持つ新しい行になります。 |
-| GET | `/api/x/inbox/digest` | `inbox` | `inbox:read` | チーム全体またはひとつのスコープについて、まず何を見るかを返します。状態ごとの件数、重要度ごとの未対応件数、最も古い未対応項目の待ち時間、上位のいくつかです。`?scope=` は完全一致のラベル、`?scope_prefix=` はその配下を示します。解決済みの項目は数えません。 |
-| GET | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | ?lane= で指定したレーンの推定日数。 |
-| POST | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | {lane} の推定日数。 |
-| GET | `/api/x/matrix/rooms` | `matrix` | `webhooks:manage` | このチームの Matrix ルーム購読、絞り込みに使えるイベント名、そしてこのインスタンスにホームサーバーが設定されているかどうかを返します。 |
-| POST | `/api/x/matrix/rooms` | `matrix` | `webhooks:manage` | ルームへ通知します: {room_id, events?, label?, user_id?}。room_id は Matrix のルーム ID（`!abc:example.org`）で、エイリアスは受け付けません。ボットがあらかじめそのルームに参加している必要があります。 |
-| PATCH | `/api/x/matrix/rooms/:id` | `matrix` | `webhooks:manage` | 購読の `events`、`label`、`active` を変更します。 |
-| DELETE | `/api/x/matrix/rooms/:id` | `matrix` | `webhooks:manage` | ルームへの通知をやめます。 |
-| POST | `/api/x/matrix/rooms/:id/test` | `matrix` | `webhooks:manage` | テスト通知を送ります。実際の通知とまったく同じジョブを通ります。 |
+| Method | Path | Plugin | Auth | Permission | Description |
+|---|---|---|---|---|---|
+| GET | `/api/x/example-tools/word-count` | `example-tools` | bearer | `chat:use` | ?text= の単語数を数える。 |
+| POST | `/api/x/example-tools/word-count` | `example-tools` | bearer | `chat:use` | {text} の単語数を数える。 |
+| GET | `/api/x/example-tools/ping` | `example-tools` | public | — | 公開のヘルスチェックです。トークンもプリンシパルも不要で、プレーンテキスト `pong` を返します。ルート表で public と宣言されており、チームのデータは読みません。 |
+| GET | `/api/x/feeds/queue` | `feeds` | bearer | `files:read` | チームのフィード作業キュー。優先度の高い順、次に期限の近い順。?status= は open\|claimed\|done\|dropped\|all（既定：対応中の 2 つ）、?feed= はフィードのスラッグ、?skill= は 1 つのスキル、?limit= と ?offset= でページングします。各行は参照先のドキュメントに対してあらためて権限確認されるので、件数は「そこにある数」ではなく「呼び出し側が読める数」です。 |
+| POST | `/api/x/feeds/items/:id/status` | `feeds` | bearer | `files:read` | キューの 1 件を別の状態へ移します：{"status": "claimed"}。オブジェクト ID はインスタンス全体で一意なので、ドキュメントに加えて行そのもののチームでも保護しています。 |
+| POST | `/api/x/inbox/items` | `inbox` | bearer | `inbox:write` | 項目を登録するか、登録し直します。`{source, key, title, severity?: critical\|high\|normal\|low, kind?, scope?, body?, url?, data?, revision?}`。生きた行は `(source, key)` ごとにひとつです。同じ revision は証拠だけを更新し、異なる revision は内容を置き換えて、確認済みまたはスヌーズ中の項目を open に戻します。解決済みのキーは新しい行として開きます。応答はどれだったかを返し、outcome は created、reopened、refreshed、revised、resurfaced のいずれかです。 |
+| POST | `/api/x/inbox/items/batch` | `inbox` | bearer | `inbox:write` | 最大100件の項目をひとつのトランザクションで登録または再登録します。すべて成功するか、すべて失敗するかのどちらかです。`{items: [{source, key, title, severity?, kind?, scope?, body?, url?, data?, revision?}]}` を渡します。応答は `{key, outcome}` を順に返します。指摘を一ページ分まとめて登録する呼び出し側が、部分的に成功することはありません。 |
+| GET | `/api/x/inbox/items` | `inbox` | bearer | `inbox:read` | チームの受信箱を、重要度の高い順、次に待ち時間の長い順で返します。`?state=` は open\|acknowledged\|snoozed\|suppressed\|resolved のいずれか、カンマ区切りの複数、または all（既定は open と acknowledged）です。ほかに `?severity=`、`?source=`、`?kind=`、`?scope=`（完全一致のスコープ・ラベル）、`?scope_prefix=`（その接頭辞で始まるすべてのラベル）、`?limit=`/`?offset=` を使えます。期限が過ぎたスヌーズは open として返ります。 |
+| GET | `/api/x/inbox/items/:id` | `inbox` | bearer | `inbox:read` | ひとつの項目とそのイベントを、起きた順の番号付きで返します。誰がいつ確認したか、そのときのメモ、すべての改訂と自動復帰を含みます。 |
+| POST | `/api/x/inbox/items/:id/ack` | `inbox` | bearer | `inbox:write` | 未対応の項目を確認済みにします。`{note?}` を渡します。誰かが内容を見て対応中であることを示し、項目は受信箱に残りますが、対応待ちとしては数えません。生産側から新しい revision が届くと open に戻ります。 |
+| POST | `/api/x/inbox/items/:id/snooze` | `inbox` | bearer | `inbox:write` | 指定した時刻まで項目を隠します。`{until: エポック秒, 最大90日先まで, note?}` を渡します。時刻を過ぎると open に戻ります。 |
+| POST | `/api/x/inbox/items/:id/suppress` | `inbox` | bearer | `inbox:write` | 終了時刻を定めずに項目を静かに保ちます。`{note?}` を渡します。生産側が登録し続けても、証拠が動いても、項目が呼び戻されることはありません。戻すには再オープンします。 |
+| POST | `/api/x/inbox/items/:id/reopen` | `inbox` | bearer | `inbox:write` | 確認済み、スヌーズ中、抑止中の項目を open に戻します。 |
+| POST | `/api/x/inbox/items/:id/resolve` | `inbox` | bearer | `inbox:write` | 項目を確定して閉じます。`{note?}` を渡します。解決済みは終端の状態です。同じ `(source, key)` が後から登録されると、次の occurrence を持つ新しい行になります。 |
+| GET | `/api/x/inbox/digest` | `inbox` | bearer | `inbox:read` | チーム全体またはひとつのスコープについて、まず何を見るかを返します。状態ごとの件数、重要度ごとの未対応件数、最も古い未対応項目の待ち時間、上位のいくつかです。`?scope=` は完全一致のラベル、`?scope_prefix=` はその配下を示します。解決済みの項目は数えません。 |
+| GET | `/api/x/integrator-demo/eta` | `integrator-demo` | bearer | `chat:use` | ?lane= で指定したレーンの推定日数。 |
+| POST | `/api/x/integrator-demo/eta` | `integrator-demo` | bearer | `chat:use` | {lane} の推定日数。 |
+| GET | `/api/x/matrix/rooms` | `matrix` | bearer | `webhooks:manage` | このチームの Matrix ルーム購読、絞り込みに使えるイベント名、そしてこのインスタンスにホームサーバーが設定されているかどうかを返します。 |
+| POST | `/api/x/matrix/rooms` | `matrix` | bearer | `webhooks:manage` | ルームへ通知します: {room_id, events?, label?, user_id?}。room_id は Matrix のルーム ID（`!abc:example.org`）で、エイリアスは受け付けません。ボットがあらかじめそのルームに参加している必要があります。 |
+| PATCH | `/api/x/matrix/rooms/:id` | `matrix` | bearer | `webhooks:manage` | 購読の `events`、`label`、`active` を変更します。 |
+| DELETE | `/api/x/matrix/rooms/:id` | `matrix` | bearer | `webhooks:manage` | ルームへの通知をやめます。 |
+| POST | `/api/x/matrix/rooms/:id/test` | `matrix` | bearer | `webhooks:manage` | テスト通知を送ります。実際の通知とまったく同じジョブを通ります。 |
 

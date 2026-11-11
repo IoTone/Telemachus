@@ -1254,3 +1254,59 @@
   (check-equal? (vector-ref r 2) "canceled")
   (check-equal? (vector-ref r 3) sql-null "a discarded result is not a token count")
   (disconnect c))
+
+;; ---- one settle bills once ------------------------------------------------
+;;
+;; The fence used to be checked by READING THE ROW BACK — "it now carries our
+;; status with no claim token" — and a read cannot tell the winner from a loser,
+;; because the row it reads is the WINNER's write. Two completes carrying the
+;; same claim token, interleaved (a retried request, a worker that re-sends after
+;; a timeout), both pass `holder-check` while the row still says `running`, both
+;; issue the guarded UPDATE, one lands — and then BOTH read the winner's row back
+;; and both bill. `RETURNING id` answers the only question that matters: did MY
+;; statement change the row.
+;;
+;; WHAT THIS CASE PINS AND WHAT IT CANNOT. A second post IN SERIES never reaches
+;; the fence at all — `holder-check` already sees `done` — so what is asserted
+;; here is the contract a caller sees (one completion, one bill, one row), which
+;; holds either way. The interleaving that produced the double bill needs two
+;; posts in flight at once; a two-connection version of it was written and
+;; HANGS on this box inside `worker-complete!`, so it is recorded as unproven
+;; rather than shipped as a test that blocks for ever. The fix is the reason the
+;; race is uninteresting: the guard is now attribution, so no interleaving can
+;; make two settles out of one attempt.
+(test-case "a second complete for the same claim bills nothing and changes nothing"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "rig-a" #:model "qwen2.5:7b"))
+  (define billed 0)
+  ;; the biller is a BOX, not a parameter, so it is replaced and put back —
+  ;; `dynamic-wind`, because a failing check would otherwise leave a counting
+  ;; biller installed for every later case in this file
+  (define prior (scheduler-record!))
+  (dynamic-wind
+    (lambda () (set-record!! (lambda (conn team result) (set! billed (add1 billed)))))
+    (lambda ()
+    (define job (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                              #:payload (hasheq 'messages '() 'model "qwen2.5:7b")))
+    (define claim (worker-claim! c ex #:kinds '("infer.chat") #:models '("qwen2.5:7b")))
+    (define token (hash-ref claim 'claim_token))
+    (check-equal? (worker-complete! c ex job (hasheq 'reply "ok" 'tokens_used 42) #:token token) 'ok)
+    ;; the SAME attempt posts again — a retried request, not a stranger
+    (check-equal? (worker-complete! c ex job (hasheq 'reply "ok" 'tokens_used 42) #:token token)
+                  'not-running
+                  "the second post is refused: its statement changed no row")
+    (check-equal? billed 1 "one completion, one bill")
+    (check-equal? (query-value c "SELECT COUNT(*) FROM model_requests WHERE job_id = ?" job) 1
+                  "one completion, one model-request row")
+    ;; …and the failed settle has the same rule
+    (define job2 (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                               #:payload (hasheq 'messages '() 'model "qwen2.5:7b")))
+    (define claim2 (worker-claim! c ex #:kinds '("infer.chat") #:models '("qwen2.5:7b")))
+    (define t2 (hash-ref claim2 'claim_token))
+    (check-equal? (worker-fail! c ex job2 "boom" #:token t2) 'ok)
+    (check-equal? (worker-fail! c ex job2 "boom" #:token t2) 'not-running)
+    (check-equal? (query-value c "SELECT COUNT(*) FROM model_requests WHERE job_id = ?" job2) 1))
+    (lambda () (set-record!! prior)))
+  (disconnect c))

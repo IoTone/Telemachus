@@ -186,6 +186,9 @@ async function notesView(){
   const members=mem.ok?mem.json.members:[];
   const opts=members.map(m=>`<option value="${m.user_id}">${esc(m.username)}</option>`).join('');
   const filter = tagFilterStrip(allTags);
+  // The draft the form paints from. It was READ in `renderTab` before the old
+  // form was replaced; this only supplies a default when there is none.
+  const d = S.noteDraft || { title: '', vis: 'team', tags: '' };
   // #180: there was no way to EDIT a note. `PUT /api/notes/:id` has existed
   // since the routes were written and the console called it nowhere — #113's
   // shape on this side of the wire. An editor for a field you can only fill in
@@ -202,19 +205,18 @@ async function notesView(){
     ? noteViewCard(viewing, edges)
     : editing
     ? `<div class="card"><h3>${t('editnote')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
-      <label>${t('title')}</label><input id="nt" value="${esc(editing.title||'')}">
-      <label>${t('body')}</label>${editorHTML('note', {id:'nb', formats:NOTE_FORMATS})}
-      ${tagsField(editing.tags)}
-      <label>${t('visibility')}</label><select id="nv">${
-        ['team','private','shared'].map(x=>`<option${x===editing.visibility?' selected':''}>${x}</option>`).join('')}</select>
+      <label for="nt">${t('title')}</label><input id="nt" value="${esc(d.title)}">
+      <label for="nb">${t('body')}</label>${editorHTML('note', {id:'nb', formats:NOTE_FORMATS})}
+      ${tagsField(noteDraftTags(d, editing))}
+      <label for="nv">${t('visibility')}</label>${visSelect(d.vis)}
       <button class="btn" data-h-click="${H((el,ev)=>doSaveNote())}">${t('save')}</button>
       <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>noteEditCancel())}">${t('cancel')}</button>
       ${noteTools('note','nt')}</div>`
     : `<div class="card"><h3>${t('newnote')}</h3>
-      <label>${t('title')}</label><input id="nt" value="Secret plan">
-      <label>${t('body')}</label>${editorHTML('note', {id:'nb', value:'only for me', formats:NOTE_FORMATS})}
-      ${tagsField([])}
-      <label>${t('visibility')}</label><select id="nv"><option>team</option><option>private</option><option>shared</option></select>
+      <label for="nt">${t('title')}</label><input id="nt" value="${esc(d.title)}">
+      <label for="nb">${t('body')}</label>${editorHTML('note', {id:'nb', value:d.body == null ? '' : d.body, formats:NOTE_FORMATS})}
+      ${tagsField(noteDraftTags(d, null))}
+      <label for="nv">${t('visibility')}</label>${visSelect(d.vis)}
       <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${t('create')}</button>
       ${noteTools('note','nt')}</div>`;
   // the swap needs the member options without re-reading /api/members, so the
@@ -240,21 +242,84 @@ function notesListHTML(J, opts){
   const notes = J.notes||[];
   S.noteTotal = J.total||0;
   const list=notes.map(n=>`<div class="note">
-      <h4>${esc(n.title)||'(untitled)'} <span class="badge">${esc(n.visibility)}</span> ${n.owner_user_id===S.me.user_id?'<span class="badge ok">mine</span>':''}</h4>
+      <h4>${esc(n.title)||esc(t('untitled'))} <span class="badge" title="${esc(visLabel(n.visibility))}">${esc(visShort(n.visibility))}</span> ${n.owner_user_id===S.me.user_id?`<span class="badge ok">${esc(t('mine'))}</span>`:''}</h4>
       <div class="md">${bodyRender(n.body, n.format)}</div>
       ${noteFormatBadge(n)}${noteTagChips(n)}
       <div class="row" style="margin-top:8px">
-        <div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>
+        ${canShareNote(n) ? `<div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>` : ''}
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteShow((n.id)))}">${t('view')}</button></div>
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags),(n.format)))}">${t('edit')}</button></div>
         <div><button class="btn sm ghost"${(S.autoTagging===n.id||n.format==='org')?' disabled':''}
           data-h-click="${H((el,ev)=>doAutoTag((n.id)))}"
           title="${esc(n.format==='org'?t('autotagorg'):t('autotaghint'))}">${S.autoTagging===n.id?esc(t('autotagging')):t('autotag')}</button></div>
         <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${t('del')}</button></div>
-      </div></div>`).join('') || `<p class="muted">—</p>`;
+      </div></div>`).join('')
+    || `<div class="card"><p class="muted" style="margin:0 0 10px">${esc(t('nonotes'))}</p>
+        <button class="btn sm" data-h-click="${H(()=>{ const el=document.getElementById('nt'); if(el){ el.focus(); el.scrollIntoView({block:'center'}); } })}">${t('newnote')}</button></div>`;
   return `<div id="nlist">${list}${pagerHTML({ total: J.total||0, offset: J.offset||0,
                                                size: NPAGE, shown: notes.length, go: nGo })}</div>`;
+}
+
+// ---- the note form is a DRAFT, not a painting of one ----------------------
+// `edToggle`, `edZen` and the tag chips all call `renderTab()`, which rebuilds
+// the form from its template — and the template used to own the title, the tags
+// and the visibility. So ONE press on a toolbar button silently discarded a
+// typed title while the body survived (it lives in S), and the note was then
+// created under the template's own placeholder. Recorded at `15-editor.js`'s
+// `edSetFormat` as the Notes form's question; this is the answer: the fields
+// live in state and a render paints them, exactly as the body already did.
+function noteDraftSeed(title, vis, tags){
+  S.noteDraft = { title: title == null ? '' : String(title),
+                  vis: vis || 'team', tags: (tags || []).join(', ') };
+}
+// The draft keeps the tags as the FIELD holds them — a comma string a person
+// typed. `tagsField` wants the list, and takes the note's own when there is no
+// draft yet, which is the state the very first render is in.
+function noteDraftTags(d, n){
+  if (d && d.tags) return String(d.tags).split(',').map(x=>x.trim()).filter(x=>x.length);
+  return (n && n.tags) || [];
+}
+// CLEARING THE FORM MEANS CLEARING THE DOM TOO, and forgetting it was a bug the
+// e2e gate caught: `renderTab()` reads the form into `S.noteDraft` first — the
+// seam that keeps a typed title across a toolbar press — so seeding an EMPTY
+// draft and then rendering read the JUST-SAVED title straight back out of the
+// DOM and put it in the next note. The tags came back with it, and a note
+// created as org then failed its write with a 400, because a Markdown note's
+// tags are refused on one.
+function noteFormReset(){
+  const ti = document.getElementById('nt'), ta = document.getElementById('ntags'),
+        vi = document.getElementById('nv');
+  if (ti) ti.value = '';
+  if (ta) ta.value = '';
+  if (vi) vi.value = 'team';
+  noteDraftSeed('', 'team', []);
+}
+function noteDraftRead(){
+  // …UNLESS SOMEBODY REPLACED THE DRAFT ON PURPOSE (`noteEdit`), which is the
+  // one caller for whom this read is the wrong job — see the flag's comment
+  // there. One shot: the read consumes it, so the next render preserves what a
+  // person typed as it always did.
+  if (S.noteDraftFresh) { S.noteDraftFresh = false; return S.noteDraft; }
+  const ti = document.getElementById('nt'), ta = document.getElementById('ntags'),
+        vi = document.getElementById('nv'), ea = document.getElementById('nb');
+  if (!ti || !vi) return S.noteDraft || { title: '', vis: 'team', tags: '' };
+  const d = { title: ti.value, vis: vi.value, tags: ta ? ta.value : '' };
+  if (ea) d.body = ea.value;                      // the body is already in S; this keeps them in step
+  S.noteDraft = d;
+  return d;
+}
+// The visibility enum is what the server stores; the catalog is what a person
+// reads. `vis_*` carries both ("Team — everyone on this team"), and both shipped
+// locales separate the short name from its explanation with that dash, so a
+// BADGE takes the part before it and a SELECT shows the whole thing. A locale
+// that does not use the dash gets the whole string in the badge, which is only
+// ugly.
+function visLabel(v){ return t('vis_' + v); }
+function visShort(v){ return String(visLabel(v)).split(' \u2014 ')[0]; }
+function visSelect(cur){
+  return `<select id="nv">${['team','private','shared'].map(x =>
+    `<option value="${x}"${x === cur ? ' selected' : ''}>${esc(visLabel(x))}</option>`).join('')}</select>`;
 }
 
 // The tag list the server DERIVED, as a filter. Each chip toggles; several chips
@@ -285,6 +350,16 @@ const NOTE_FORMATS = ['markdown', 'org'];
 // something they could not assume.
 function noteFormatBadge(n){
   return n.format === 'org' ? `<div style="margin-top:8px"><span class="badge">${esc(t('fmtorg'))}</span></div>` : '';
+}
+// THE SHARE CONTROL IS DRAWN ONLY WHERE IT CAN WORK. `POST /api/notes/:id/share`
+// admits the owner, `notes:manage` and an operator, and the row used to offer a
+// member picker on every note — so most presses were a 403 the reader could not
+// have predicted. The server still decides; this only stops offering what it will
+// refuse.
+function canShareNote(n){
+  const me = S.me || {};
+  return n.owner_user_id === me.user_id || me.is_operator === true
+      || (Array.isArray(me.permissions) && me.permissions.indexOf('notes:manage') >= 0);
 }
 function noteTagChips(n){
   const ts = n.tags||[];
@@ -341,12 +416,21 @@ function edFormatChanged(key){
   const w = document.getElementById('ntagswrap');
   if(w) w.innerHTML = tagsFieldInner(S.noteFormTags || []);
 }
-// The body a note write sends. `tags` is OMITTED for an org note rather than
-// sent empty: the server refuses the field's presence, and sending `[]` would
-// also be a request to clear tags the body may well be asserting.
+// ORG-12 AT THE WRITE, which hiding the box could not do. The tags field hides
+// the wrapper but leaves `#ntags` in the DOM (it has to: `edSetFormat` swaps the
+// two fragments in place rather than re-rendering), and `noteEdit` SEEDS that
+// input from the note's own tags — so "an org note has no tags field" was true
+// of what a reader saw and false of what `readTags` found. An org note could not
+// be saved at all, because the server refuses a non-empty `tags` and the box
+// that would empty it is the one that is hidden. `tags: []` was worse than a
+// refusal: an empty list is a deliberate CLEAR on the server, and it wins over
+// the tags a body's own `#+FILETAGS:` line carries.
+// SO THE KEY IS OMITTED, never sent empty. Absent is the only spelling that
+// leaves a body's own tags alone (`notes.rkt` `#:tags #f`), which is the same
+// absent-versus-empty pair the tags field itself lives by.
 function noteWriteBody(){
-  const b = { title: val('nt'), body: edRead('note'), visibility: val('nv'),
-              format: edFormat('note') };
+  const b = {title: val('nt'), body: edRead('note'), visibility: val('nv'),
+             format: edFormat('note')};
   if (b.format !== 'org') b.tags = readTags();
   return b;
 }
@@ -415,7 +499,7 @@ function noteEdgeList(edges, format){
     : `<li><button class="btn sm ghost" data-h-click="${H(()=>noteShow(l.note_id))}">${esc(l.title||l.target)}</button>
         ${l.label&&l.label!==l.title?`<span class="muted" style="font-size:12px">${esc(l.label)}</span>`:''}</li>`).join('');
   const inbound = back.map(b =>
-    `<li><button class="btn sm ghost" data-h-click="${H(()=>noteShow(b.note_id))}">${esc(b.title)||'(untitled)'}</button></li>`).join('');
+    `<li><button class="btn sm ghost" data-h-click="${H(()=>noteShow(b.note_id))}">${esc(b.title)||esc(t('untitled'))}</button></li>`).join('');
   const col = (label, body) => `<div style="flex:1"><label>${esc(label)}</label>
       ${body?`<ul class="org-edges">${body}</ul>`:`<p class="muted">—</p>`}</div>`;
   return `<div class="row" style="margin-top:12px;gap:16px;align-items:flex-start">
@@ -423,9 +507,9 @@ function noteEdgeList(edges, format){
 }
 function noteViewCard(n, edges){
   const mine = n.owner_user_id === S.me.user_id;
-  return `<div class="card">
-    <h3 style="margin-top:0">${esc(n.title)||'(untitled)'}
-      <span class="badge">${esc(n.visibility)}</span>${mine?' <span class="badge ok">mine</span>':''}</h3>
+  return `<div class="card" id="notecard">
+    <h3 style="margin-top:0">${esc(n.title)||esc(t('untitled'))}
+      <span class="badge" title="${esc(visLabel(n.visibility))}">${esc(visShort(n.visibility))}</span>${mine?` <span class="badge ok">${esc(t('mine'))}</span>`:''}</h3>
     <div class="md">${bodyRender(n.body, n.format, linkResolution(edges))}</div>
     ${noteEdgeList(edges, n.format)}
     <div class="muted" style="font-size:12px;margin-top:10px">
@@ -496,15 +580,29 @@ function noteViewClose(){ S.noteShow=null; renderTab(); }
 // The FORMAT is set here and not re-asserted on every render, for `editorHTML`'s
 // own reason: opening a note is what declares which renderer its body wants, and
 // a format re-read on each pass would undo the toolbar's own switch.
-function noteEdit(id, body, title, vis, tags, format){ S.noteEdit=id; S.noteShow=null; edReset('note', body, 'nb', format); renderTab(); }
-function noteEditCancel(){ S.noteEdit=null; edReset('note', '', 'nb', 'markdown'); renderTab(); }
+function noteEdit(id, body, title, vis, tags, format){
+  S.noteEdit=id; S.noteShow=null;
+  noteDraftSeed(title, vis, tags);
+  // THE SEED IS THE SOURCE FOR THE RENDER IT TRIGGERS. `renderTab` reads the
+  // form into the draft before replacing it — the seam that keeps a typed title
+  // across a toolbar press — and for THIS caller that read is the wrong job: the
+  // form on screen belongs to the note you are leaving, so it put an empty title
+  // straight back over the one just seeded. Opening a note to edit it then showed
+  // a blank title, and Save STORED the blank — which is why the org-note case in
+  // `demo-validate.mjs` could not save a note without clearing its title.
+  S.noteDraftFresh = true;
+  edReset('note', body, 'nb', format);
+  renderTab();
+}
+function noteEditCancel(){ S.noteEdit=null; noteFormReset(); edReset('note', '', 'nb', 'markdown'); renderTab(); }
 async function doSaveNote(){
   const r=await api('/api/notes/'+S.noteEdit,{method:'PUT', body:noteWriteBody()});
-  if(r.ok){ S.noteEdit=null; edReset('note','', 'nb'); toast(t('saved'),true); renderTab(); }
-  else toast((r.json&&r.json.error)||'error');
+  if(r.ok){ S.noteEdit=null; noteFormReset(); edReset('note','', 'nb'); toast(t('saved'),true); renderTab(); }
+  else toast((r.json&&r.json.error)||t('error'));
 }
 async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',body:noteWriteBody()});
-  if(r.ok){ edReset('note','', 'nb'); toast('created',true); renderTab(); } else toast(r.json.error||'error'); }
+  if(r.ok){ noteFormReset(); edReset('note','', 'nb'); toast(t('created'),true); renderTab(); }
+  else toast((r.json&&r.json.error)||t('error')); }
 // ONE send, #174's shape: the flag IS the guard and the pending state, there is
 // no `await` between the check and the set, and it is cleared in a `finally` or
 // one network error leaves the button dead for the rest of the session. A model
@@ -528,9 +626,19 @@ async function doAutoTag(id){
 }
 async function doShare(id){ const uid=document.getElementById('sh_'+id).value;
   const r=await api('/api/notes/'+id+'/share',{method:'POST',body:{user_id:uid,permission:'notes:read'}});
-  toast(r.ok?'shared':(r.json.error||'error'), r.ok); }
-async function doDelNote(id){ const r=await api('/api/notes/'+id,{method:'DELETE'});
-  if(r.ok){ if(S.noteEdit===id){ S.noteEdit=null; edReset('note','', 'nb'); } toast('deleted',true); renderTab(); } else toast(r.json.error||'error'); }
+  toast(r.ok?t('shared'):((r.json&&r.json.error)||t('error')), r.ok); }
+async function doDelNote(id){
+  // It asked for nothing before this: one press deleted a note with no undo.
+  // Every other destructive control here confirms (`doRemoveMember`, the workers
+  // card), and a note is somebody's writing.
+  if(!confirm(t('notedelconfirm'))) return;
+  const r=await api('/api/notes/'+id,{method:'DELETE'});
+  if(r.ok){
+    if(S.noteEdit===id){ S.noteEdit=null; noteFormReset(); edReset('note','', 'nb'); }
+    if(S.noteShow===id) S.noteShow=null;
+    toast(t('deleted'),true); renderTab();
+  } else toast((r.json&&r.json.error)||t('error'));
+}
 
 async function teamView(){
   const r=await api('/api/members'); const members=r.ok?r.json.members:[];

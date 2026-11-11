@@ -769,7 +769,8 @@ Any format in, byte-identical out, with the creator setting visibility. See
   — only a namespace and a digest — so a backend has no authorization to get wrong.
 - The namespace is the **org id**, deliberately: global dedup across tenants is an
   existence oracle. Blob refcounts must be org-scoped too (DOC-6).
-- `domain/authz/sha2.rkt` is SHA-256/HMAC-SHA256 over **libcrypto** — do NOT add it
+- `pkgs/sha2-kit` (a sibling collection, required by `domain/authz/authz.rkt`) is
+  SHA-256/HMAC-SHA256 over **libcrypto** — do NOT add it
   to `crypto.rkt`, whose contract is "no native deps". Pinned to NIST/RFC vectors.
 - Uploads are a **raw `PUT` body**, not base64 in JSON. `TMACH_MAX_UPLOAD`
   (default 32 MiB) sets `web-kit`'s `#:max-body-length`; web-server's own default is
@@ -1045,6 +1046,13 @@ is ROLE-scoped — `rt-perm`, before the handler runs. The table was documentati
   handler's own check found it.
 - Proven by control: with `ep-retention-get`'s own `require-perm` removed, the
   request is still refused and the whole smoke passes.
+- **SO A CONTROL ON A ROUTE WITH A DECLARED PERMISSION HAS TO REMOVE BOTH
+  LAYERS.** Asserting a member may not set the company's timezone: stripping `ep-my-org-timezone-put`'s `require-perm` changed nothing,
+  because the dispatcher's role pre-check from `routes.rkt` refused first — and
+  that is the two-layer design working, not a weak test. Removing the route's
+  `#:perm` as well is what bites: the member's PUT comes back
+  `{"ok":true,"timezone":"Asia/Tokyo"}` and the assertion names it. Worth
+  knowing before concluding an assertion is vacuous.
 
 ## The route table's `#:perm` is now GATED (code audit, 20 Oct 2026)
 
@@ -8826,18 +8834,32 @@ instance layers, and #177 gave the instance layer a console card.
 
 ## Plugin routes and artifact results (slices 63–64, issue #15)
 
-- **A plugin may `(provide routes)`**: `(list method path perm handler doc)` per
-  entry, handler `(conn principal args) -> jsexpr` with `args` =
-  `(hasheq 'params … 'query … 'body …)`. The loader validates each entry at load
-  (a bad one fails THAT plugin, not a request later) and the server mounts them
-  at **`/api/x/<plugin-id>/<path>`** — the prefix is platform-fixed, so a plugin
-  can never shadow a core route or another plugin's. Always `with-auth`, then the
-  named permission through `require-perm`; a `raise-user-error` is the caller's
-  400. Matched AFTER the core table (`match-routes` over `PLUGIN-ROUTES`, built by
+- **A plugin may `(provide routes)`**: `(list method path perm handler [doc]
+  [auth])` per entry — five elements as it always was, with an OPTIONAL SIXTH,
+  the auth. `'bearer` is the default and is what every route was; `'public`
+  serves a caller who has no principal, which is what a calendar feed, an OPML
+  URL somebody pastes into a reader, or a webhook receiver needs and what a
+  plugin otherwise could not build. `'public` is DECLARED, never inferred from a
+  path, so a route that does not say is authenticated rather than open. The
+  handler is `(conn principal args) -> jsexpr` with `args` = `(hasheq 'params …
+  'query … 'body …)`, and a PUBLIC handler is `(conn args)` — two arguments, so
+  it cannot be handed a principal and cannot serve one team's data by accident.
+  A public route also may not name a permission: there is no principal to check
+  one against, and a declaration nothing enforces is #113's shape. Both refusals
+  fail THAT plugin's load. The loader validates each entry at load (a bad one
+  fails the plugin, not a request later) and the server mounts them at
+  **`/api/x/<plugin-id>/<path>`** — the prefix is platform-fixed, so a plugin
+  can never shadow a core route or another plugin's. A bearer route is wrapped
+  in `with-auth` and its declared permission is checked through `require-perm`
+  before the handler runs; a handler may of course check more. A
+  `raise-user-error` is the caller's 400 on either door.
+  Matched AFTER the core table (`match-routes` over `PLUGIN-ROUTES`, built by
   `install-plugin-routes!` after `load-plugins!` in main). They appear in
-  `docs/reference/api.md` under "Plugin routes" and in `GET /api/plugins`.
-  `plugins/example-tools` ships `word-count` as the worked example; the smoke
-  pins GET/POST, 401, 400 and the prefix.
+  `docs/reference/api.md` under "Plugin routes", with an Auth column, and in
+  `GET /api/plugins` (`public_routes`). `plugins/example-tools` ships
+  `word-count` as the worked example and `GET /ping` as the public one; the
+  smoke pins GET/POST, 401, 400, the prefix and that an undeclared route is
+  still 401.
 - **A tool may return an artifact** (`domain/agent/artifact.rkt`): a hash with an
   `artifact` key `{kind, title, summary, content_type?, object_id?, version_id?,
   url?}` plus any keys a workflow step should bind. The three surfaces agree by
@@ -9397,6 +9419,146 @@ bash test/server-smoke.sh             # the ORG-9 block, 7 assertions
   (ORG‑8), so the same asymmetry would have become a hole in a picture — a second
   surface for one oracle. Reading the resolution before building on it is what
   turned it up, not a failing test.
+
+## The notes tab does what it says (reported from use, 7 Nov 2026)
+
+Three runtime defects on the Notes tab, none of which a source assertion could
+see, plus the strings and the empty state around them.
+
+- **A TOOLBAR PRESS DISCARDED THE TITLE.** `edToggle` and `edZen` call
+  `renderTab()`, and the tab rebuilt the form's plain inputs from the template,
+  so a typed title and tags vanished while the body survived (it lives in `S`) and
+  the note was then created under the placeholder. The answer is the one the body
+  already had: the fields are a DRAFT in `S`, `noteDraftRead()` is called in
+  `renderTab` BEFORE the DOM is replaced (afterwards would read an empty form),
+  and the template paints what is there.
+- **OPENING A NOTE UNDER A TAG FILTER SHOWED THE NEW-NOTE FORM.** `viewing` was
+  resolved against the FILTERED list, so a note the current `?tag=` excluded was
+  not found and the card fell through to the create form — the note you asked for
+  replaced by a blank one. It falls back to `GET /api/notes/:id`, which the
+  server had already authorized.
+- **THE VIEW CARD WAS PAINTED OFF SCREEN** when the note was opened from a row
+  low in a long tab, which reads as "nothing happened". `revealEl('notecard')`
+  after the paint is the same rule `repoRevealDetail` and the run form use.
+- **ORG-12 IN THE FORM**, which the server enforces: an org note has no tags
+  box, and the hint names `#+FILETAGS:`. Upstream's `tagsField`/`edFormatChanged`
+  is the shared answer — `edSetFormat` must not re-render the tab (its own
+  comment records what that cost), so the field is swapped in place, and this
+  branch uses that seam rather than a second one.
+- **Delete asked for nothing**: one press removed somebody's note with no undo.
+  It confirms now, as `doRemoveMember` and the workers card do.
+- **Six English literals were being shown to a Japanese reader** because they sat
+  outside the `t('…')` surface: `(untitled)`, the `mine` badge, the raw
+  `team`/`private`/`shared` enum in the select AND the badge, and the
+  `created`/`deleted`/`shared` toasts. All of them already had catalog keys
+  (`ui.untitled`, `ui.vis_*`, `ui.created`…); the badge takes the short half of
+  `vis_*` at its em dash, and the select shows the whole sentence. Three are new
+  (`ui.mine`, `ui.nonotes`, `ui.notedelconfirm`) and every one is in
+  `static/ui-strings.json` and `locales/ja.json` in the same commit; the org-note
+  hint and the disabled auto-tag title are upstream's `ui.orgtagshint` and
+  `ui.autotagorg`.
+- **The empty state was an em dash.** It says "No notes yet" and offers the
+  create field, which was already on screen above it.
+- §3b2 and §3b3 now RUN on this box, and that is where the rest of this section
+  came from — see "The browser gate runs now" below.
+
+## The browser gate runs now, and the three defects it found (9 Nov 2026)
+
+`test/e2e/validate.sh` had been unrunnable on the development box since #246: the
+notes said Playwright's Chromium needed `libatk-1.0.so.0` and seventeen other
+system libraries the Nix shell does not carry. **That was no longer true, and the
+cost of not re-checking was three defects nobody had seen**, one of which blanked
+the whole Notes tab. The gate now runs here — 279 assertions, 0 failed — and it
+found more in one run than two slices of static assertions had.
+
+```sh
+nix develop --command bash -c 'cd refimpl/racketmaximus && PORT=8854 bash test/e2e/validate.sh'
+```
+
+- 🔑 **A BLOCK-SCOPED `H` SHADOWS THE HANDLER REGISTRY, AND THIS BRANCH PAID FOR
+  IT ONCE.** Our first drawing opened `noteGraphSVG` with `const W = 760, H = 460`
+  — `W` and `H` for width and height, two letters that read as obviously local in
+  a drawing function and are not, because `H()` is `01-base.js`'s
+  delegated-handler registry and a `const` in the same function shadows it for the
+  WHOLE body. Every `H(() => noteShow(…))` in that builder threw **"H is not a
+  function"**, the SVG never rendered, and opening the graph blanked the Notes
+  tab. Upstream's `21-notegraph.js` spells them `GRAPH_W`/`GRAPH_H` and never had
+  the bug, but `console-tests.rkt` keeps the rule as a line scan — a
+  `const`/`let`/`var` line in any console file that also assigns an `H` fails by
+  name — so the next drawing cannot reintroduce it. Positive-controlled both ways.
+- 🔑 **A SUCCESSFUL WRITE CLEARED THE DRAFT AND LEFT THE DOM HOLDING IT.** #246's
+  fix made `renderTab()` read the form into `S.noteDraft` before replacing it —
+  the seam that keeps a typed title across a toolbar press. So `doCreateNote`'s
+  `noteDraftSeed('', …); renderTab()` was **undone by the render it triggered**:
+  the read pulled the just-saved title back out of the input and repainted it.
+  The field looked like nothing had been cleared, and the TAGS came back with it,
+  so a note then created as org failed its write with a **400** because a
+  Markdown note's tags are refused on one. `noteFormReset()` clears the DOM and
+  the draft together, and every reset path goes through it; a console test pins
+  that the empty seed appears exactly once, inside that helper.
+- **A RENDER CAN OUTLIVE THE SHELL.** Signing out replaces `#app` with the auth
+  view, and a pass already in flight (the jobs tick, a click) then found no
+  `#main` and threw "Cannot set properties of null (setting 'innerHTML')" — a
+  page error the gate counts. `renderTab` now returns when there is nothing to
+  paint into; the `finally` still closes its bracket, which is the reason that
+  early return is safe at all (#185).
+
+**Two of the four failures were the TEST, and both for the same reason**: after
+`edToggle` or `doCreateNote` the assertion read the DOM while `renderTab` had the
+`…` placeholder up, so the field was absent rather than stale. They wait now. A
+wait cannot manufacture a restored title — `until` times out — so the assertion
+still measures the product.
+
+**The flake needed no change, and that is worth stating** rather than inventing
+one: the bundled Chromium 131 launches inside `nix develop` on this host. The
+durable half is `test/e2e/browser.mjs`, the one place a browser is launched, so a
+box that cannot run that build (NixOS has no `/usr/lib`) can point
+`TMACH_CHROMIUM` at any Chromium — `nix shell nixpkgs#chromium -c env
+TMACH_CHROMIUM=$(command -v chromium) bash test/e2e/validate.sh`. Verified both
+ways: bundled 131 and host 156 each pass a page render through the seam. A gate
+nobody can run is not a gate, and **checking whether the blocker is still true is
+the first step, not the last**.
+
+## A worker that stops is not a job that failed (issue #61, and the settles around it)
+
+Fixed 7 Nov 2026, in `cli/telemachus-worker.rkt` and `domain/exec/pull.rkt`. No
+migration, no route, no wire field: every change is one the protocol already
+described and the code did not do.
+
+- **SIGTERM ARRIVES AS A BREAK**, so the break arm IS the ordinary
+  `systemctl stop` path — and it posted `/fail`, which is TERMINAL. A maintenance
+  stop therefore spent one of the job's three attempts, and the release the
+  shutdown flush posted afterwards was refused 409 because the row was already
+  `error`. It releases with reason `shutdown` now, and then EXITS: handling the
+  break and looping on meant a stopped worker kept claiming work until systemd
+  escalated to SIGKILL.
+- **A HEARTBEAT THAT RAISES KILLS ONLY ITS OWN THREAD**, and the worker goes on
+  generating against a lease nobody is renewing — so the reaper re-queues the job,
+  another host runs the same model call, and this host's result is refused 409.
+  Two model calls and two bills on exactly the long jobs, with nothing in the log.
+  `beat!` retries twice inside the beat interval and never raises.
+- **THE COMPLETE POST SAT OUTSIDE EVERY HANDLER**, so one network error at the end
+  of a long generation unwound the claim loop and exited the process with the
+  result in hand. The posts inside the exit handlers had the same shape, where a
+  second exception escapes the handler entirely (`post-quietly`).
+- **SETTLING IS FENCED, NOT ONLY CHECKED.** `holder-check` reads the row and the
+  write follows as a second statement; an operator's cancel landing between them
+  was OVERWRITTEN by done/error. The guard is `status = 'running'` plus the claim
+  token — the same one `finish!` and `settle-canceling!` use.
+- **`query-exec` ANSWERS NOTHING ON THIS WRAPPER** (Racket's db library returns
+  void), so a fence cannot be counted. It is READ BACK instead: the row we meant
+  to settle is the row that now carries our status with no claim token, and
+  anything else — `canceling` with the token still there, `running` with
+  somebody else's — means the race was lost and the answer is `not-running`.
+- The comments that described all this correctly and the code that did not:
+  `pull.rkt`'s "never expires" (the lifetime is `worker-token-seconds`) and
+  `deploy/gpu-fleet/telemachus-worker@.service`'s shutdown note are corrected,
+  and `docs/design/pull-executors.md` now says ten routes rather than four, the
+  real wait bound, and the Workers card instead of the Compute table it replaced.
+- **The shutdown path had no test at all**, and now it has one that stops a real
+  worker mid-job: `test/pull-smoke.sh` §8g starts the reference worker against a
+  mock with `MOCK_DELAY`, waits for the claim, SIGTERMs it, and asserts the job is
+  `queued` again with the same attempt count and an audit row saying `released`.
 
 ## A note as a `.org` file, and whose tags win (ORG‑11/ORG‑12, issue #246 slice 3)
 

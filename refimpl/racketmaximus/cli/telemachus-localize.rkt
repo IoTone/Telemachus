@@ -12,8 +12,11 @@
 ;;   telemachus-localize report  <surface…>        [--locales DIR]
 ;;
 ;; `check` exits non-zero on bare-literal violations (always) and on missing/stale
-;; strings for any --required locale — for a pre-commit hook / CI step. Target
-;; coverage is otherwise advisory (decision LOC-4).
+; strings for any --required locale — for a pre-commit hook / CI step. Target
+;; coverage is otherwise advisory (decision LOC-4) — with ONE exception that is
+;; not a footnote: a locale below LOCALE-COVERAGE-FLOOR is not ADVERTISED, so the
+;; report says which languages the instance actually offers and the switcher
+;; cannot promise a page it would answer in English.
 ;;
 ;; `--required en` means the SOURCE catalog: en.json must still be the catalog the
 ;; surfaces define, i.e. `extract` has been run since the last English edit. It is
@@ -73,6 +76,13 @@
     (hasheq 'locale (locale-of f)
             'covered covered 'total total
             'pct (if (zero? total) 100 (quotient (* 100 covered) total))
+            ;; ADVERTISED — whether the instance OFFERS this language. A catalog
+            ;; below LOCALE-COVERAGE-FLOOR is on disk, is imported by the
+            ;; Localization Manager and is deliberately not in the switcher: it
+            ;; would answer most of a page in English and call it Dutch. The
+            ;; floor is reported beside it, so a reader of this report never has
+            ;; to guess why `available` is shorter than the file list.
+            'advertised (advertised? dir (locale-of f))
             'missing missing 'stale stale 'unused unused)))
 
 ;; ---- subcommands ------------------------------------------------------------
@@ -103,6 +113,7 @@
   (when (null? surface) (usage))
   (define-values (base _v) (scan surface))
   (emit (hasheq 'base_messages (hash-count (catalog-messages base))
+                'coverage_floor LOCALE-COVERAGE-FLOOR
                 'locales (locale-report (locales-dir opts) base))
         #:pretty? #t))
 
@@ -144,6 +155,14 @@
   (define dir (locales-dir opts))
   (define locales (locale-report dir base))
   (define en (en-report dir base))
+  ;; Every catalog file, not only en.json: a duplicate key in a TARGET file makes
+  ;; a translation ambiguous in the same way, and read-json cannot see either.
+  (define duplicate-files
+    (for/list ([f (in-list (cons (build-path dir "en.json") (target-files dir)))]
+               #:when (catalog-exists? f)
+               #:do [(define dups (catalog-duplicate-keys f))]
+               #:when (pair? dups))
+      (hasheq 'file (path->string (file-name-from-path f)) 'keys dups)))
   (define required-broken
     (for/or ([lr (in-list locales)])
       (and (member (hash-ref lr 'locale) required)
@@ -151,7 +170,8 @@
   ;; "en" names the SOURCE catalog rather than a target, so requiring it means
   ;; requiring the extract to be current.
   (define en-broken (and (member "en" required) (en-stale? en) #t))
-  (define blocking (or (pair? violations) (and required-broken #t) en-broken))
+  (define blocking (or (pair? violations) (and required-broken #t) en-broken
+                       (pair? duplicate-files)))
   (for ([v (in-list violations)])
     (eprintf "~a:~a:~a  unlocalized string literal ~s\n"
              (hash-ref v 'file) (hash-ref v 'line) (hash-ref v 'col) (hash-ref v 'text)))
@@ -165,6 +185,10 @@
           (void))
         (eprintf "en.json: not found in ~a\n" dir))
     (eprintf "run: telemachus-localize extract ~a\n" (string-join surface " ")))
+  (for ([d (in-list duplicate-files)])
+    (for ([id (in-list (hash-ref d 'keys))])
+      (eprintf "~a: DUPLICATE ~a — the key appears twice, so one text is unreachable\n"
+               (hash-ref d 'file) id)))
   (for ([lr (in-list locales)])
     (when (and (member (hash-ref lr 'locale) required)
                (pair? (hash-ref lr 'stale)))
@@ -175,7 +199,9 @@
                 'violations violations
                 'base_messages (hash-count (catalog-messages base))
                 'required required
+                'coverage_floor LOCALE-COVERAGE-FLOOR
                 'en en
+                'duplicates duplicate-files
                 'locales locales)
         #:pretty? #t)
   (exit (if blocking 1 0)))

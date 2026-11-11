@@ -617,5 +617,8 @@
   "ui.prsetting": "Setting\u2026",
   "ui.prpassneeded": "A new password is needed.",
   "ui.prmismatch": "The two passwords do not match.",
-  "ui.prset2fa": "Your password is set. Sign in with your authenticator code."
+  "ui.prset2fa": "Your password is set. Sign in with your authenticator code.",
+  "ui.mine": "mine",
+  "ui.nonotes": "No notes yet. Write the first one above.",
+  "ui.notedelconfirm": "Delete this note? It cannot be undone."
 }

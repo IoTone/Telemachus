@@ -1,5 +1,14 @@
 # Odysseus — Feature Inventory
 
+> **HISTORICAL — a record of the tree this repository was carried over FROM.**
+> Written on 16 August 2026, while the Odysseus checkout (`src/`, `routes/`,
+> `core/`, `services/`, `mcp_servers/` and its own `racket/`) was still what the
+> port was read against. **None of those paths exist here.** The implementation in
+> this repository is `refimpl/racketmaximus/`; `racket/` below means the older
+> tree's directory, and `src/` means Python that was never carried over. Kept
+> because it is the provenance record for decisions that are still in force, not
+> as a description of what this checkout contains.
+
 **Purpose of this document.** A local, code-grounded map of *what Odysseus does*
 — its product features, subsystems, data model, security posture, and the
 design patterns worth understanding — so it can be reviewed when deciding what

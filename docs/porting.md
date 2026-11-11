@@ -1,5 +1,14 @@
 # Porting Odysseus off Python — Racket vs. Common Lisp vs. Guile
 
+> **HISTORICAL — a record of the tree this repository was carried over FROM.**
+> Written on 16 August 2026, while the Odysseus checkout (`src/`, `routes/`,
+> `core/`, `services/`, `mcp_servers/` and its own `racket/`) was still what the
+> port was read against. **None of those paths exist here.** The implementation in
+> this repository is `refimpl/racketmaximus/`; `racket/` below means the older
+> tree's directory, and `src/` means Python that was never carried over. Kept
+> because it is the provenance record for decisions that are still in force, not
+> as a description of what this checkout contains.
+
 **Status:** exploratory / opinionated. This is a software-maintenance and
 enjoyment exercise, not a cost-justified roadmap. The goal is a codebase that is
 a pleasure to maintain and that runs cleanly on **Windows, FreeBSD, macOS, and

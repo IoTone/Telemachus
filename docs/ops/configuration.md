@@ -495,6 +495,15 @@ by the worker, not by the instance.
 
 ---
 
+## The browser test gate (`test/e2e/`)
+
+Read by the test scripts, never by the server. An instance in production does
+not look at it.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TMACH_CHROMIUM` | Playwright's own Chromium | Path to a Chromium executable for the browser tests (`test/e2e/browser.mjs`, the one place a browser is launched). Unset, Playwright uses the build it downloaded, which is right wherever that build runs. Set it on a host whose system libraries that build cannot find — NixOS has no `/usr/lib`, so the launch dies on `libnss3.so` — for example `nix shell nixpkgs#chromium -c env TMACH_CHROMIUM=$(command -v chromium) bash test/e2e/validate.sh`. |
+
 ## Startup checks
 
 Before serving, an instance checks the things an unattended deployment gets

@@ -4,13 +4,13 @@
 // The existing comment in 01-base.js estimates "a long session accumulates a few
 // thousand — tens of kilobytes". #184's auto-refresh makes that reachable on a
 // timer, so the arithmetic is worth checking rather than trusting.
-import { chromium } from '@playwright/test';
+import { launchChromium } from './browser.mjs';
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:8899';
 const USER = process.env.U || 'bench-op';
 const PASS = process.env.P || 'bench-me-9';
 
-const b = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const b = await launchChromium();
 const page = await b.newPage();
 const errs = [];
 page.on('pageerror', e => errs.push(String(e)));

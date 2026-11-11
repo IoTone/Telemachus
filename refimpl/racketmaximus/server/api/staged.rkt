@@ -36,8 +36,7 @@
          web-server/http
          web-kit
          (only-in "../../config.rkt" max-upload-bytes)
-         (only-in "../../domain/authz/authz.rkt" require-perm principal-team-id)
-         (only-in "../../domain/repo/repo.rkt" VISIBILITIES)
+         (only-in "../../domain/authz/authz.rkt" require-perm principal-team-id VISIBILITIES)
          (only-in "../../domain/repo/staging.rkt"
                   staging-begin! staging-row staging-put-part! staging-parts
                   staging-complete! staging-drop! STAGING-MAX-PARTS)

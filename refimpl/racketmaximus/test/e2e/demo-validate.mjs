@@ -26,7 +26,7 @@
 //
 // Exit code is the number of failed checks, so `bash validate.sh` is a gate.
 
-import { chromium } from '@playwright/test';
+import { launchChromium } from './browser.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -115,7 +115,7 @@ async function apiCall(page, pathname, init = {}) {
   }, [pathname, init]);
 }
 
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const browser = await launchChromium({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 
 page.on('pageerror', e => pageErrors.push(String(e)));
@@ -250,6 +250,133 @@ try {
   // looks for a note is filtered out — #239's e2e block paid for exactly this
   ok('the filter is reset for the blocks below',
     await page.evaluate(() => (S.noteTags || []).length === 0));
+
+  // ── 3b2. what a re-render must not take away ────────────────────────────────
+  // Two defects the static gate cannot see, both reported from use:
+  //   * a toolbar press re-rendered the tab, and the tab rebuilt the TITLE from
+  //     its template, so a typed title vanished while the body survived — and
+  //     the note was then created under the placeholder;
+  //   * opening a note while a tag filter was active found nothing in the
+  //     FILTERED list, so the card fell through to the NEW-NOTE form and the
+  //     note you asked for was replaced by a blank one.
+  step('notes: a render keeps the form, and a filter does not hide the note you opened');
+  await goTab(page, 'notes', '#nt');
+  await page.fill('#nt', 'Typed before the toolbar');
+  await page.fill('#nb', 'the body survives anyway');
+  await page.evaluate(() => window.edToggle('note', 'preview', 'side'));
+  // A TOOLBAR PRESS IS AN ASYNC RENDER, so the assertion has to wait for the new
+  // pass rather than read the DOM the instant `edToggle` returns: `renderTab`
+  // paints a "…" placeholder first, and the field is simply absent while it is
+  // there. This is `goTab`'s lesson one layer down. A wait cannot manufacture a
+  // restored title — if the draft were not kept, `until` times out — so this
+  // still measures the product and not the timing.
+  ok('…a toolbar press keeps the typed title',
+    await until(page, () => (document.getElementById('nt') || {}).value === 'Typed before the toolbar'));
+  ok('…and keeps the body', await page.evaluate(() => (S.ed.note || {}).value === 'the body survives anyway'));
+  // and the write path needs the form back before it can read the field
+  await until(page, () => !!document.getElementById('nt'));
+  await page.evaluate(() => window.doCreateNote());
+  ok('…and the note is created under the typed title, not the placeholder',
+    await until(page, () => document.body.innerText.includes('Typed before the toolbar')
+                         && !document.body.innerText.includes('Secret plan')));
+
+  // the draft is reset after a successful write, so the form is not a copy of
+  // what was just saved. The write ends in a render, so this waits for the new
+  // pass rather than reading a field that is absent while the "…" placeholder is
+  // up — the same reason as the toolbar assertion above.
+  ok('…and the form is cleared for the next one',
+    await until(page, () => (document.getElementById('nt') || {}).value === ''));
+
+  // an org note has no tags field: the body's `#+FILETAGS:` line owns them
+  // (ORG-12), and the server refuses the write if the field is used
+  await page.evaluate(() => window.edSetFormat('note', 'org'));
+  ok('…an org note hides the tags field and names the keyword',
+    await page.evaluate(() => {
+      const w = document.getElementById('ntagswrap');
+      return !!w && !document.getElementById('ntags')
+          && w.innerText.includes('#+FILETAGS:');
+    }));
+  await page.evaluate(() => window.edSetFormat('note', 'markdown'));
+  ok('…and switching back shows it again',
+    await page.evaluate(() => !!document.getElementById('ntags')));
+
+  // …AND AN ORG NOTE CAN BE SAVED, which the hidden box made impossible. Hiding
+  // the wrapper is not hiding the FIELD: `#ntags` stays in the DOM (it has to,
+  // or `edSetFormat` would need the re-render that eats a typed title), so
+  // `readTags` still found it — seeded by `noteEdit` from the note's own tags —
+  // and the write was refused against a note whose format forbids the key. The
+  // `tags: []` that replaced it was worse than a 400: an empty list is a
+  // deliberate CLEAR on the server and it won over the body's `#+FILETAGS:`.
+  await goTab(page, 'notes', '#nt');
+  await page.fill('#nt', 'Org note with tags');
+  // THE KEYWORD IS AT THE TOP OF THE BODY: `org-parse` consumes a LEADING run
+  // of `#+TITLE:`/`#+FILETAGS:` and stops at the first other line, which is what
+  // keeps a foreign `#+OPTIONS:` in the body instead of eating it.
+  await page.fill('#nb', '#+FILETAGS: :levee:\n* a headline');
+  await page.evaluate(() => window.edSetFormat('note', 'org'));
+  await page.evaluate(() => window.doCreateNote());
+  ok('…an org note is created',
+    await until(page, () => document.body.innerText.includes('Org note with tags')));
+  const orgId = await page.evaluate(async () => {
+    const r = await api('/api/notes');
+    const n = (r.ok ? r.json.notes : []).find(x => x.title === 'Org note with tags');
+    return n ? n.id : null;
+  });
+  const created = await page.evaluate(async id => {
+    const r = await api('/api/notes/' + id);
+    return r.ok ? { format: r.json.format, tags: r.json.tags || [] } : { error: (r.json || {}).error };
+  }, orgId);
+  ok('…carrying the tag its body declares, in that one home',
+    created.format === 'org' && created.tags.length === 1 && created.tags[0] === 'levee',
+    JSON.stringify(created));
+  // the press that could not succeed: open it and save it unchanged
+  await page.evaluate(async id => {
+    const r = await api('/api/notes/' + id);
+    if (r.ok) window.noteEdit(r.json.id, r.json.body, r.json.title, r.json.visibility, r.json.tags, r.json.format);
+  }, orgId);
+  // THE WAIT IS ON THE SEEDED TITLE, not on `#nt` existing: the create form's own
+  // field is there already, so waiting for an element would let this read the
+  // PREVIOUS form and save an empty title over the note (`renderTab` paints a
+  // "…" placeholder first, and `noteEdit` seeds through it).
+  ok('…the editor opens on it',
+    await until(page, () => (document.getElementById('nt') || {}).value === 'Org note with tags'));
+  // THE ASSERTION HAS TO PROVE THE WRITE LANDED. A refused save changes nothing,
+  // so "the note still has its title and tags" is satisfied by a 400 as well —
+  // the first version of this case passed against the defect. The body is what
+  // moves here, and its edit is what says the PUT was accepted.
+  await page.fill('#nb', '#+FILETAGS: :levee:\n* a headline\nedited in place');
+  await page.evaluate(() => window.doSaveNote());
+  const saved = await page.evaluate(async id => {
+    const r = await api('/api/notes/' + id);
+    return r.ok ? { title: r.json.title, body: r.json.body, format: r.json.format,
+                    tags: r.json.tags || [] }
+                : { error: (r.json || {}).error };
+  }, orgId);
+  ok('…and saving it again is accepted, with its body tags intact',
+    String(saved.body || '').includes('edited in place') && saved.format === 'org'
+      && saved.tags.length === 1 && saved.tags[0] === 'levee',
+    JSON.stringify(saved));
+
+  // FILTER, THEN OPEN. The note this opens carries no tag, so the filtered list
+  // does not contain it — the bug was that the tab believed the list.
+  const looseId = await page.evaluate(async () => {
+    const r = await api('/api/notes');
+    const n = (r.ok ? r.json.notes : []).find(x => x.title === 'Validator note');
+    return n ? n.id : null;
+  });
+  ok('…a note the filter excludes exists', !!looseId);
+  await page.evaluate(() => window.noteTagToggle('budget'));
+  await page.evaluate(id => window.noteShow(id), looseId);
+  ok('…opening it under a filter still shows THAT note',
+    await until(page, () => {
+      const c = document.getElementById('notecard');
+      return !!c && c.innerText.includes('Validator note');
+    }));
+  ok('…and not the new-note form', await page.evaluate(() => !document.getElementById('nt')));
+  await page.evaluate(() => window.noteTagClear());
+  await page.evaluate(() => window.noteViewClose());
+  ok('…and closing it returns to the list',
+    await until(page, () => !document.getElementById('notecard') && !!document.getElementById('nt')));
 
   // ── 3c. the editor, and the Markdown preview as a sanitiser (issue #180) ────
   // A SOURCE assertion cannot establish that mdRender escapes; this runs the

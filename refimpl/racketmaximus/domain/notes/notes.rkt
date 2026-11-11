@@ -165,6 +165,18 @@
           ;; honest rather than quiet.
           'format (vector-ref r 8)))
 
+;; MAY THIS CALLER READ THIS NOTE? — one spelling, four askers.
+;;
+;; This rule was written three times in one module: inline in `notes-list`'s
+;; `#:when`, as a local `readable?` inside `note-graph`, and here in the links
+;; section. So "who may read a note" had three places to change and one of them
+;; was a `for/list` clause nobody would look at when a sharing rule moved. It is
+;; defined ABOVE all of them: a helper below its first use is a module-
+;; instantiation error, not a wrong answer, and this file has paid for that
+;; twice.
+(define (readable-note? conn p n)
+  (can? conn p "notes:read" #:resource (note->resource n)))
+
 (define (note->resource n)
   (hasheq 'resource_type "notes" 'resource_id (hash-ref n 'id)
           'team_id (hash-ref n 'team_id) 'owner_user_id (hash-ref n 'owner_user_id)
@@ -257,6 +269,14 @@
   ;; the endpoint maps an absent key to it, which means a caller who said nothing
   ;; about tags is indistinguishable from one who sent `[]` on this path.
   (when (and (string=? fmt* "org") (pair? tags)) (refuse-org-tags!))
+  ;; A NOTE'S VISIBILITY IS THE SAME CLOSED VOCABULARY THE REPOSITORY USES, and
+  ;; it is checked here for the reason `authz.rkt` states at the set: the value
+  ;; was stored verbatim, so a typo (`"privte"`) was neither private nor
+  ;; refused — `resource-reachable?` reached an arm that answered "team-visible"
+  ;; about a word nothing defines, and the note was readable by every colleague.
+  ;; One set, one message, and the write is refused BEFORE the row exists, so a
+  ;; refusal changes nothing.
+  (when (visibility-problem vis) (raise-user-error 'notes "~a" (visibility-problem vis)))
   (define clean (or (and filetags (clean-filetags filetags))
                     (body-tags body fmt*)
                     (tags-clean tags)))
@@ -357,9 +377,9 @@
   ;; shorter than its limit with notes still behind it. That is why the count
   ;; below is the pager's authority and the length of this list is not.
   (for/list ([r (in-list rows)]
-             #:when (can? conn p "notes:read" #:resource (note->resource (row->note r))))
-    (let ([n (row->note r)])
-      (hash-set n 'tags (hash-ref idx (hash-ref n 'id) '())))))
+             #:do [(define n (row->note r))]
+             #:when (readable-note? conn p n))
+    (hash-set n 'tags (hash-ref idx (hash-ref n 'id) '()))))
 
 ;; THE SAME WINDOW WITHOUT THE `can?` FILTER — `repo-count`'s precedent, and its
 ;; stated limitation with it. It is a count and no identity, within the caller's
@@ -391,11 +411,18 @@
   (define r (get-row conn id))
   (and r (let ([n (row->note r)])
            (require-perm conn p "notes:write" #:resource (note->resource n))
+           ;; A NOTE'S VISIBILITY IS THE SAME CLOSED VOCABULARY THE REPOSITORY
+           ;; USES, and it is checked before any statement runs, so an update
+           ;; that names an unknown visibility leaves the note exactly as it
+           ;; was. The create path makes the same refusal at the same point.
+           (when (and vis (visibility-problem vis))
+             (raise-user-error 'notes "~a" (visibility-problem vis)))
            ;; cleaned before anything is written, so a malformed tag leaves the
            ;; note — and its previous tag set — exactly as it was
            ;; the EFFECTIVE format decides, so a request that converts to org and
            ;; sends tags in the same breath is refused rather than half-honoured
-           (define effective-fmt (or fmt (hash-ref n 'format)))
+           (define fmt* (and fmt (format-clean fmt)))
+           (define effective-fmt (or fmt* (hash-ref n 'format)))
            (when (and tags (string=? effective-fmt "org")) (refuse-org-tags!))
            (define clean (and tags (tags-clean tags)))
            ;; ORG-2 — CONVERTING A NOTE IS A DECLARATION, NEVER A REWRITE. This
@@ -404,41 +431,45 @@
            ;; mess rather than an error, which is honest and REVERSIBLE — where
            ;; a conversion is neither, and a conversion that got one construct
            ;; wrong would have eaten the only copy.
-           (define fmt* (and fmt (format-clean fmt)))
-           (when title (query-exec conn "UPDATE notes SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" title id))
-           (when vis   (query-exec conn "UPDATE notes SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" vis id))
-           ;; THE BODY AND THE FORMAT BOTH DECIDE THE EDGES, so either one moving
-           ;; re-extracts — and both of them do it in ONE transaction with the
-           ;; write, which is ORG-7. The format matters because only an org note
-           ;; has links at all, so converting org → markdown is what clears the
-           ;; rows and markdown → org is what fills them, with no second
-           ;; mechanism for either.
            ;;
-           ;; The TITLE is deliberately outside this: it changes what OTHER
-           ;; notes' links resolve TO, and that is read-time (migration 0074),
-           ;; so there is nothing to rewrite.
-           (when (or body fmt*)
-             (call-with-transaction conn
-               (lambda ()
+           ;; ONE TRANSACTION FOR EVERY WRITE THIS FUNCTION MAKES, and the title
+           ;; and the visibility are IN it. They were committed before the body
+           ;; was, so a body whose links overflowed `MAX-NOTE-LINKS` — a 400, and
+           ;; the commonest refusal here — left the new TITLE and the new
+           ;; VISIBILITY firmly written beside the old body. A caller who was
+           ;; told the update failed then had a note whose name changed and whose
+           ;; audience may have widened, which is the one half of this function
+           ;; nobody would think to re-check after an error.
+           ;;
+           ;; The TITLE is still outside the LINK rewrite in the sense ORG-7
+           ;; means: changing it does not rewrite any note's rows, because what
+           ;; other notes' links resolve TO is read-time (migration 0074). It
+           ;; simply lands atomically with everything else.
+           (call-with-transaction conn
+             (lambda ()
+               (when title (query-exec conn "UPDATE notes SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" title id))
+               (when vis   (query-exec conn "UPDATE notes SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" vis id))
+               ;; THE BODY AND THE FORMAT BOTH DECIDE THE EDGES, so either one
+               ;; moving re-extracts, which is ORG-7. The format matters because
+               ;; only an org note has links at all, so converting org ->
+               ;; markdown is what clears the rows and markdown -> org is what
+               ;; fills them, with no second mechanism for either.
+               (define b* (or body (hash-ref n 'body)))
+               (define f* (or fmt* (hash-ref n 'format)))
+               (when (or body fmt*)
                  (when body (query-exec conn "UPDATE notes SET body = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" body id))
                  (when fmt* (query-exec conn "UPDATE notes SET format = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" fmt* id))
-                 (define b* (or body (hash-ref n 'body)))
-                 (define f* (or fmt* (hash-ref n 'format)))
-                 (write-links! conn id (hash-ref n 'team_id) b* f*)
-                 ;; ORG-12 — the body's own keyword line is authoritative on
-                 ;; EVERY write, in the same transaction as the body, or a
-                 ;; refused tag would leave a body claiming tags nothing stored.
-                 ;; `#f` means the body asserted nothing, which is what leaves a
-                 ;; converted note's existing tags alone.
-                 (let ([bt (body-tags b* f*)])
-                   (when bt
-                     (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
-                     (write-tags! conn id (hash-ref n 'team_id) bt))))))
-           (when clean
-             (call-with-transaction conn
-               (lambda ()
+                 (write-links! conn id (hash-ref n 'team_id) b* f*))
+               ;; ORG-12 — the body's own keyword line is authoritative on
+               ;; EVERY write, in the same transaction as the body, or a
+               ;; refused tag would leave a body claiming tags nothing stored.
+               ;; `#f` means the body asserted nothing, which is what leaves a
+               ;; converted note's existing tags alone.
+               (define bt (and (or body fmt*) (body-tags b* f*)))
+               (define final-tags (and (or bt clean) (if bt bt clean)))
+               (when final-tags
                  (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
-                 (write-tags! conn id (hash-ref n 'team_id) clean))))
+                 (write-tags! conn id (hash-ref n 'team_id) final-tags))))
            (with-tags conn (row->note (get-row conn id))))))
 
 ;; ---- the edges a note's body declares (#246 slice 2) ------------------------
@@ -572,8 +603,7 @@
 ;; So there is deliberately NO `withheld` figure here, where CLS-27 and VEC-29
 ;; both report one. That is the difference between a bound somebody should know
 ;; about and a fact about somebody else's note.
-(define (readable-note? conn p n)
-  (can? conn p "notes:read" #:resource (note->resource n)))
+
 
 (define (note-links-of conn p id)
   (define r (get-row conn id))
@@ -988,18 +1018,36 @@
   (define r (get-row conn id))
   (and r (let ([n (row->note r)])
            (require-perm conn p "notes:delete" #:resource (note->resource n))
-           ;; TAG-8 — a tag dies with its note. Rows naming a note that no longer
-           ;; exists would keep a word in the team's derived list for ever, which
-           ;; is the one way this list could lie about what is there.
-           (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
-           ;; ORG-8's PAYOFF, and the whole reason resolution is not stored: the
-           ;; note's OUTGOING rows go with it, and its INBOUND ones need nothing
-           ;; at all — they resolve to nothing on the next read and are reported
-           ;; as broken, which is exactly what a reader whose target was deleted
-           ;; should see. A stored `dst_note_id` would have needed a second
-           ;; statement here and would have been a lie until it ran.
-           (query-exec conn "DELETE FROM note_links WHERE src_note_id = ?" id)
-           (query-exec conn "DELETE FROM notes WHERE id = ?" id)
+           ;; FIVE STATEMENTS, ONE TRANSACTION. They were five autocommits, so a
+           ;; failure on the fourth left a note that still existed with its tags
+           ;; and its grants gone — visible to the team, unfilterable by tag, and
+           ;; re-shareable only from scratch. The note's own delete is LAST, so
+           ;; the row that makes the rest observable is the row that goes at the
+           ;; end; a rollback then restores a state that was never half-applied.
+           (call-with-transaction conn
+             (lambda ()
+               ;; TAG-8 — a tag dies with its note. Rows naming a note that no
+               ;; longer exists would keep a word in the team's derived list for
+               ;; ever, which is the one way this list could lie about what is
+               ;; there.
+               (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
+               ;; a GRANT row is inert once its note is gone, but leaving it
+               ;; behind is a row nobody can see and nobody can revoke —
+               ;; `repo-delete!` removes its own, so the two ownable resources
+               ;; behave alike
+               (query-exec conn
+                 (string-append "DELETE FROM resource_grants WHERE resource_type = 'notes' "
+                                "AND resource_id = ?")
+                 id)
+               ;; ORG-8's PAYOFF, and the whole reason resolution is not stored:
+               ;; the note's OUTGOING rows go with it, and its INBOUND ones need
+               ;; nothing at all — they resolve to nothing on the next read and
+               ;; are reported as broken, which is exactly what a reader whose
+               ;; target was deleted should see. A stored `dst_note_id` would
+               ;; have needed a second statement here and would have been a lie
+               ;; until it ran.
+               (query-exec conn "DELETE FROM note_links WHERE src_note_id = ?" id)
+               (query-exec conn "DELETE FROM notes WHERE id = ?" id)))
            #t)))
 
 ;; owner (or notes:manage / operator) may share the note with another user

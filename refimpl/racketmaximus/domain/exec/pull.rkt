@@ -402,8 +402,11 @@
           'created_by (nz (vector-ref r 11))))
 
 ;; -> (values executor worker-token-or-#f). A pull executor's token is returned
-;; ONCE, here; it is an API token scoped jobs:execute that never expires (a host
-;; is not a person; retire the executor to end it).
+;; ONCE, here; it is an API token scoped jobs:execute, and its lifetime is
+;; `worker-token-seconds` — thirty days unless the operator sets one, and `never`
+;; only when `executor-create!` is asked for that explicitly. It is NOT "a token
+;; that never expires": this comment said so, and the comment was the only place
+;; in the tree that did (docs/ops/configuration.md is the operator's record).
 (define (executor-create! conn p #:name name #:mode [mode "pull"] #:org [org-id #f]
                           #:url [url #f] #:model [model #f] #:key [key #f]
                           #:capabilities [caps (hasheq)])
@@ -895,6 +898,39 @@
 (define (record-unserved! conn ex job-id kind)
   (record-worker-call! conn (or ex (hasheq 'name #f)) job-id #f "unserved" #:error-kind kind))
 
+;; SETTLING IS FENCED, NOT ONLY CHECKED. `holder-check` reads the row and the
+;; write that follows it is a second statement, so an operator's cancel landing
+;; between them (running -> canceling) would be OVERWRITTEN by done/error — the
+;; decision somebody made, undone by a race measured in microseconds. SCHED-8's
+;; fence is the status plus the claim token, which is exactly the guard `finish!`
+;; and `settle-canceling!` already use on the scheduler side; here it answers with
+;; a count, and a count of zero means the same thing any other non-holder does.
+(define (fence-for token)
+  ;; → (values sql-tail params). A worker written before #24 sends no token, and
+  ;; `holder-check` admits it only when the row carries none, so the fence has to
+  ;; say the same thing rather than refusing a caller the check just allowed.
+  (if (string? token)
+      (values " AND status = 'running' AND claim_token = ?" (list token))
+      (values " AND status = 'running' AND claim_token IS NULL" '())))
+
+;; → #t when the guarded write is the one that LANDED.
+;;
+;; THIS IS A RETURNING GUARD, NOT A READ-BACK, and the difference is a bill.
+;; `query-exec` answers nothing on this wrapper (Racket's db library returns
+;; void), so the fence used to be checked by READING THE ROW BACK: "it now
+;; carries our status with no claim token". That cannot tell the winner from a
+;; loser, because the row it reads is the WINNER's write. Two `complete` posts
+;; carrying the same claim token — a retried request, a worker that re-sends
+;; after a timeout — both passed `holder-check` while the row was still
+;; `running`, both issued the guarded UPDATE, and both then read back `done` and
+;; answered ok: the job was billed twice and `record-worker-call!` wrote two
+;; model-request rows for one call. A `RETURNING id` answers the only question
+;; that matters — did MY statement change the row — which is #17's rule for the
+;; claim, arriving at the settle.
+(define (fenced-write? conn sql params)
+  (define r (apply query conn sql params))
+  (and (rows-result? r) (pair? (rows-result-rows r))))
+
 (define (worker-complete! conn ex job-id result #:token [token #f])
   (define v (holder-check conn ex job-id token))
   (cond
@@ -908,22 +944,36 @@
      (define problem ((remote-kind-validator kind) result))
      (cond
        [problem
-        (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
-                                        (finished-set) " WHERE id = ?")
-                    (seal-error job-id (string-append "worker returned a bad result: " problem)) job-id)
-        ;; the call happened and produced nothing usable, so it is logged as an
-        ;; error rather than left out: an invisible failed call is the one an
-        ;; operator cannot explain later
-        (record-worker-call! conn ex job-id result "error" #:error-kind "transport")
-        'ok]
+        (define-values (fence fparams) (fence-for token))
+        (define landed?
+          (fenced-write? conn
+            (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
+                           (finished-set) " WHERE id = ?" fence " RETURNING id")
+            (append (list (seal-error job-id (string-append "worker returned a bad result: " problem))
+                          job-id)
+                    fparams)))
+        (cond
+          [(not landed?) 'not-running]
+          [else
+           ;; the call happened and produced nothing usable, so it is logged as an
+           ;; error rather than left out: an invisible failed call is the one an
+           ;; operator cannot explain later
+           (record-worker-call! conn ex job-id result "error" #:error-kind "transport")
+           'ok])]
        [else
-        (query-exec conn (string-append "UPDATE jobs SET status = 'done', result = ?, claim_token = NULL, "
-                                        (finished-set) " WHERE id = ?")
-                    (seal-result job-id (jsexpr->string result)) job-id)
-        (define team (query-value conn "SELECT team_id FROM jobs WHERE id = ?" job-id))
-        ((scheduler-record!) conn team result)
-        (record-worker-call! conn ex job-id result "ok")
-        'ok])]))
+        (define-values (fence fparams) (fence-for token))
+        (define landed?
+          (fenced-write? conn
+            (string-append "UPDATE jobs SET status = 'done', result = ?, claim_token = NULL, "
+                           (finished-set) " WHERE id = ?" fence " RETURNING id")
+            (append (list (seal-result job-id (jsexpr->string result)) job-id) fparams)))
+        (cond
+          [(not landed?) 'not-running]
+          [else
+           (define team (query-value conn "SELECT team_id FROM jobs WHERE id = ?" job-id))
+           ((scheduler-record!) conn team result)
+           (record-worker-call! conn ex job-id result "ok")
+           'ok])])]))
 
 (define (worker-fail! conn ex job-id message #:token [token #f])
   (define v (holder-check conn ex job-id token))
@@ -931,12 +981,21 @@
     [(eq? v 'canceled) (when (settle-canceling! conn job-id token) (record-unserved! conn ex job-id "canceled")) 'canceled]
     [(not (eq? v 'ok)) v]
     [else
-     (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
-                                     (finished-set) " WHERE id = ?")
-                 ;; the worker's own message, which may quote what it was handed
-                 (seal-error job-id (format "executor ~a: ~a" (hash-ref ex 'name) message)) job-id)
-     (record-worker-call! conn ex job-id #f "error" #:error-kind "transport")
-     'ok]))
+     (define-values (fence fparams) (fence-for token))
+     (define landed?
+       (fenced-write? conn
+         (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
+                        (finished-set) " WHERE id = ?" fence " RETURNING id")
+         (append (list
+                  ;; the worker's own message, which may quote what it was handed
+                  (seal-error job-id (format "executor ~a: ~a" (hash-ref ex 'name) message))
+                  job-id)
+                 fparams)))
+     (cond
+       [(not landed?) 'not-running]
+       [else
+        (record-worker-call! conn ex job-id #f "error" #:error-kind "transport")
+        'ok])]))
 
 ;; Hand a job back without spending an attempt (issue #61).
 ;;
@@ -974,24 +1033,32 @@
                                             'releases n 'max_releases MAX-RELEASES)))
      (cond
        [(> n MAX-RELEASES)
-        (query-exec conn
-          (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, "
-                         "lease_until = NULL, claim_token = NULL, releases = ?, "
-                         (finished-set) " WHERE id = ?")
-          (seal-error job-id
-            (format "no executor would run it: released ~a times (last by ~a: ~a)"
-                    MAX-RELEASES (hash-ref ex 'name) why))
-          n job-id)
-        (record-unserved! conn ex job-id "released")
-        'failed]
+        (define-values (fence fparams) (fence-for token))
+        (define landed?
+          (fenced-write? conn
+            (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, "
+                           "lease_until = NULL, claim_token = NULL, releases = ?, "
+                           (finished-set) " WHERE id = ?" fence " RETURNING id")
+            (append (list (seal-error job-id
+                           (format "no executor would run it: released ~a times (last by ~a: ~a)"
+                                   MAX-RELEASES (hash-ref ex 'name) why))
+                          n job-id)
+                    fparams)))
+        (cond
+          [(not landed?) 'not-running]
+          [else (record-unserved! conn ex job-id "released") 'failed])]
        [else
-        (query-exec conn
-          (string-append "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL, "
-                         "claim_token = NULL, started_at = NULL, started_epoch = NULL, "
-                         "releases = ?, released_by = ?, release_after = ? WHERE id = ?")
-          n (hash-ref ex 'id) (+ (now) RELEASE-BACKOFF) job-id)
-        (record-unserved! conn ex job-id "released")
-        'ok])]))
+        (define-values (fence fparams) (fence-for token))
+        (define landed?
+          (fenced-write? conn
+            (string-append "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL, "
+                           "claim_token = NULL, started_at = NULL, started_epoch = NULL, "
+                           "releases = ?, released_by = ?, release_after = ? WHERE id = ?" fence
+                           " RETURNING id")
+            (append (list n (hash-ref ex 'id) (+ (now) RELEASE-BACKOFF) job-id) fparams)))
+        (cond
+          [(not landed?) 'not-running]
+          [else (record-unserved! conn ex job-id "released") 'ok])])]))
 
 ;; ---- PULL-9: a worker reads the documents ITS OWN job names ------------------
 ;;

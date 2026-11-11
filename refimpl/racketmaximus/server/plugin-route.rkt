@@ -9,7 +9,7 @@
 (require web-server/http
          web-kit)
 
-(provide headers->hash plugin-route-response)
+(provide headers->hash plugin-route-response plugin-route-call)
 
 ;; The request's headers as a hash of lowercase field name to string value.
 ;; A repeated field keeps the first value, the same rule `req-header` uses
@@ -23,6 +23,20 @@
     (if (hash-has-key? h k)
         h
         (hash-set h k (bytes->string/utf-8 (header-value raw) #\uFFFD)))))
+
+;; ---- the two doors (G13) ----------------------------------------------------
+;; A route is either 'bearer or 'public, and WHICH ARGUMENTS its handler is
+;; called with is the whole of the difference. It lives here, in the module that
+;; knows nothing about a connection or a session, so the decision can be tested
+;; without a server: a public handler is called with (conn args) and a bearer one
+;; with (conn principal args). The loader refuses a handler whose arity does not
+;; fit its declaration (`check-route!`), so this cannot be reached with a public
+;; handler that was written to take a principal.
+(define (plugin-route-call auth handler conn principal args)
+  (plugin-route-response
+   (if (eq? auth 'public)
+       (handler conn args)
+       (handler conn principal args))))
 
 ;; A handler may return a response, which keeps full control of the status, the
 ;; headers and the media type. Anything else keeps the contract that existed

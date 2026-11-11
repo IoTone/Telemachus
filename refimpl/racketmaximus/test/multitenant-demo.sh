@@ -336,6 +336,84 @@ assert "an org reader cannot set a budget" \
 assert "the write is in the company's audit trail" "$(g /api/org/audit $ACME_OWNER)" 'org.team.quota'
 
 echo
+echo "== 8f. the company's own timezone, retention and executor policy ==============="
+# THREE ORG PLANES NOTHING REACHED BY PATH. `/api/org/timezone` (#137),
+# `/api/org/retention` (#86 r3) and `/api/org/executor-policy` (#91 req 4) are in
+# the route table with a permission and a doc string and had no assertion on
+# either their shape or their refusal; the single-tenant smoke cannot reach them
+# at all, because the flag gate answers 404 there by design (r2's load-bearing
+# order). Each one is a READ (`org:read`), a WRITE (`org:manage`) and, for two of
+# them, a CLEAR — and each clear exists because `PUT {}` is not the same thing as
+# "off": an empty document is still a configured policy.
+#
+# Asserted with the company's own owner, then with a plain MEMBER, because an
+# org admin who holds the permission would say nothing about whether the check
+# exists (HELP-7's lesson, and this file's own §8d).
+
+# --- a company's timezone, and whose clock wins ---
+assert "acme has no timezone of its own"  "$(g /api/org/timezone $ACME_OWNER)" '"own":false'
+assert "...and falls back to the instance's UTC" "$(g /api/org/timezone $ACME_OWNER)" '"effective":"UTC"'
+assert "acme sets a company timezone" \
+  "$(curl -s -X PUT $B/api/org/timezone -H "Authorization: Bearer $ACME_OWNER" -d '{"timezone":"Asia/Tokyo"}')" \
+  '"ok":true'
+assert "...which is now its own"          "$(g /api/org/timezone $ACME_OWNER)" '"timezone":"Asia/Tokyo"'
+assert "...and what a member with no zone gets" "$(g /api/org/timezone $ACME_OWNER)" '"effective":"Asia/Tokyo"'
+# THE LAYERS DO NOT TIGHTEN HERE (#137): a timezone is not a control, so the
+# company's choice is simply the one below the person and above the instance —
+# and the OTHER company must not have inherited it.
+assert "globex is untouched"              "$(g /api/org/timezone $GLBX_OWNER)" '"own":false'
+assert "a zone this instance has no data for is refused" \
+  "$(curl -s -X PUT $B/api/org/timezone -H "Authorization: Bearer $ACME_OWNER" -d '{"timezone":"Mars/Olympus"}')" \
+  'not a timezone'
+assert "a member may not set the company's clock" \
+  "$(curl -s -X PUT $B/api/org/timezone -H "Authorization: Bearer $ACME_DEV" -d '{"timezone":"Asia/Tokyo"}')" 'Forbidden'
+assert "clearing drops it"                "$(curl -s -X DELETE $B/api/org/timezone -H "Authorization: Bearer $ACME_OWNER")" '"ok":true'
+assert "...and acme is back on the instance's" "$(g /api/org/timezone $ACME_OWNER)" '"own":false'
+
+# --- a company's retention rules: it may SHORTEN and never extend ---
+# The read NORMALIZES: an unset rule is a document of nulls, not an absent one,
+# so "nothing is configured" reads as every field null rather than as `null`.
+assert "acme has no rules of its own"     "$(g /api/org/retention $ACME_OWNER)" '"max_age_days":null'
+assert "acme sets a 30-day horizon" \
+  "$(curl -s -X PUT $B/api/org/retention -H "Authorization: Bearer $ACME_OWNER" -d '{"max_age_days":30}')" \
+  '"max_age_days":30'
+assert "...and it reads back"              "$(g /api/org/retention $ACME_OWNER)" '"max_age_days":30'
+# 0 would delete on arrival, and an unknown field would be a rule that does
+# nothing while its author believes data is being deleted.
+assert "0 days is refused, not defaulted" \
+  "$(curl -s -X PUT $B/api/org/retention -H "Authorization: Bearer $ACME_OWNER" -d '{"max_age_days":0}')" \
+  'at least 1 day'
+assert "an unknown field is refused" \
+  "$(curl -s -X PUT $B/api/org/retention -H "Authorization: Bearer $ACME_OWNER" -d '{"max_age":30}')" \
+  'unknown field'
+assert "a member may not set the company's rules" \
+  "$(curl -s -X PUT $B/api/org/retention -H "Authorization: Bearer $ACME_DEV" -d '{"max_age_days":7}')" 'Forbidden'
+# PUT IT BACK TO NOTHING, or a later section runs under a rule nobody set —
+# this file's repeated lesson about a fixture that changes global state.
+assert "the rule is cleared again" \
+  "$(curl -s -X PUT $B/api/org/retention -H "Authorization: Bearer $ACME_OWNER" -d '{"max_age_days":null}')" \
+  '"max_age_days":null'
+
+# --- a company's executor policy: it may NARROW what the instance allows ---
+assert "acme has no executor policy of its own" "$(g /api/org/executor-policy $ACME_OWNER)" '"own":false'
+assert "...and the read names the attribute the label is read from" \
+  "$(g /api/org/executor-policy $ACME_OWNER)" '"attribute":"sensitivity"'
+assert "acme governs one label" \
+  "$(curl -s -X PUT $B/api/org/executor-policy -H "Authorization: Bearer $ACME_OWNER" \
+     -d '{"labels":{"secret":{"executors":[],"default_model":true,"allow_redacted":true}}}')" \
+  '"configured":true'
+assert "...the sources say the ORG named it" \
+  "$(g /api/org/executor-policy $ACME_OWNER)" '"secret":["org"]'
+assert "a member may not set it" \
+  "$(curl -s -X PUT $B/api/org/executor-policy -H "Authorization: Bearer $ACME_DEV" -d '{"labels":{}}')" 'Forbidden'
+assert "clearing drops the document" \
+  "$(curl -s -X DELETE $B/api/org/executor-policy -H "Authorization: Bearer $ACME_OWNER")" '"configured":false'
+assert "...and acme is governed by nothing again" "$(g /api/org/executor-policy $ACME_OWNER)" '"own":false'
+# and the audit trail can say who set what, which is the whole reason the write
+# carries a team id (`org-audit` INNER JOINs teams — #113's third trap)
+assert "the company's audit trail names the timezone write" "$(g /api/org/audit $ACME_OWNER)" 'org.timezone'
+
+echo
 echo "== 9. suspending a company freezes only that company ==========================="
 assert "suspend acme" "$(pj /api/orgs/$ACME_ORG/suspend $ROOT)" '"status":"suspended"'
 assert "acme writes blocked"  "$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $ACME_DEV" -d '{"title":"nope"}')" 'tenant suspended'
