@@ -104,8 +104,11 @@ and:
 - **Remove the transport** — *"Nothing will be sent until it is configured
   again."*
 
-The password is stored sealed whenever this instance has an encryption key
-configured.
+The password is stored encrypted whenever this instance has an encryption key
+configured. **With no key it is stored unencrypted, and this card does not say
+so.** Before typing a live relay password, check that the Health tab or
+`GET /api/admin/status` reads `secrets: sealed`; if it reads `plaintext`, set
+`TMACH_SECRET_KEY` first — `docs/deploy-tailnet.md` has the four steps.
 
 **A team cannot point this anywhere.** There is no per-team relay, and that is
 a security decision rather than a missing feature: a team-chosen SMTP host
