@@ -3132,6 +3132,22 @@
       }
     },
     "/api/org/members": {
+      "get": {
+        "description": "The people in the caller's company: one row each with their org role, their team roles, and whether they have an address and whether it is proven. The address itself is never in this reply; a person with no proven address cannot receive a recovery link, and this is how an administrator sees that.",
+        "operationId": "get.api.org.members",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "org"
+        ],
+        "x-tmach-auth": "org-admin",
+        "x-tmach-handler": "my-org-members",
+        "x-tmach-permission": "org:read",
+        "x-tmach-permission-checked": "role"
+      },
       "post": {
         "description": "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).",
         "operationId": "post.api.org.members",

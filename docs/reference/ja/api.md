@@ -98,6 +98,7 @@ A machine-readable form of this same table is [openapi.json](openapi.json) (Open
 | GET | `/api/org/teams` | org-admin | `org:read` | role | — | 呼び出し元の会社のチーム。 |
 | POST | `/api/org/teams` | org-admin | `org:manage` | role | — | 呼び元の会社でチームを作成します。 |
 | POST | `/api/org/teams/:ref/quota` | org-admin | `org:manage` | role | — | 組織管理プレーンから単一チームのクォータ上限を設定する（issue #113）: 呼び出し元自身の会社に属するチームを id または slug で指定し、{dimension, limit, window?} を渡します。チーム層の POST /api/quota は常に呼び出し元自身のチームにしか設定しないため、これがないと複数チームを管理する組織管理者はチームごとにトークンを持つ必要がありました。会社外のチームは 404 を返します — この呼び出し元にとっては存在しません。 |
+| GET | `/api/org/members` | org-admin | `org:read` | role | — | The people in the caller's company: one row each with their org role, their team roles, and whether they have an address and whether it is proven. The address itself is never in this reply; a person with no proven address cannot receive a recovery link, and this is how an administrator sees that. |
 | POST | `/api/org/members` | org-admin | `org:manage` | role | — | 呼び出し元の会社のチームに人物を追加します。オプションで組織ロール（org_admin, org_owner, org_reader）も指定できます。 |
 | PATCH | `/api/org/members/:id` | org-admin | `org:manage` | role | — | 人の組織ロールを設定またはクリアする — 既存ユーザーを org_reader にする方法（TEN-2h）。自分自身には不可。 |
 | GET | `/api/org/audit` | org-admin | `org:read` | role | — | 会社の監査ログ。 |

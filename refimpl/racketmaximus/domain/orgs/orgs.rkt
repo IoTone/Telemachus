@@ -26,7 +26,7 @@
          org-create! org-update! org-list org-get
          org-set-domain! org-by-domain normalize-domain
          org-set-status! tenant-read-only?
-         org-teams org-audit org-add-team! org-attach-member! org-default-team
+         org-teams org-members org-audit org-add-team! org-attach-member! org-default-team
          set-org-limit! org-quota
          tenant-quota-check tenant-quota-record!
          tenant-quota-check/team tenant-quota-record!/team
@@ -206,12 +206,19 @@
 ;; every human in the company, with their org tier and their team roles
 (define (org-members conn org-id)
   (for/list ([r (in-list (query-rows conn
-     (string-append "SELECT id, username, display_name, status, org_role_key FROM users "
+     (string-append "SELECT id, username, display_name, status, org_role_key, "
+                    "       email, email_verified_epoch FROM users "
                     "WHERE org_id = ? ORDER BY username") org-id))])
     (define uid (vector-ref r 0))
+    ;; AN ADMIN HAS TO BE ABLE TO SEE WHY A PERSON CANNOT RESET: an account with
+    ;; no address, or one that never proved it, cannot receive a recovery link.
+    ;; The address ITSELF is not in this reply — the same posture as every other
+    ;; read — only whether there is one and whether it is proven.
     (hasheq 'user_id uid 'username (vector-ref r 1)
             'display_name (nz (vector-ref r 2)) 'status (vector-ref r 3)
             'org_role (nz (vector-ref r 4))
+            'has_email (not (sql-null? (vector-ref r 5)))
+            'email_verified (not (sql-null? (vector-ref r 6)))
             'teams (query-list conn
               (string-append "SELECT t.slug || ':' || m.role_key FROM memberships m "
                              "JOIN teams t ON t.id = m.team_id WHERE m.user_id = ? ORDER BY t.slug") uid))))

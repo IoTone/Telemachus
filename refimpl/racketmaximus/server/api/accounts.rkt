@@ -190,14 +190,20 @@
 (define (ep-members-list req)
   (with-auth req (lambda (p)
     (define rows (query-rows db-conn
-      (string-append "SELECT u.id, u.username, m.role_key FROM memberships m "
-                     "JOIN users u ON u.id = m.user_id "
+      (string-append "SELECT u.id, u.username, m.role_key, u.email, u.email_verified_epoch "
+                     "FROM memberships m JOIN users u ON u.id = m.user_id "
                      "WHERE m.team_id = ? AND m.status = 'active' ORDER BY u.username")
       (principal-team-id p)))
+    ;; The address is NOT in the reply — a list of a team is not a mailing list —
+    ;; but whether one exists and whether it is proven is, because an account
+    ;; with no proven address cannot receive a recovery link and the administrator
+    ;; staring at it needs to know that instead of guessing.
     (json-response (hasheq 'members (for/list ([r (in-list rows)])
                                       (hasheq 'user_id (vector-ref r 0)
                                               'username (vector-ref r 1)
-                                              'role (vector-ref r 2))))))))
+                                              'role (vector-ref r 2)
+                                              'has_email (not (sql-null? (vector-ref r 3)))
+                                              'email_verified (not (sql-null? (vector-ref r 4))))))))))
 
 
 ;; THE INVITATION ANSWERS WITH NO TOKEN (INVITE-1). The username form hands the

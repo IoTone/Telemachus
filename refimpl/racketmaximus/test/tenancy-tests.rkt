@@ -378,3 +378,29 @@
   (check-equal? (hash-ref (branding-get conn) 'title) "Instance Co")
   (org-branding-clear! conn a)
   (check-equal? (hash-ref (branding-for conn a) 'title) "Instance Co"))
+
+;; ---- the company's people, as an administrator needs to see them -------------
+(test-case "the member list says whether a person can receive a link, never the address"
+  (define-values (conn root acme globex) (instance))
+  (define a (hash-ref acme 'org))
+  (define rows (org-members conn a))
+  (check-true (> (length rows) 0))
+  ;; every created account has no address yet: it was made by username
+  (for ([r (in-list rows)])
+    (check-false (hash-ref r 'has_email))
+    (check-false (hash-ref r 'email_verified))
+    ;; the reply carries no address at all, under any key
+    (check-false (member 'email (hash-keys r)))
+    (check-true (list? (hash-ref r 'teams))))
+  ;; once the address is set AND proven, the flag flips and the address still stays out
+  (define uid (hash-ref (car rows) 'user_id))
+  (query-exec conn "UPDATE users SET email = ?, email_verified_epoch = ? WHERE id = ?"
+              "someone@acme.test" 1800000000 uid)
+  (define after (for/first ([r (in-list (org-members conn a))]
+                            #:when (equal? (hash-ref r 'user_id) uid)) r))
+  (check-true (hash-ref after 'has_email))
+  (check-true (hash-ref after 'email_verified))
+  (check-false (member 'email (hash-keys after)))
+  ;; and one company's list never names the other's people
+  (define other (map (lambda (r) (hash-ref r 'username)) (org-members conn (hash-ref globex 'org))))
+  (check-false (member (hash-ref after 'username) other)))

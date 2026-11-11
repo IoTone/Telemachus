@@ -167,6 +167,7 @@
   "doc.route.get.api.org.email-notify": "Which categories this company has turned off for its own people, plus the instance's document read-only. An org may TIGHTEN and may never loosen — a company admin cannot turn on what the instance has not enabled, so there is nothing to offer them there.",
   "doc.route.get.api.org.executor-policy": "The company's own executor policy, the instance's, the EFFECTIVE one and `sources` naming which tiers mentioned each label. Where both tiers name a label the permitted executors are the INTERSECTION and both flags are ANDed, so a company narrows what the instance allows and can never widen it; a label only one tier names is that tier's to decide.",
   "doc.route.get.api.org.features": "Which features the caller's own company allows.",
+  "doc.route.get.api.org.members": "The people in the caller's company: one row each with their org role, their team roles, and whether they have an address and whether it is proven. The address itself is never in this reply; a person with no proven address cannot receive a recovery link, and this is how an administrator sees that.",
   "doc.route.get.api.org.retention": "The company's own retention rules (#86 r3). An org may SHORTEN what the instance allows for its own data and may never extend it.",
   "doc.route.get.api.org.session-policy": "The company's own session timeouts, the instance's, and the effective policy after the instance floor is applied.",
   "doc.route.get.api.org.teams": "The teams in the caller's company.",

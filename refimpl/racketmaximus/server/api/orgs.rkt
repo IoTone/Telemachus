@@ -10,8 +10,8 @@
 (provide ep-orgs-list ep-orgs-create ep-audit-verify ep-audit-export
          ep-org-get ep-org-status ep-org-update ep-org-quota ep-seed-tenants
          ep-my-org ep-my-org-teams ep-my-org-team-create ep-my-org-team-quota
-         ep-my-org-member-role ep-my-org-member-add ep-my-org-member-resend
-         ep-my-org-audit)
+         ep-my-org-members ep-my-org-member-role ep-my-org-member-add
+         ep-my-org-member-resend ep-my-org-audit)
 
 (require racket/string
          db-kit/portable
@@ -209,6 +209,15 @@
     (with-auth req (lambda (p)
       (require-perm db-conn p "org:read")
       (json-response (hasheq 'teams (org-teams db-conn (caller-org p)))))))))
+
+;; The company's people, for the org-admin console. One row per human with their
+;; org tier, their team roles, and whether they can receive a mailed link —
+;; WITHOUT the address itself, which is the posture every other read keeps.
+(define (ep-my-org-members req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:read")
+      (json-response (hasheq 'members (org-members db-conn (caller-org p)))))))))
 
 (define (ep-my-org-team-create req)
   (with-mt req (lambda ()
