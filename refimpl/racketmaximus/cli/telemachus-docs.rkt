@@ -10,6 +10,15 @@
 ;;   telemachus-docs describe                         # the model, as JSON, to stdout
 ;;   telemachus-docs render  [--out DIR] [--locale xx] [--locales DIR]
 ;;   telemachus-docs check   [--out DIR] [--locale xx] [--locales DIR]
+;;   telemachus-docs render|check --plugin <id> --out DIR    # ONE plugin's reference
+;;
+;; `--plugin` renders a single plugin's tools, workflows, routes and the
+;; permissions those name, and omits the platform's own pages (`openapi.json`,
+;; `plugins.md`, `sdk.md`) and the role matrix — none of which is a fact about
+;; that plugin. `--out` is REQUIRED with it, because `docs/reference/` is the
+;; instance's reference and is gated for drift: writing a plugin's pages into it
+;; would fail the gate for everybody, and checking a plugin against it would
+;; report the plugin's own pages as missing.
 ;;       regenerate, diff, exit 1 on drift. With no --locale it checks English
 ;;       AND every locale directory committed under --out, derived from what is
 ;;       there rather than from a list anybody has to remember.
@@ -69,21 +78,30 @@
 ;; way — the committed document is by definition one that did not collide.
 (provide describe render-openapi route-key route-id ROUTE-ID-PREFIX
          oa-path-template oa-parameters oa-tag oa-security oa-paths
-         OPENAPI-VERSION OPENAPI-NOTE)
+         OPENAPI-VERSION OPENAPI-NOTE
+         ;; 0.13.0: the per-plugin reference. `render-all` and `plugin-out-required`
+         ;; are exported FOR test/plugin-docs-tests.rkt — the PAGE SET a plugin
+         ;; gets and the refusal that keeps it out of docs/reference are the two
+         ;; decisions the command makes, and neither is reachable through the
+         ;; committed pages (there are none for a plugin). `locales-dir` is
+         ;; exported because the page set is rendered through it.
+         render-all plugin-out-required locales-dir)
 
 ;; a route's scope is a symbol in the platform's table and a string in the
 ;; plugin model built below; one spelling for the renderers
 (define (scope-name v) (if (symbol? v) (symbol->string v) v))
 
 (define (usage)
-  (eprintf "usage: telemachus-docs <describe|render|check> [--out DIR] [--locale xx] [--locales DIR]\n")
+  (eprintf (string-append
+            "usage: telemachus-docs <describe|render|check> [--out DIR] [--locale xx] [--locales DIR]\n"
+            "       telemachus-docs <render|check> --plugin <id> --out DIR [--locale xx] [--locales DIR]\n"))
   (exit 2))
 
 (define (split-flags args)
   (let loop ([xs args] [pos '()] [opts (hasheq)])
     (cond
       [(null? xs) (values (reverse pos) opts)]
-      [(and (member (car xs) '("--out" "--locale" "--locales")) (pair? (cdr xs)))
+      [(and (member (car xs) '("--out" "--locale" "--locales" "--plugin")) (pair? (cdr xs)))
        (loop (cddr xs) pos (hash-set opts (string->symbol (substring (car xs) 2)) (cadr xs)))]
       [else (loop (cdr xs) (cons (car xs) pos) opts)])))
 
@@ -94,7 +112,7 @@
 ;; ---- describe --------------------------------------------------------------------
 (define (js-get h k [d 'null]) (if (hash? h) (hash-ref h k d) d))
 
-(define (describe)
+(define (describe #:plugin [plugin #f])
   ;; #:skip-links? — the committed reference describes the COMMITTED tree. A
   ;; downstream plugin symlinked in for local development is somebody else's, and
   ;; documenting it here would fail the drift gate everywhere that link is absent.
@@ -172,8 +190,52 @@
   ;; every route permission must be described, like every role permission is
   (for ([r (in-list ROUTES)]) (when (rt-perm r) (permission-doc (rt-perm r))))
   (for ([r (in-list proutes)]) (when (string? (hash-ref r 'permission)) (permission-doc (hash-ref r 'permission))))
-  (hasheq 'version app-version 'tools tools 'workflows workflows
-          'permissions permissions 'roles roles 'routes routes 'plugin_routes proutes 'plugins plugins))
+  ;; ---- per-plugin rendering (0.13.0) -------------------------------------
+  ;; `--plugin <id>` asks for ONE plugin's reference: its tools, its workflows,
+  ;; its routes and the permissions those name. The platform's own pages are not
+  ;; part of it (see `render-all`), and the core route table is emptied rather
+  ;; than filtered, because a plugin contributes no core routes — an unfiltered
+  ;; table here would describe the whole instance under a plugin's name.
+  ;;
+  ;; An unknown id is REFUSED rather than answered with an empty document: a
+  ;; reference that is silent about why it is empty is the failure mode a
+  ;; generated page can least afford (#119's shape).
+  (when plugin
+    (define ids (map (lambda (p) (hash-ref p 'id)) (loaded-plugins)))
+    (unless (member plugin ids)
+      (raise-user-error 'telemachus-docs
+                        "no plugin ~a is loaded. Loaded: ~a"
+                        plugin (if (null? ids) "(none)" (string-join ids ", ")))))
+  (define (mine? owner) (or (not plugin) (equal? owner plugin)))
+  (define kept-tools (filter (lambda (x) (mine? (hash-ref x 'source))) tools))
+  (define kept-workflows (filter (lambda (x) (mine? (hash-ref x 'plugin))) workflows))
+  (define kept-proutes (filter (lambda (x) (mine? (hash-ref x 'plugin))) proutes))
+  (define kept-plugins (filter (lambda (x) (mine? (hash-ref x 'id))) plugins))
+  ;; The permissions a plugin's own tools and routes NAME, and nothing else. The
+  ;; catalog entry comes from the platform's list, so a plugin cannot document a
+  ;; permission into existence (MTX-9) — a name with no catalog row is dropped,
+  ;; and `describe` above has already refused a route or tool naming an
+  ;; undescribed one.
+  (define kept-perms
+    (if (not plugin)
+        permissions
+        (let* ([named (append (for/list ([x (in-list kept-tools)]
+                                        #:when (string? (hash-ref x 'permission)))
+                                (hash-ref x 'permission))
+                              (for/list ([x (in-list kept-proutes)]
+                                        #:when (string? (hash-ref x 'permission)))
+                                (hash-ref x 'permission)))]
+               [want (remove-duplicates named)])
+          (for/list ([p (in-list permissions)] #:when (member (hash-ref p 'name) want)) p))))
+  (hasheq 'version app-version 'tools kept-tools 'workflows kept-workflows
+          'permissions kept-perms
+          ;; a plugin reference has no roles: the role matrix is the INSTANCE's,
+          ;; and rendering it under a plugin's name would print every role on a
+          ;; page about one plugin's routes
+          'roles (if plugin '() roles)
+          'routes (if plugin '() routes)
+          'plugin_routes kept-proutes 'plugins kept-plugins
+          'plugin (or plugin #f)))
 
 ;; ---- deterministic JSON ---------------------------------------------------------------
 (define (json-out v out [indent 0])
@@ -277,11 +339,18 @@
 
 (define (render-tools model L)
   (define tools (hash-ref model 'tools))
+  (define plugin (hash-ref model 'plugin #f))
   (string-append
    "# Tools\n\n"
-   "Every tool a workflow step may use, from `define-tool` declarations and plugin "
-   "registrations. Each tool checks its own permission when invoked; a workflow step "
-   "also needs `tools:invoke`.\n\n"
+   (if plugin
+       (format (string-append
+                "The tools `~a` contributes, from its `(provide tools)`. Each checks its "
+                "own permission when invoked; a workflow step also needs `tools:invoke`.\n\n")
+               plugin)
+       (string-append
+        "Every tool a workflow step may use, from `define-tool` declarations and plugin "
+        "registrations. Each tool checks its own permission when invoked; a workflow step "
+        "also needs `tools:invoke`.\n\n"))
    "**Agent** says whether the conversational agent is OFFERED the tool. A tool whose "
    "required arguments are spec-authored — a label set, a JSON Schema, a template and "
    "its data, a form's own field names — is a workflow tool: nobody asks for it in a "
@@ -289,6 +358,10 @@
    "permission and not the per-team switch; a workflow tool is registered, documented "
    "and dispatchable exactly as any other. Keeping them off that surface is also what "
    "makes the agent's whole tool list fit a 4,096-token window.\n\n"
+   (if (null? tools)
+       (if plugin (format "`~a` contributes no tools.\n" plugin) "No tools are registered.\n")
+       "")
+   (if (null? tools) ""
    (table '("Tool" "Agent" "Permission" "Source" "Description")
           (for/list ([t (in-list tools)])
             (list (code (hash-ref t 'name))
@@ -296,6 +369,7 @@
                   (let ([p (hash-ref t 'permission)]) (if (string? p) (code p) "—"))
                   (hash-ref t 'source)
                   (L (string-append "doc.tool." (hash-ref t 'name)) (hash-ref t 'description)))))
+   )
    "\n"
    (apply string-append
           (for/list ([t (in-list tools)])
@@ -335,16 +409,30 @@
 
 (define (render-workflows model L)
   (define wfs (hash-ref model 'workflows))
+  (define plugin (hash-ref model 'plugin #f))
   (string-append
    "# Workflows\n\n"
-   "Workflows shipped by plugins. Each is a validated spec (the public contract, WF‑9); "
-   "a team sees them under `GET /api/workflows` and runs one with "
-   "`POST /api/workflows/<slug>/run {input}`. Declared inputs are required and typed.\n\n"
+   (if plugin
+       (format (string-append
+                "The workflows `~a` contributes. Each is a validated spec (the public "
+                "contract, WF‑9); a team sees them under `GET /api/workflows` and runs one "
+                "with `POST /api/workflows/<slug>/run {input}`. Declared inputs are "
+                "required and typed.\n\n")
+               plugin)
+       (string-append
+        "Workflows shipped by plugins. Each is a validated spec (the public contract, WF‑9); "
+        "a team sees them under `GET /api/workflows` and runs one with "
+        "`POST /api/workflows/<slug>/run {input}`. Declared inputs are required and typed.\n\n"))
+   (if (null? wfs)
+       (if plugin (format "`~a` ships no workflows.\n" plugin) "No workflows are registered.\n")
+       "")
+   (if (null? wfs) ""
    (table '("Workflow" "Plugin" "Version" "Steps" "Description")
           (for/list ([w (in-list wfs)])
             (list (code (hash-ref w 'slug)) (hash-ref w 'plugin) (format "~a" (hash-ref w 'version))
                   (format "~a" (length (hash-ref w 'steps)))
                   (L (string-append "doc.workflow." (hash-ref w 'slug)) (hash-ref w 'description)))))
+   )
    "\n"
    (apply string-append
           (for/list ([w (in-list wfs)])
@@ -401,20 +489,39 @@
 (define (render-permissions model L)
   (define perms (hash-ref model 'permissions))
   (define roles (hash-ref model 'roles))
+  (define plugin (hash-ref model 'plugin #f))
   (define (granted? role p)
     (for/or ([g (in-list (hash-ref role 'permissions))]) (perm-matches? g p)))
   (string-append
    "# Permissions\n\n"
-   "Permissions are `resource:action` strings; roles are named sets of them. "
-   "`instance:*` is held only by the operator and `org:*` only by a company's org role — "
-   "neither is reachable from a team role, whatever wildcard it grants. A resource's "
-   "owner holds every team-tier permission on it (owner-ok), and a grant on one "
-   "resource delegates the permission it names.\n\n"
+   (if plugin
+       (format (string-append
+                "The permissions `~a`'s tools and routes NAME, with the catalog's own "
+                "description of each. A plugin contributes no permissions of its own "
+                "(MTX‑9) — it asks for the platform's.\n\n")
+               plugin)
+       (string-append
+        "Permissions are `resource:action` strings; roles are named sets of them. "
+        "`instance:*` is held only by the operator and `org:*` only by a company's org role — "
+        "neither is reachable from a team role, whatever wildcard it grants. A resource's "
+        "owner holds every team-tier permission on it (owner-ok), and a grant on one "
+        "resource delegates the permission it names.\n\n"))
+   (if (null? perms)
+       (if plugin (format "`~a` names no permission — its tools and routes need none.\n" plugin)
+           "No permissions are registered.\n")
+       "")
+   (if (null? perms) ""
+   (string-append
    "## Catalog\n\n"
    (table '("Permission" "Tier" "Description")
           (for/list ([p (in-list perms)])
             (list (code (hash-ref p 'name)) (hash-ref p 'tier)
                   (L (string-append "doc.perm." (hash-ref p 'name)) (hash-ref p 'description)))))
+   ))
+   ;; The role listing and the matrix are the INSTANCE's: a plugin reference
+   ;; renders neither, so the section heading and its tables are skipped when the
+   ;; model carries no roles rather than printed empty under a plugin's name.
+   (if (null? roles) "" (string-append
    "\n## Built-in roles\n\n"
    (table '("Role" "Tier" "Grants")
           (for/list ([r (in-list roles)])
@@ -431,59 +538,91 @@
                                (not (and (equal? (hash-ref p 'tier) "instance") (equal? (hash-ref r 'tier) "team")))
                                (not (and (equal? (hash-ref p 'tier) "org") (equal? (hash-ref r 'tier) "team"))))
                           "✓" "")))))
-   "\n"))
+   "\n"))))
 
 (define (render-api model L)
   (define routes (hash-ref model 'routes))
+  (define plugin (hash-ref model 'plugin #f))
   (string-append
    "# HTTP API\n\n"
-   "Every route the server dispatches, in matching order, from the declared route table "
-   "(`server/routes.rkt`). `auth` is how a route authenticates: **public** needs no "
-   "credential; **bearer** a session or API token; **provision** the hosted-mode "
-   "provisioning token; **superadmin** and **org-admin** the two multi-tenancy planes. "
-   "The permission column says what a caller needs. A **role** permission is checked "
-   "by the dispatcher before the handler runs, so the table is the enforcement and not "
-   "a description of it. A **resource** permission is weighed against the particular "
-   "note or document by `can?`, which also admits the OWNER and anyone holding a "
-   "matching grant — so a caller whose role does not carry it may still be admitted "
-   "for one object, which is what sharing is. A feature flag, when named, must be on "
-   "for the team.\n\n"
-   "Path segments written `:name` are parameters; `*name` takes the rest of the path.\n\n"
-   "A machine-readable form of this same table is "
-   "[openapi.json](openapi.json) (OpenAPI 3.1), generated from the same source and "
-   "gated by the same drift check. **It carries no request or response schemas** — "
-   "those are not declared anywhere in the source either page is generated from, so "
-   "neither page can tell you what to send. What the table declares rides in "
-   "`x-tmach-*` on each operation.\n\n"
-   (table '("Method" "Path" "Auth" "Permission" "Checked" "Feature" "Description")
-          (for/list ([r (in-list routes)])
-            (list (hash-ref r 'method) (code (hash-ref r 'path)) (hash-ref r 'auth)
-                  (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
-                  (let ([p (hash-ref r 'permission)])
-                    (if (string? p) (scope-name (hash-ref r 'scope 'role)) "—"))
-                  (let ([f (hash-ref r 'feature)]) (if (string? f) (code f) "—"))
-                  (L (route-id r) (hash-ref r 'description)))))
-   "\n"
+   (if plugin
+       (format (string-append
+                "The HTTP routes `~a` contributes, mounted under `/api/x/~a/`. `auth` is "
+                "the route's own declaration: **public** needs no credential, **bearer** a "
+                "session or API token. The permission column says what a caller needs. A "
+                "**role** permission is checked before the plugin's handler runs, so the "
+                "table is the enforcement and not a description of it. A **resource** "
+                "permission is weighed by the handler against the particular object it "
+                "names, which also admits the OWNER and anyone holding a matching grant.\n\n")
+               plugin plugin)
+       (string-append
+        "Every route the server dispatches, in matching order, from the declared route table "
+        "(`server/routes.rkt`). `auth` is how a route authenticates: **public** needs no "
+        "credential; **bearer** a session or API token; **provision** the hosted-mode "
+        "provisioning token; **superadmin** and **org-admin** the two multi-tenancy planes. "
+        "The permission column says what a caller needs. A **role** permission is checked "
+        "by the dispatcher before the handler runs, so the table is the enforcement and not "
+        "a description of it. A **resource** permission is weighed against the particular "
+        "note or document by `can?`, which also admits the OWNER and anyone holding a "
+        "matching grant — so a caller whose role does not carry it may still be admitted "
+        "for one object, which is what sharing is. A feature flag, when named, must be on "
+        "for the team.\n\n"
+        "Path segments written `:name` are parameters; `*name` takes the rest of the path.\n\n"
+        ;; the openapi.json page exists only in the INSTANCE's reference, so a
+        ;; plugin reference must not link to it
+        "A machine-readable form of this same table is "
+        "[openapi.json](openapi.json) (OpenAPI 3.1), generated from the same source and "
+        "gated by the same drift check. **It carries no request or response schemas** — "
+        "those are not declared anywhere in the source either page is generated from, so "
+        "neither page can tell you what to send. What the table declares rides in "
+        "`x-tmach-*` on each operation.\n\n"))
+   (if (null? routes) ""
+       (string-append
+        (table '("Method" "Path" "Auth" "Permission" "Checked" "Feature" "Description")
+               (for/list ([r (in-list routes)])
+                 (list (hash-ref r 'method) (code (hash-ref r 'path)) (hash-ref r 'auth)
+                       (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
+                       (let ([p (hash-ref r 'permission)])
+                         (if (string? p) (scope-name (hash-ref r 'scope 'role)) "—"))
+                       (let ([f (hash-ref r 'feature)]) (if (string? f) (code f) "—"))
+                       (L (route-id r) (hash-ref r 'description)))))
+        "\n"))
    (let ([pr (hash-ref model 'plugin_routes '())])
-     (if (null? pr) ""
-         (string-append
-          "## Plugin routes\n\n"
-          "Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. "
-          "**Auth** is the route's own declaration. `bearer` — the default, and every route "
-          "before G13 — needs a session or API token, and the permission, when named, is "
-          "checked before the plugin's handler runs. `public` needs no credential at all: "
-          "the handler gets no principal, so it has no team context and no `can?`, and it "
-          "must read no team data unless the route carries something that identifies the "
-          "team itself. A public route is still subject to the platform's request limits, "
-          "and it is declared in the plugin's route table — never inferred from a path. "
-          "Matched after the core routes above.\n\n"
-          (table '("Method" "Path" "Plugin" "Auth" "Permission" "Description")
-                 (for/list ([r (in-list pr)])
-                   (list (hash-ref r 'method) (code (hash-ref r 'path)) (code (hash-ref r 'plugin))
-                         (hash-ref r 'auth)
-                         (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
-                         (L (route-id r) (hash-ref r 'description)))))
-          "\n")))))
+     (cond
+       [(null? pr) (if plugin (format "`~a` declares no routes.\n" plugin) "")]
+       ;; In a plugin reference these routes ARE the page, and its intro has
+       ;; already said how they authenticate — so the section is the table alone,
+       ;; with no second explanation and no "matched after the core routes above",
+       ;; which is a fact about the instance's table that is not here.
+       [plugin
+        (string-append
+         "## Routes\n\n"
+         (table '("Method"  "Path"  "Auth"  "Permission"  "Description")
+                (for/list ([r (in-list pr)])
+                  (list (hash-ref r 'method) (code (hash-ref r 'path))
+                        (hash-ref r 'auth)
+                        (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
+                        (L (route-id r) (hash-ref r 'description)))))
+         "\n")]
+       [else
+        (string-append
+         "## Plugin routes\n\n"
+         "Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. "
+         "**Auth** is the route's own declaration. `bearer` — the default, and every route "
+         "before G13 — needs a session or API token, and the permission, when named, is "
+         "checked before the plugin's handler runs. `public` needs no credential at all: "
+         "the handler gets no principal, so it has no team context and no `can?`, and it "
+         "must read no team data unless the route carries something that identifies the "
+         "team itself. A public route is still subject to the platform's request limits, "
+         "and it is declared in the plugin's route table — never inferred from a path. "
+         "Matched after the core routes above.\n\n"
+         (table '("Method" "Path" "Plugin" "Auth" "Permission" "Description")
+                (for/list ([r (in-list pr)])
+                  (list (hash-ref r 'method) (code (hash-ref r 'path)) (code (hash-ref r 'plugin))
+                        (hash-ref r 'auth)
+                        (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
+                        (L (route-id r) (hash-ref r 'description)))))
+         "\n")]))))
 
 
 ;; ---- OpenAPI 3.1 (issue #227 slice 2a) ------------------------------------------------
@@ -888,17 +1027,61 @@
    "`telemachus-localize`, so every description is a `doc.*` message the Localization "
    "Manager can translate; `telemachus-docs render --locale ja` writes `ja/`.\n"))
 
+;; The index of a PLUGIN's reference. It says what the page set covers and, just
+;; as importantly, what it does not: an integrator handed five pages should not
+;; conclude the instance has no other routes.
+(define (render-plugin-readme model)
+  (define plugin (hash-ref model 'plugin #f))
+  (define row (let ([hit (for/or ([p (in-list (hash-ref model 'plugins))])
+                            (and (string=? (hash-ref p 'id) plugin) p))])
+                (if hit hit (hasheq))))
+  (string-append
+   "# " (hash-ref row 'name plugin) " reference\n\n"
+   "Generated by `telemachus-docs --plugin " plugin "` from the source of truth — do not "
+   "edit by hand; `telemachus-docs check --plugin " plugin "` fails on drift. "
+   "Plugin " (code plugin) " v" (hash-ref row 'version "?") ", on platform "
+   (hash-ref model 'version) ".\n\n"
+   "| Page | What it documents |\n|---|---|\n"
+   "| [tools.md](tools.md) | the tools this plugin registers: schema, permission, agent visibility |\n"
+   "| [workflows.md](workflows.md) | the workflow specs it ships, step by step |\n"
+   "| [permissions.md](permissions.md) | the platform permissions its tools and routes name |\n"
+   "| [api.md](api.md) | its HTTP routes, mounted under `/api/x/" plugin "/` |\n\n"
+   "WHAT IS NOT HERE, said rather than implied: the instance's own reference — every "
+   "route, every tool, the permission catalog and the plugin seams — is generated "
+   "separately by `telemachus-docs render`, and `openapi.json`, `plugins.md` and "
+   "`sdk.md` exist only there. The routes on these pages are this plugin's, not the "
+   "instance's API.\n\n"
+   (if (string=? (hash-ref row 'description "") "") ""
+       (string-append (hash-ref row 'description) "\n\n"))))
+
 (define (render-all model locale ldir)
   (define L (make-localizer locale ldir))
+  (define plugin (hash-ref model 'plugin #f))
   (define pages
-    (list (cons "README.md" (render-readme model))
-          (cons "tools.md" (render-tools model L))
-          (cons "workflows.md" (render-workflows model L))
-          (cons "permissions.md" (render-permissions model L))
-          (cons "api.md" (render-api model L))
-          (cons "openapi.json" (render-openapi model L))
-          (cons "plugins.md" (render-plugins model L))
-          (cons "sdk.md" (render-sdk model L))))
+    (if plugin
+        ;; A PLUGIN'S REFERENCE IS FIVE PAGES, not the instance's eight. The
+        ;; three that are absent are absent on purpose: `openapi.json` describes
+        ;; the instance's API (a partial one would invite a generator to treat a
+        ;; plugin's routes as the whole of it), and `plugins.md`/`sdk.md` are the
+        ;; platform's plugin system rather than facts about this plugin. The role
+        ;; matrix goes with them — it is the instance's, and `render-permissions`
+        ;; omits the section when the model carries no roles.
+        (list (cons "README.md" (render-plugin-readme model))
+              (cons "tools.md" (render-tools model L))
+              (cons "workflows.md" (render-workflows model L))
+              (cons "permissions.md" (render-permissions model L))
+              (cons "api.md" (render-api model L)))
+        (list (cons "README.md" (render-readme model))
+              (cons "tools.md" (render-tools model L))
+              (cons "workflows.md" (render-workflows model L))
+              (cons "permissions.md" (render-permissions model L))
+              (cons "api.md" (render-api model L))
+              (cons "openapi.json" (render-openapi model L))
+              (cons "plugins.md" (render-plugins model L))
+              (cons "sdk.md" (render-sdk model L)))))
+  ;; strings.json is the localize surface for everything the pages say, so a
+  ;; plugin's copy of it carries exactly the `doc.*` keys its own pages use —
+  ;; which is the set an integrator has to translate.
   (if (or (not locale) (string=? locale "en"))
       (append pages (list (cons "strings.json" (json-string (strings-of model)))))
       pages))
@@ -912,8 +1095,18 @@
 (define (cmd-describe opts)
   (write-string (json-string (describe)) (current-output-port)))
 
+(define (plugin-out-required plugin opts)
+  (when (and plugin (not (hash-ref opts 'out #f)))
+    (raise-user-error 'telemachus-docs
+                      (string-append "--plugin ~a needs --out <dir>: docs/reference is the "
+                                     "instance's own reference and is gated for drift, so a "
+                                     "plugin's pages are written beside it, never over it")
+                      plugin)))
+
 (define (cmd-render opts)
-  (define model (describe))
+  (define plugin (hash-ref opts 'plugin #f))
+  (plugin-out-required plugin opts)
+  (define model (describe #:plugin plugin))
   (define locale (hash-ref opts 'locale #f))
   (define out (let ([o (hash-ref opts 'out #f)]) (if o (string->path o) (default-out))))
   (define dir (if (and locale (not (string=? locale "en"))) (build-path out locale) out))
@@ -954,7 +1147,9 @@
     (car pg)))
 
 (define (cmd-check opts)
-  (define model (describe))
+  (define plugin (hash-ref opts 'plugin #f))
+  (plugin-out-required plugin opts)
+  (define model (describe #:plugin plugin))
   (define out (let ([o (hash-ref opts 'out #f)]) (if o (string->path o) (default-out))))
   (define ldir (locales-dir opts))
   ;; `--locale xx` narrows to one; with none, every committed locale is checked
@@ -989,8 +1184,14 @@
   (define args (vector->list (current-command-line-arguments)))
   (when (null? args) (usage))
   (define-values (pos opts) (split-flags (cdr args)))
-  (case (car args)
-    [("describe") (cmd-describe opts)]
-    [("render") (cmd-render opts)]
-    [("check") (cmd-check opts)]
-    [else (usage)]))
+  ;; A REFUSAL IS ONE LINE AND A NON-ZERO EXIT, not a Racket backtrace: the two
+  ;; refusals here are "no such plugin" and "--plugin needs --out", and a reader
+  ;; who mistyped an id should be told which ids exist. `raise-user-error`
+  ;; prefixes the message with this tool's own name, so it is printed as it is.
+  (with-handlers ([exn:fail:user?
+                   (lambda (e) (eprintf "~a\n" (exn-message e)) (exit 1))])
+    (case (car args)
+      [("describe") (cmd-describe opts)]
+      [("render") (cmd-render opts)]
+      [("check") (cmd-check opts)]
+      [else (usage)])))

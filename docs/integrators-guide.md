@@ -210,6 +210,25 @@ before it runs, so a route that declares the scope and then forgets to call
 load**, not a request an hour later. They appear in
 [api.md](reference/api.md#plugin-routes) and in `GET /api/plugins`.
 
+### Your plugin's own reference
+
+The generated reference is the INSTANCE's, so your routes are a section inside three
+hundred others. The same generator can render yours alone:
+
+```sh
+racket cli/telemachus-docs.rkt render --plugin <your-id> --out docs/mine
+racket cli/telemachus-docs.rkt check  --plugin <your-id> --out docs/mine   # gate drift
+```
+
+It writes five pages — `tools.md`, `workflows.md`, `permissions.md`, `api.md` and an
+index — filtered to the tools, workflows and routes YOUR plugin contributes, plus
+the platform permissions those name. `openapi.json`, `plugins.md` and `sdk.md` are
+deliberately absent: they are the instance's, and a partial `openapi.json` would
+invite a generator to treat your routes as the whole API. `--out` is required with
+`--plugin`, because `docs/reference/` is the instance's own and is gated for drift.
+An unknown id is refused with the loaded ids listed, rather than answered with an
+empty document.
+
 ### A sealed column a rotation must walk
 
 If your plugin seals a column with the platform key (`secret-wrap`, or a
