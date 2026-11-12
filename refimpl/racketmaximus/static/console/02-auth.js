@@ -195,6 +195,10 @@ function visibleTabs(){
   // permission instead.
   const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','knowledge','jobs','team','usage'].filter(x=>S.features[x]!==false);
   if(canPerm('reviews:read')) tabs.splice(tabs.indexOf('workflows')+1, 0, 'reviews');
+  // #191 slice 3: `research:use`, which member, admin and owner hold — so a
+  // viewer does not see a tab whose every request would be refused. Beside
+  // Knowledge, because what a bookmark is FOR is what it adds to that graph.
+  if(canPerm('research:use')) tabs.splice(tabs.indexOf('knowledge')+1, 0, 'research');
   if(canPerm('localization:read')) tabs.splice(tabs.indexOf('usage'), 0, 'localize');
   // #179: `instance:read`, which `instance:manage` implies by name (#124), so
   // an operator keeps it and a monitoring credential scoped to the read gets

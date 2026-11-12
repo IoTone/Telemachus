@@ -2214,6 +2214,34 @@
         "x-tmach-permission-checked": "resource"
       }
     },
+    "/api/kg/entities/{id}/graph": {
+      "get": {
+        "description": "An entity's neighbourhood as nodes and edges, for a drawing: `?hops=` 1 or 2, clamped. The walk takes neighbours in name order and stops at `cap` nodes, reporting `truncated` when it did, so the same graph gives the same picture on every instance. A node or an edge appears only under the mention rule — a fact the caller has no readable mention of is not drawn. An entity the caller cannot see and one that does not exist are the same 404.",
+        "operationId": "get.api.kg.entities.id.graph",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "kg"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "kg-graph",
+        "x-tmach-permission": "files:read",
+        "x-tmach-permission-checked": "resource"
+      }
+    },
     "/api/kg/extract": {
       "post": {
         "description": "Queue the index-knowledge workflow over the team's unextracted documents.",
@@ -4333,6 +4361,34 @@
         ],
         "x-tmach-auth": "bearer",
         "x-tmach-handler": "research-get",
+        "x-tmach-permission": "research:use",
+        "x-tmach-permission-checked": "role"
+      }
+    },
+    "/api/research/{id}/entities": {
+      "get": {
+        "description": "The knowledge-graph entities the bookmark's archived page mentions, each with how often. The page carries its own visibility, so this is checked against the caller's right to READ it as well as against `research:use`: `reason` says `not-archived` when there is no page yet and `unreadable` when the page is not the caller's to read, and is absent otherwise. `extracted` says whether the current version has been through Index Knowledge, which is what separates an empty list meaning \"nothing found\" from one meaning \"not read yet\".",
+        "operationId": "get.api.research.id.entities",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "research"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "research-entities",
         "x-tmach-permission": "research:use",
         "x-tmach-permission-checked": "role"
       }

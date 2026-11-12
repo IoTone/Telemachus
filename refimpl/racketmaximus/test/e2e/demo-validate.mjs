@@ -970,6 +970,65 @@ try {
   await page.evaluate(() => renderTab());
   await page.waitForSelector('#nlist', { timeout: 5000 });
 
+  // ── 3c7. the Research tab: a bookmark, what it says, and its picture (#191 slice 3)
+  // Driven through the real form. The URL is one the egress policy refuses at
+  // once (RG-3), so the create needs no network and still exercises the one
+  // path that matters most: a bookmark whose fetch failed is KEPT, and the
+  // detail card names why there is nothing to show rather than showing an
+  // empty list. Nothing here asks for a 404 — this gate fails on any console
+  // error, and the browser logs one for every 4xx.
+  step('research: a bookmark, and a seeded picture');
+  ok('the Research tab is offered', await goTab(page, 'research', '#rsurl'));
+  await page.fill('#rsurl', 'http://169.254.169.254/e2e-research');
+  await page.fill('#rstitle', 'E2E bookmark');
+  await page.click('#rsadd');
+  ok('the bookmark is listed though its fetch was refused',
+    await until(page, () => (document.getElementById('main') || {}).innerHTML?.includes('e2e-research'),
+      { timeout: 10000 }));
+  ok('…and its detail names the remedy instead of an empty list',
+    await until(page, () => {
+      const n = document.getElementById('rsentnote');
+      return !!n && n.textContent === t('rs_notarchivedhint');
+    }, { timeout: 10000 }));
+  // THE DRAWING IS A PURE FUNCTION OF WHAT THE SERVER SENT, called as one —
+  // §3c6's rule, and the layout is the note graph's, so this is also the check
+  // that sharing it worked.
+  const pic = await page.evaluate(() => {
+    const G = { nodes: [{ id: 'a', name: 'Acme', type: 'organization', focus: true },
+                        { id: 'b', name: 'Ada', type: 'person', focus: false },
+                        { id: 'c', name: 'Globex', type: 'organization', focus: false }],
+                edges: [{ id: 'r1', from: 'b', to: 'a', predicate: 'works_at' },
+                        { id: 'r2', from: 'a', to: 'c', predicate: 'customer_of' }] };
+    const one = entityGraphSVG(G), two = entityGraphSVG(G);
+    const d = document.createElement('div'); d.innerHTML = one;
+    // the H() indices differ between two calls by design, so the comparison is
+    // over the GEOMETRY, which is what determinism is about
+    const geo = (h) => h.replace(/data-h-click="\d+"/g, '');
+    return { same: geo(one) === geo(two), circles: d.querySelectorAll('circle').length,
+             focus: d.querySelectorAll('circle.ng-focus').length,
+             clickable: d.querySelectorAll('g.ng-click[data-h-click]').length,
+             lines: d.querySelectorAll('line').length };
+  });
+  ok('the same neighbourhood draws the same picture', pic.same, JSON.stringify(pic));
+  ok('…one node per entity, the focus marked once, two edges',
+    pic.circles === 3 && pic.focus === 1 && pic.lines === 2, JSON.stringify(pic));
+  ok('…and every node but the focus refocuses the picture', pic.clickable === 2, JSON.stringify(pic));
+  // A HOPS CHANGE REDRAWS THE PICTURE, NOT THE TAB: a half-typed URL survives it
+  await page.fill('#rsurl', 'https://half-typed.example/');
+  const rseq = await page.evaluate(() => renderSeq);
+  await page.evaluate(() => rsSetHops('2'));
+  await page.waitForTimeout(600);
+  ok('a hops change left the tab alone', await page.evaluate(() => renderSeq) === rseq);
+  ok('…so the URL being typed survived', await page.inputValue('#rsurl') === 'https://half-typed.example/');
+  // put the world back: §3c6's lesson about a fixture that changes global state
+  await page.evaluate(async () => {
+    const r = await fetch('/api/research', { headers: { 'Authorization': 'Bearer ' + S.token } });
+    for (const s of ((await r.json()).sources || []))
+      if ((s.url || '').includes('e2e-research'))
+        await fetch('/api/research/' + s.id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + S.token } });
+    S.rs = { sel: null, ent: null, hops: 1 };
+  });
+
   // ── 3d. the command palette and the keyboard (issue #182) ───────────────────
   // Real key events through the real delegated listener: a source assertion can
   // say the hook is wired and only a browser can say the key arrives.
