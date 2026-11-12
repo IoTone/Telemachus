@@ -272,6 +272,16 @@ it would use.
 
 ## RG‑10 — The answer's citation rule is #183's, and it moves to one home
 
+> **BUILT, 12 Nov 2026**, ahead of RG‑6. `domain/ai/citations.rkt` holds the
+> floor rule (`floor-admits?`), resolution and the inventory rule
+> (`verify-citations`), the marker reader (`cited-markers`), and the two shared
+> reasons (`CITATION-REASONS`). `answer.rkt` asks it; `HELP-ANSWER-REASONS` is
+> help's own three-plus-two, appended. Behaviour is unchanged, and
+> `test/help-tests.rkt` passing untouched (bar two moved names) is what says so.
+> The second asker is RG‑6's answerer, which is still waiting on its recall
+> measurement — so for now this is one home with one caller and a test behind
+> it (#110 r4's stated exception).
+
 RSCH‑4 said a statement whose source is not in the fetched set is **refused, not
 footnoted**. `domain/help/answer.rkt` implements that and one more layer #183's
 only real-model run had to discover:
