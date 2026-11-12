@@ -237,7 +237,7 @@ async function renderTab(){ hPassStart(); try {
   // screen. See `noteDraftRead` in 03-tabs.js.
   noteDraftRead();
   el.innerHTML='<p class="muted">…</p>';
-  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,reviews:reviewsView,knowledge:knowledgeView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,health:healthView,localize:localizeView,admin:adminView}[S.tab]||chatView)();
+  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,reviews:reviewsView,knowledge:knowledgeView,research:researchView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,health:healthView,localize:localizeView,admin:adminView}[S.tab]||chatView)();
   if (seq !== renderSeq) return;                    // superseded mid-flight — discard, don't clobber
   el.innerHTML = html;
   // #230: the URL mirrors the view, and THIS is the one seam every view change

@@ -3931,6 +3931,11 @@ assert "research: a member sees an empty archive" \
 assert "research: a credential in the URL is refused — this row has nowhere to keep one" \
   "$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
       -d '{"url":"https://user:pass@example.com/x"}')" 'take the credential out of'
+# A body that is valid JSON and not an OBJECT is the caller's mistake, so a 400
+# naming what is missing — it was a 500 until the console encoded a body twice.
+RSBAD=$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/research -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/json' -d '"https://example.com/"')
+assert "research: a JSON string where an object belongs is a 400, not a 500" "$RSBAD" '400'
 assert "research: a non-http URL is refused" \
   "$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
       -d '{"url":"ftp://example.com/x"}')" 'must be an http(s) URL'
@@ -3981,6 +3986,26 @@ assert "research: the listing carries the team's bookmarks" \
 # usage endpoint, which is where an operator would look.
 assert "research: the fetch budget is reported, so a team can see it" \
   "$(curl -s $B/api/usage -H "Authorization: Bearer $OP")" '"dimension":"research.fetches"'
+
+# #191 slice 3: what the archived page told the knowledge graph. Every state a
+# reader can act on is NAMED — a bookmark whose fetch was refused has no page,
+# and the answer says so rather than handing back an empty list that reads as
+# "nothing found".
+RSE=$(curl -s $B/api/research/$RSID/entities -H "Authorization: Bearer $OP")
+assert "research: a bookmark with no archived page says so" "$RSE" '"reason":"not-archived"'
+assert "research: …with an empty entity list beside it" "$RSE" '"entities":[]'
+assert "research: a viewer may not ask what a page said either" \
+  "$(curl -s $B/api/research/$RSID/entities -H "Authorization: Bearer $VERA")" 'Forbidden: research:use'
+assert "research: another team's bookmark is a 404 here too" \
+  "$(curl -s $B/api/research/00000000-0000-0000-0000-000000000000/entities -H "Authorization: Bearer $OP")" \
+  'no such bookmark'
+# The drawing's read. An entity nobody may see and one that does not exist are
+# ONE answer, so the graph is not an existence oracle on an entity id.
+assert "research: the neighbourhood of an entity that is not there is a 404" \
+  "$(curl -s "$B/api/kg/entities/00000000-0000-0000-0000-000000000000/graph?hops=2" -H "Authorization: Bearer $OP")" \
+  '"error":"not found"'
+assert "research: …and a stranger gets 401 before anything is looked up" \
+  "$(curl -s "$B/api/kg/entities/00000000-0000-0000-0000-000000000000/graph")" 'Authentication required'
 
 # Forgetting a bookmark is not retracting the page.
 assert "research: a bookmark can be forgotten" \

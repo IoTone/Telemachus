@@ -3,7 +3,7 @@
 ;; server/api/research.rkt — the research archive (#191 slice 1, RG-1/-3/-11).
 
 (provide ep-research-list ep-research-create ep-research-get ep-research-delete
-         ep-research-fetch)
+         ep-research-fetch ep-research-entities)
 
 (require db-kit/portable
          web-kit
@@ -12,6 +12,7 @@
          (only-in "../../domain/authz/authz.rkt" audit! principal-team-id principal-user-id
                   require-perm)
          (only-in "../../domain/net/fetch.rkt" safe-url)
+         (only-in "../../domain/kg/kg.rkt" kg-entities-on)
          (only-in "../../domain/research/research.rkt"
                   canonical-url research-problem research-create! research-list research-get
                   research-delete! research-fetch!)
@@ -82,7 +83,11 @@
 (define (ep-research-create req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "research:use")
-    (define b (read-json-body req))
+    (define b0 (read-json-body req))
+    ;; A body that is valid JSON but not an OBJECT reached `hash-ref` and came
+    ;; back a 500 — found by the console encoding its body twice, which is a
+    ;; caller's mistake and so a 400 (#123's line between the two).
+    (define b (if (hash? b0) b0 (hasheq)))
     (define url (or (str b 'url) ""))
     (define title (str b 'title))
     (define note (str b 'note))
@@ -172,3 +177,29 @@
        ;; failure as its own. A refusal by QUOTA is different in kind — this
        ;; instance declined — and gets its 429.
        (fetch-response (lambda () (research-get db-conn id (principal-team-id p))) out)]))))
+
+;; #191 slice 3: what the archived page told the knowledge graph. Two gates and
+;; they are different questions: `research:use` is whether the caller may use
+;; the bookmark surface at all, and the archive's own `can?` (inside
+;; `kg-entities-on`) is whether they may read the PAGE. A bookmark row is the
+;; team's, but the document behind it carries its own visibility, so a member
+;; may see that a bookmark exists and still not be shown what its page says.
+;;
+;; The three states a reader can act on are named, never collapsed into an
+;; empty list: `not-archived` (fetch it), `unreadable` (the page is not yours to
+;; read), and an empty list with `extracted: false` (run Index Knowledge). A
+;; bookmark that is not this team's is a 404, as `GET /api/research/:id` is.
+(define (ep-research-entities req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "research:use")
+    (define row (research-get db-conn id (principal-team-id p)))
+    (cond
+      [(not row) (err "no such bookmark" 404)]
+      [(not (string? (hash-ref row 'object_id #f)))
+       (json-response (hasheq 'source_id id 'reason "not-archived" 'entities '()))]
+      [else
+       (define r (kg-entities-on db-conn p (hash-ref row 'object_id)))
+       (json-response
+        (if r
+            (hash-set r 'source_id id)
+            (hasheq 'source_id id 'reason "unreadable" 'entities '())))]))))

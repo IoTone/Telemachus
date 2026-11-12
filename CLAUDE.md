@@ -2968,6 +2968,50 @@ raco test test/flow-tests.rkt                                          # 34 case
   — 16 added lines, no reordering.
 
 
+## The Research tab: what a bookmark said, drawn (RG-9, #191 slice 3)
+
+Built 11 Nov 2026. `kg-entities-on` and `kg-graph` in `domain/kg/kg.rkt`;
+`GET /api/research/:id/entities` and `GET /api/kg/entities/:id/graph`;
+`static/console/22-research.js`. **No migration, no new permission.** Slice 4
+(RG-6's graph-first retrieval, RG-10's shared citation rule) waits on a recall
+measurement, as decided on #191.
+
+```sh
+raco test test/research-graph-tests.rkt   # 5 cases; the readability and name-order controls bite
+raco test test/console-tests.rkt          # the five Research cases
+bash test/server-smoke.sh                 # the slice-3 lines of the "research:" block
+bash test/e2e/validate.sh                 # §3c7 — the real form, and a seeded picture
+```
+
+- **TWO GATES ON ONE READ, AND THEY ARE DIFFERENT QUESTIONS.** `research:use`
+  is whether the caller may use the bookmark surface; the archived page carries
+  its OWN visibility, so `kg-entities-on` asks `can?` on the page. A member may
+  see that a bookmark exists and not be shown what its page says. Under KG-3
+  every entity on a readable page is visible by construction, so the page's
+  readability is the whole check, made once.
+- **EVERY STATE A READER CAN ACT ON IS NAMED**: `not-archived` (fetch again),
+  `unreadable`, and `extracted` beside the list, which separates "nothing found"
+  from "Index Knowledge has not read this version yet". The marker is keyed to
+  the CURRENT version, so a re-fetch makes the page unread again with nothing
+  to reset.
+- **THE GRAPH IS BOUNDED AND ITS ORDER IS DETERMINISTIC.** `KG-GRAPH-CAP` 40,
+  `hops` clamped to 1..2, the frontier and each entity's neighbours walked in
+  (name, id) order, so a cap drops the same nodes on every instance and
+  `truncated` says it did. The control is a hub whose spokes are inserted in
+  REVERSE name order; a walk that followed row order keeps the wrong ones.
+- **ONE LAYOUT.** The picture calls 21-notegraph.js's `graphLayout`, so
+  ORG-13's determinism argument is made once; 22 sorts after 21 for that
+  reason, and the console test refuses a second layout, a timer or
+  `Math.random` in the file.
+- **`api()` ENCODES `body` ITSELF**, and passing `JSON.stringify(...)` sends a
+  JSON string. The server answered that with a **500** from `hash-ref`; the
+  create now treats a non-object body as empty, so it is a 400 naming the
+  missing URL. Other handlers that `hash-ref` a body have the same shape and
+  were not swept here.
+- **The browser gate drives a fetch the egress policy refuses at once** (RG-3),
+  so it needs no network, and asks for no 4xx: every 4xx is a console error to
+  that gate.
+
 ## The citation rule has one home (RG‑10, #191)
 
 `domain/ai/citations.rkt`, no dependencies. In-product help's three rules —

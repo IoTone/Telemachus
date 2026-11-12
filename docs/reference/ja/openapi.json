@@ -2214,6 +2214,34 @@
         "x-tmach-permission-checked": "resource"
       }
     },
+    "/api/kg/entities/{id}/graph": {
+      "get": {
+        "description": "エンティティの近傍を、描画用のノードとエッジとして返します。`?hops=` は 1 または 2 で、範囲外の値は丸められます。近傍は名前順にたどり、`cap` 個のノードで打ち切り、打ち切った場合は `truncated` で知らせます。そのため同じグラフはどのインスタンスでも同じ図になります。ノードとエッジは言及ルールに従ってのみ表示され、呼び出し元が読める言及のない事実は描かれません。呼び出し元が見られないエンティティと存在しないエンティティは、どちらも同じ 404 になります。",
+        "operationId": "get.api.kg.entities.id.graph",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "kg"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "kg-graph",
+        "x-tmach-permission": "files:read",
+        "x-tmach-permission-checked": "resource"
+      }
+    },
     "/api/kg/extract": {
       "post": {
         "description": "チームの未抽出文書をインデックス化するワークフローをキューに追加します。",
@@ -4333,6 +4361,34 @@
         ],
         "x-tmach-auth": "bearer",
         "x-tmach-handler": "research-get",
+        "x-tmach-permission": "research:use",
+        "x-tmach-permission-checked": "role"
+      }
+    },
+    "/api/research/{id}/entities": {
+      "get": {
+        "description": "ブックマークのアーカイブページに出てくるナレッジグラフのエンティティと、それぞれの言及回数を返します。ページには独自の公開範囲があるため、`research:use` に加えて、呼び出し元がそのページを読めるかどうかも確認します。ページがまだない場合 `reason` は `not-archived`、呼び出し元が読めない場合は `unreadable` になり、それ以外では含まれません。`extracted` は現在のバージョンが Index Knowledge を通ったかどうかを示し、空のリストが「何も見つからなかった」のか「まだ読まれていない」のかを区別します。",
+        "operationId": "get.api.research.id.entities",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "research"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "research-entities",
         "x-tmach-permission": "research:use",
         "x-tmach-permission-checked": "role"
       }
