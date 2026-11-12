@@ -229,7 +229,7 @@
 (test-case "a colleague cannot embed a private document, and nothing is written"
   (define-values (conn p tid) (seed!))
   (define o (indexed! conn p "hr/secret.md" "the zebra severance plan." #:vis "private"))
-  (define bob (create-user! conn #:username "bob" #:password "pw"))
+  (define bob (create-user! conn #:username "bob" #:password "pw-fixture-1"))
   (add-member! conn #:team tid #:user bob #:role "member")
   (define pbob (user-principal conn bob tid))
   (with-embedder

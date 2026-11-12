@@ -203,7 +203,7 @@
                "a script body is not searchable")
 
   ;; a colleague: sees team content, never the private document's content
-  (define bob (create-user! conn #:username "bob" #:password "pw"))
+  (define bob (create-user! conn #:username "bob" #:password "pw-fixture-1"))
   (add-member! conn #:user bob #:team tid #:role "member")
   (define pbob (user-principal conn bob tid))
   (check-true (for/or ([x (in-list (search-all conn pbob "octopus"))])

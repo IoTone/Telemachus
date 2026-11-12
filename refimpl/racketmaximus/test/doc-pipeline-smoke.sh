@@ -122,7 +122,7 @@ except Exception: print("")')
 echo "doc-pipeline smoke — model: ${TMACH_MODEL:-?} at $TMACH_MODEL_URL ($([ $LIVE = 1 ] && echo live || echo mock))"
 echo
 echo "== 0. bootstrap, a colleague, a budget ========================================"
-TOK=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"demo-pass1"}' | jq_ 'd["token"]')
+TOK=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"demo-pass-1234"}' | jq_ 'd["token"]')
 BOBJ=$(P /api/members '{"username":"bob","role":"member"}'); BOB=$(printf '%s' "$BOBJ" | jq_ 'd["token"]'); BOBID=$(printf '%s' "$BOBJ" | jq_ 'd["user_id"]')
 CARJ=$(P /api/members '{"username":"carol","role":"member"}'); CAROL=$(printf '%s' "$CARJ" | jq_ 'd["token"]')
 # the default 2,000 tokens/day would stall a pipeline in its queue (see CLAUDE.md)

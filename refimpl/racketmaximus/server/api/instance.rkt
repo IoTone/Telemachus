@@ -17,6 +17,9 @@
 (require db-kit/portable
          web-kit
          (only-in "../../domain/authz/authz.rkt" SESSION-KIND bootstrap! issue-token! team-org)
+         ;; 0.13.0: ONE password floor. The endpoint applies the BASELINE here, and
+         ;; `activate!` asks the account-aware one before it spends the link.
+         (only-in "../../domain/authz/passwords.rkt" password-problem)
          (only-in "../../domain/beta/beta.rkt" default-team)
          (only-in "../../domain/beta/experience.rkt" experience-landing resolve-experience)
          (only-in "../../domain/i18n/policy.rkt" i18n-policy)
@@ -117,7 +120,9 @@
     [(redeem-throttled? (client-ip-of req))
      (err "too many attempts from this address — wait a few minutes" 429)]
     [(or (not tok) (not pw)) (err "token and password required" 400)]
-    [(< (string-length (format "~a" pw)) 8) (err "password must be at least 8 characters" 400)]
+    ;; the baseline; the account's own floor (12 for a role that can change other
+    ;; people's credentials) is enforced by `activate!` BEFORE it spends the link
+    [(password-problem (format "~a" pw)) => (lambda (p) (err p 400))]
     [else
      (define res (call-with-values
                   (lambda () (activate! db-conn #:token (format "~a" tok) #:password (format "~a" pw))) list))

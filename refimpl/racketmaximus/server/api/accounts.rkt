@@ -24,7 +24,7 @@
          (only-in "../../config.rkt" app-version app-build)
          "../../domain/authz/authz.rkt"
          (only-in "../startup.rkt" strict-startup? well-known-secret-key?)
-         (only-in "../../domain/authz/passwords.rkt" kdf-name)
+         (only-in "../../domain/authz/passwords.rkt" kdf-name password-problem)
          (only-in "../../domain/beta/antispam.rkt" make-limiter limiter-allow?)
          "../../domain/accounts/reset.rkt"
          "../../domain/accounts/invite.rkt"
@@ -166,8 +166,10 @@
     (require-perm db-conn p "instance:manage")
     (define new (hash-ref (read-json-body req) 'new_password #f))
     (cond
-      [(or (not (string? new)) (< (string-length new) 6)) (err "new_password required (min 6)" 400)]
       [(not (query-maybe-value db-conn "SELECT id FROM users WHERE id = ?" uid)) (err "no such user" 404)]
+      ;; the TARGET account's floor, not the operator's: resetting an operator's
+      ;; password to eight characters is the case this number is for
+      [(password-problem new (password-floor db-conn uid)) => (lambda (x) (err x 400))]
       [else
        (set-password! db-conn uid new)
        ;; issue #116: this is the documented way back in for somebody a hard lock
@@ -294,7 +296,14 @@
        [(query-maybe-value db-conn "SELECT id FROM users WHERE username = ?" (format "~a" username))
         (err "username already exists on this instance" 409)]
        [else
-         (define uid (create-user! db-conn #:username username #:password (hash-ref body 'password #f)))
+         ;; the ROLE decides the floor here, because the account has no membership
+         ;; yet: an admin or owner being added is held to 12 even though
+         ;; `create-user!` can only see "a new account"
+         (define pw (hash-ref body 'password #f))
+         (when pw
+           (define pw-problem (password-problem pw (password-floor-for-role db-conn role)))
+           (when pw-problem (err pw-problem 400)))
+         (define uid (create-user! db-conn #:username username #:password pw))
          (add-member! db-conn #:user uid #:team (principal-team-id p) #:role role)
          (audit! db-conn #:action "member.add" #:actor-type "user" #:actor-id (principal-user-id p)
                 #:team-id (principal-team-id p) #:resource-type "user" #:resource-id uid)
@@ -505,7 +514,11 @@
     [(redeem-throttled? (client-ip-of req))
      (err "too many attempts from this address — wait a few minutes" 429)]
     [(not tok) (err "token required" 400)]
-    [(reset-password-problem (and (string? pw) pw)) => (lambda (p) (err p 400))]
+    ;; the BASELINE only, because this lookup has no account yet — the link is
+    ;; what identifies one. `reset-password!` applies the account's own floor
+    ;; (12 for an operator) BEFORE it spends the link, so a weak password here is
+    ;; refused twice rather than burning an hour-long reset.
+    [(password-problem (and (string? pw) pw)) => (lambda (p) (err p 400))]
     [else
      (define res (call-with-values
                   (lambda () (reset-password! db-conn #:token (format "~a" tok) #:password pw))
@@ -650,7 +663,10 @@
     (define new (hash-ref b 'new_password #f))
     (cond
       [(or (not cur) (not new)) (err "current_password and new_password required" 400)]
-      [(< (string-length new) 6) (err "new password too short (min 6)" 400)]
+      ;; the caller's OWN floor: 12 when this account can change somebody else's
+      ;; credential, 8 otherwise. `set-password!` applies the same rule, so this
+      ;; check buys a message rather than the enforcement.
+      [(password-problem new (password-floor db-conn (principal-user-id p))) => (lambda (x) (err x 400))]
       [(change-password! db-conn (principal-user-id p) cur new)
        ;; every session the old password could have minted goes, INCLUDING this
        ;; one: the caller signs in again. Issuing a fresh token here instead would

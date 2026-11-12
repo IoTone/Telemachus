@@ -79,7 +79,7 @@ pj(){ curl -s -X POST "$B$1" -H "Authorization: Bearer $2" -d "${3:-{\}}"; }
 echo
 echo "== 0. bootstrap the SUPERADMIN (instance operator) =============================="
 assert "flag advertised" "$(curl -s $B/health)" '"multitenant":true'
-BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"root@instance","password":"superadmin1"}')
+BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"root@instance","password":"superadmin-1234"}')
 ROOT=$(jget 'd["token"]' <<<"$BS")
 assert "superadmin created"  "$BS" '"multitenant":true'
 assert "instance org"        "$(g /api/whoami $ROOT)" '"org_slug":"system"'
@@ -549,7 +549,7 @@ tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$((PORT+1))) 2>/dev/null; do
 done; exec 3>&- 2>/dev/null || true
 
 assert "flag off advertised" "$(curl -s $B2/health)" '"multitenant":false'
-BS2=$(curl -s -X POST $B2/api/bootstrap -d '{"username":"alice","password":"s3cret"}')
+BS2=$(curl -s -X POST $B2/api/bootstrap -d '{"username":"alice","password":"s3cret-enough"}')
 OP2=$(jget 'd["token"]' <<<"$BS2")
 assert "single-tenant bootstrap" "$BS2" '"multitenant":false'
 assert "orgs plane is 404"  "$(curl -s $B2/api/orgs -H "Authorization: Bearer $OP2")"  'not enabled'

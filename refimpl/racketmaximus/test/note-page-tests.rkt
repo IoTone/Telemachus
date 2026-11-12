@@ -31,7 +31,7 @@
   (define-values (uid tid) (bootstrap! c #:username "root"))
   (values c (user-principal c uid tid) tid))
 (define (member-of c team username #:role [role "member"])
-  (define u (create-user! c #:username username #:password "pw"))
+  (define u (create-user! c #:username username #:password "pw-fixture-1"))
   (add-member! c #:user u #:team team #:role role)
   (user-principal c u team))
 (define (titles ns) (for/list ([n (in-list ns)]) (hash-ref n 'title)))
@@ -179,9 +179,9 @@
   ;; member of both teams reads only the team it is ACTING as, so the walk below
   ;; would have been five of ten and would have been `can?` working rather than
   ;; the ordering failing. It was, on the first run.
-  (define u (create-user! c #:username "reader" #:password "pw" #:org org #:org-role "org_reader"))
+  (define u (create-user! c #:username "reader" #:password "pw-fixture-1" #:org org #:org-role "org_reader"))
   (add-member! c #:user u #:team t1 #:role "member")
-  (define writer (create-user! c #:username "writer" #:password "pw" #:org org))
+  (define writer (create-user! c #:username "writer" #:password "pw-fixture-1" #:org org))
   (add-member! c #:user writer #:team t1 #:role "member")
   (add-member! c #:user writer #:team t2 #:role "member")
   (define p1 (user-principal c u t1))

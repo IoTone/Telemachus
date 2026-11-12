@@ -65,7 +65,7 @@ done
 exec 3>&- 2>/dev/null || true
 
 B="localhost:$PORT"
-TOK=$(curl -s -X POST $B/api/bootstrap -d '{"username":"ops","password":"pw"}' | grep -oP '"token":\s*"\K[^"]+')
+TOK=$(curl -s -X POST $B/api/bootstrap -d '{"username":"ops","password":"pw-pw-pw-1234"}' | grep -oP '"token":\s*"\K[^"]+')
 CRED=$(curl -s -X POST $B/api/s3/credentials -H "Authorization: Bearer $TOK" -d '{"name":"smoke"}')
 export AWS_ACCESS_KEY_ID=$(printf '%s' "$CRED" | grep -oP '"access_key_id":\s*"\K[^"]+')
 export AWS_SECRET_ACCESS_KEY=$(printf '%s' "$CRED" | grep -oP '"secret_access_key":\s*"\K[^"]+')

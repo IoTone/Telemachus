@@ -40,12 +40,12 @@ try {
   // ── sign in (bootstrap the operator on a fresh instance) ────────────────────
   await page.goto(BASE + '/', { waitUntil: 'networkidle', timeout: 20000 });
   await page.waitForSelector('#lu', { timeout: 15000 });
-  await page.fill('#lu', 'alice'); await page.fill('#lp', 's3cret');
+  await page.fill('#lu', 'alice'); await page.fill('#lp', 's3cret-enough');
   await page.evaluate(() => window.doLogin());
   const ok = await page.waitForSelector('nav.tabs', { timeout: 8000 }).catch(() => null);
   if (!ok) {                                   // fresh DB — no operator yet
     await page.click('summary:has-text("First run")');
-    await page.fill('#bu', 'alice'); await page.fill('#bp', 's3cret');
+    await page.fill('#bu', 'alice'); await page.fill('#bp', 's3cret-enough');
     await page.evaluate(() => window.doBootstrap());
     await page.waitForSelector('nav.tabs', { timeout: 15000 });
   }

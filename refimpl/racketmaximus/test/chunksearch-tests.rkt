@@ -188,7 +188,7 @@
   (define-values (o cs) (seed-doc conn p))
   ;; a second team, with a principal who is a member of it and not of alice's
   (define other (create-team! conn #:name "Other" #:slug "other"))
-  (define carol (create-user! conn #:username "carol" #:password "pw"))
+  (define carol (create-user! conn #:username "carol" #:password "pw-fixture-1"))
   (add-member! conn #:team other #:user carol #:role "owner")
   (define pc (user-principal conn carol other))
   (define rep (chunks-nearest conn pc (fake-embedding 2.0) MODEL #:k 3))
@@ -224,7 +224,7 @@
   (define conn (fresh))
   (define-values (uid tid) (bootstrap! conn #:username "alice"))
   (define pa (user-principal conn uid tid))
-  (define bob (create-user! conn #:username "bob" #:password "pw"))
+  (define bob (create-user! conn #:username "bob" #:password "pw-fixture-1"))
   (add-member! conn #:team tid #:user bob #:role "member")
   (define pb (user-principal conn bob tid))
   ;; alice's PRIVATE document, whose only chunk is an exact match for the query
@@ -310,7 +310,7 @@
   (check-false (hash-ref roomy 'truncated))
   ;; (b) the headroom ran out: every candidate was weighed and `can?` left fewer
   ;; than were asked for, so readable chunks may sit below it
-  (define bob (create-user! conn #:username "bob" #:password "pw"))
+  (define bob (create-user! conn #:username "bob" #:password "pw-fixture-1"))
   (add-member! conn #:team tid #:user bob #:role "member")
   (define pb (user-principal conn bob tid))
   (query-exec conn "UPDATE repo_objects SET visibility = 'private' WHERE id = ?" (hash-ref o 'id))
@@ -355,7 +355,7 @@
   (define-values (o cs) (seed-doc conn p))
   ;; a principal acting for a team they hold no role in has no permissions at all
   (define other (create-team! conn #:name "Other" #:slug "other2"))
-  (define dave (create-user! conn #:username "dave" #:password "pw"))
+  (define dave (create-user! conn #:username "dave" #:password "pw-fixture-1"))
   (define pd (user-principal conn dave other))
   (check-exn #rx"files:read"
              (lambda () (chunks-nearest conn pd (fake-embedding 2.0) MODEL #:k 3)))

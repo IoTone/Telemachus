@@ -29,12 +29,12 @@
 (test-case "activate sets password + activates + returns a session; login works; token single-use"
   (define c (fresh))
   (define-values (tok uid tid _s) (provision! c #:provision-id "sub_2" #:owner-email "a@b.com"))
-  (define-values (auid atid session) (activate! c #:token tok #:password "hunter2xy"))
+  (define-values (auid atid session) (activate! c #:token tok #:password "hunter2xy-12"))
   (check-equal? auid uid)
   (check-equal? (query-value c "SELECT status FROM users WHERE id = ?" uid) "active")
   (check-true (string? session))
-  (check-equal? (authenticate c "a@b.com" "hunter2xy") uid)
-  (check-false (activate! c #:token tok #:password "again99")))   ; reused token rejected
+  (check-equal? (authenticate c "a@b.com" "hunter2xy-12") uid)
+  (check-false (activate! c #:token tok #:password "again99-again")))   ; reused token rejected
 
 (test-case "idempotent: same provision_id re-issues a token, never a second owner"
   (define c (fresh))
@@ -43,8 +43,8 @@
   (check-equal? uid1 uid2)
   (check-equal? (users c) 1)
   (check-true (and (string? t2) (not (string=? t1 t2))))
-  (check-false (activate! c #:token t1 #:password "zzzzzz11"))   ; old token invalidated by re-issue
-  (activate! c #:token t2 #:password "zzzzzz11")
+  (check-false (activate! c #:token t1 #:password "zzzzzz11zzzz"))   ; old token invalidated by re-issue
+  (activate! c #:token t2 #:password "zzzzzz11zzzz")
   (define-values (t3 _u _t st3) (provision! c #:provision-id "sub_3" #:owner-email "x@y.com"))
   (check-equal? st3 'active)
   (check-false t3))
@@ -103,7 +103,7 @@
     (provision! c #:provision-id "sub_legacy" #:owner-email "l@b.com"))
   (define legacy (sha1 (open-input-string (string-append "telemachus-activation-v0" tok))))
   (query-exec c "UPDATE activation_tokens SET token_hash = ? WHERE user_id = ?" legacy uid)
-  (define-values (auid atid session) (activate! c #:token tok #:password "legacy99x"))
+  (define-values (auid atid session) (activate! c #:token tok #:password "legacy99x-12"))
   (check-equal? auid uid "the old link still activates")
   (check-true (string? session))
   ;; and it was REWRITTEN, so the legacy path drains by itself rather than
@@ -119,5 +119,5 @@
   ;; error rather than a discard — the shape these notes have now recorded five
   ;; times. `call-with-values`, or name them.
   (define-values (_t _u _tm _s) (provision! c #:provision-id "sub_neg" #:owner-email "n@b.com"))
-  (check-false (activate! c #:token "tk_deadbeef" #:password "nope1234"))
+  (check-false (activate! c #:token "tk_deadbeef" #:password "nope1234-12x"))
   (disconnect c))

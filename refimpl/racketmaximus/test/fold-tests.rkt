@@ -57,10 +57,10 @@
 
   (define-values (uid tid) (bootstrap! c #:username "alice"))
   (define alice (user-principal c uid tid))
-  (define bob (create-user! c #:username "bob" #:password "pw"))
+  (define bob (create-user! c #:username "bob" #:password "pw-fixture-1"))
   (add-member! c #:user bob #:team tid #:role "member")
   (define pbob (user-principal c bob tid))
-  (define carol (create-user! c #:username "carol" #:password "pw"))
+  (define carol (create-user! c #:username "carol" #:password "pw-fixture-1"))
   (add-member! c #:user carol #:team tid #:role "member")
   (define pcarol (user-principal c carol tid))
 

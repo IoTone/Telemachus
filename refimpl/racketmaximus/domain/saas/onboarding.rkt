@@ -90,30 +90,43 @@
 ;; stops being true without anybody noticing. With a seed the caller is told the
 ;; password was set and sends them to sign in, where the code is demanded.
 (define (activate! conn #:token raw #:password pw)
-  (define uid (claim-mailed-token! conn raw #:purpose "activate"))
+  ;; THE FLOOR IS ASKED BEFORE THE CLAIM (0.13.0), because it depends on the
+  ;; ACCOUNT this link belongs to — an invited ADMIN or the provisioned owner can
+  ;; change other people's credentials and is held to 12 — and a claim is
+  ;; single-use. Refusing a weak password after spending the link would cost the
+  ;; person their invitation, which is a lockout with no self-service way out.
+  ;; `mailed-token-holder` is the read half of the claim, checked in the same
+  ;; order, so a token it answers for is one the claim accepts a moment later;
+  ;; `require-password!` raises, and the endpoint answers that as a 400.
+  (define holder (mailed-token-holder conn raw #:purpose "activate"))
   (cond
-    [(not uid) #f]
+    [(not holder) #f]
     [else
-     (set-password! conn uid pw)
-     (query-exec conn "UPDATE users SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?" uid)
-     (query-exec conn "UPDATE provisioning SET status = 'activated', updated_at = CURRENT_TIMESTAMP WHERE owner_user_id = ?" uid)
-     ;; RECEIVING THE LINK PROVED THE MAILBOX (INVITE-4), so a pending address is
-     ;; promoted here and the invitation needs no second confirmation message.
-     ;; THIS IS THE ONE CALLER, and it is the condition that function states: a
-     ;; token minted for this user has just been spent, one line above. A person
-     ;; with nothing pending is left alone, which is every activation on an
-     ;; instance with no mail.
-     (address-verify-by-redemption! conn uid)
-     (define tid (first-team-for conn uid))
-     (define tok
-       (and (not (has-second-factor? conn uid))
-            (let-values ([(t _t) (issue-token! conn #:user uid #:team tid
-                                               #:name "login" #:scopes '("*:*")
-                                               #:kind SESSION-KIND)])
-              t)))
-     (audit! conn #:action "activate" #:actor-type "user" #:actor-id uid #:team-id tid
-             #:resource-type "user" #:resource-id uid)
-     (values uid tid tok)]))
+     (require-password! conn holder pw)
+     (define uid (claim-mailed-token! conn raw #:purpose "activate"))
+     (cond
+       [(not uid) #f]
+       [else
+        (set-password! conn uid pw)
+        (query-exec conn "UPDATE users SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?" uid)
+        (query-exec conn "UPDATE provisioning SET status = 'activated', updated_at = CURRENT_TIMESTAMP WHERE owner_user_id = ?" uid)
+        ;; RECEIVING THE LINK PROVED THE MAILBOX (INVITE-4), so a pending address is
+        ;; promoted here and the invitation needs no second confirmation message.
+        ;; THIS IS THE ONE CALLER, and it is the condition that function states: a
+        ;; token minted for this user has just been spent, one line above. A person
+        ;; with nothing pending is left alone, which is every activation on an
+        ;; instance with no mail.
+        (address-verify-by-redemption! conn uid)
+        (define tid (first-team-for conn uid))
+        (define tok
+          (and (not (has-second-factor? conn uid))
+               (let-values ([(t _t) (issue-token! conn #:user uid #:team tid
+                                                  #:name "login" #:scopes '("*:*")
+                                                  #:kind SESSION-KIND)])
+                 t)))
+        (audit! conn #:action "activate" #:actor-type "user" #:actor-id uid #:team-id tid
+                #:resource-type "user" #:resource-id uid)
+        (values uid tid tok)])]))
 
 ;; ---- lifecycle --------------------------------------------------------------
 (define (set-tenant! conn pid team-status user-status prov-status action)

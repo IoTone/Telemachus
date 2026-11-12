@@ -29,7 +29,50 @@
 
 (provide hash-password verify-password verify-absent-password kdf-name
          password-needs-rehash? pbkdf2-hmac-sha256 PBKDF2-SHA256-ITERS
-         new-totp-secret totp-uri totp-valid?)
+         new-totp-secret totp-uri totp-valid?
+         ;; 0.13.0: ONE rule for how short a password may be. It is here, beside
+         ;; the KDF, because it is a property of a password and not of a route —
+         ;; and it is a FUNCTION so every path that sets one asks the same
+         ;; question instead of carrying its own copy of the number.
+         MIN-PASSWORD-LENGTH MIN-PRIVILEGED-PASSWORD-LENGTH password-problem)
+
+;; ---- how short a password may be (0.13.0) ------------------------------------
+;;
+;; ONE FUNCTION, AND EVERY PATH THAT SETS A PASSWORD ASKS IT. Before this the tree
+;; had three floors and a fourth path with none: 6 in the change-password
+;; endpoint, 6 in the operator's reset, 6 in the mailed reset, 8 at activation,
+;; and nothing at all when an account was created with a password — including the
+;; operator's own bootstrap. The numbers disagreed because each was written where
+;; it was needed, which is the same shape as the two token-hashing rules #186
+;; found.
+;;
+;; TWO FLOORS, and the second is not a preference: an account that can change
+;; SOMEBODY ELSE'S credential is a higher-value credential than one that cannot,
+;; so the password protecting it is held to 12. Which accounts those are is
+;; `domain/authz/authz.rkt`'s question (it needs the database to answer, and this
+;; module has no connection); what the floor means is here.
+;;
+;; 8 is what NIST SP 800-63B requires of a single-factor password; 12 is a
+;; deliberate step above it for the account whose password is a way into somebody
+;; else's. Neither number is a strength meter: length is the only requirement
+;; because it is the one rule a dictionary cannot argue with, and a composition
+;; rule ("one digit, one symbol") measurably pushes people towards `Password1!`.
+(define MIN-PASSWORD-LENGTH 8)
+(define MIN-PRIVILEGED-PASSWORD-LENGTH 12)
+
+;; -> #f, or a sentence to hand the caller. `floor` is an ARGUMENT rather than
+;; read from the environment so a caller that has the account in hand (every one
+;; of them does) passes the floor it computed, and a test can ask about both
+;; without a database.
+(define (password-problem pw [floor MIN-PASSWORD-LENGTH])
+  (cond
+    [(not (string? pw)) "a password is required"]
+    [(< (string-length pw) floor)
+     (if (> floor MIN-PASSWORD-LENGTH)
+         (format "password too short (min ~a — this account can change other people's credentials)"
+                 floor)
+         (format "password too short (min ~a)" floor))]
+    [else #f]))
 
 ;; issue #117: a sign-in that fails because the ACCOUNT does not exist must cost
 ;; what one that fails on the password costs. `authenticate` used to return #f

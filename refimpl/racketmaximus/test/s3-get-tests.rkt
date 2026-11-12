@@ -43,7 +43,7 @@
    (lambda ()
      (parameterize ([current-blob-root root])
        (define c (fresh))
-       (define-values (uid tid) (bootstrap! c #:username "root" #:password "root-pass-1"))
+       (define-values (uid tid) (bootstrap! c #:username "root" #:password "root-pass-12"))
        (define p (user-principal c uid tid))
        (void (repo-put! c p #:key "big.bin" #:content-type "application/octet-stream"
                         #:port (open-input-bytes BODY) #:filename "big.bin"))

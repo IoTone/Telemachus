@@ -151,7 +151,7 @@
   ;; every instance, because a format is not a capability." A member reads and
   ;; writes an org note exactly as they do a Markdown one.
   (define-values (c p tid) (setup))
-  (define u (create-user! c #:username "mem" #:password "pw"))
+  (define u (create-user! c #:username "mem" #:password "pw-fixture-1"))
   (add-member! c #:user u #:team tid #:role "member")
   (define mp (user-principal c u tid))
   (define id (hash-ref (notes-create c p #:title "team org" #:body "* h" #:format "org") 'id))

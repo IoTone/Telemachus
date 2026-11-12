@@ -180,20 +180,20 @@
     (lambda ()
       (define c (fresh))
       (define-values (uid tid) (bootstrap! c #:username "alice"))
-      (set-password! c uid "pw-pw-pw1")
+      (set-password! c uid "pw-pw-pw1-12")
       (define-values (seed uri codes) (enable-2fa! c uid))
       ;; what a dump would show
       (define stored (query-value c "SELECT totp_secret FROM users WHERE id = ?" uid))
       (check-true (wrapped-secret? stored) "the column holds a sealed value")
       (check-false (regexp-match? (regexp (regexp-quote seed)) stored) "…not the seed")
       ;; and sign-in still works, which is the whole point of doing it at the seam
-      (check-equal? (authenticate c "alice" "pw-pw-pw1" #:code (totp (base32-decode seed) (current-seconds))) uid)
-      (check-false (authenticate c "alice" "pw-pw-pw1" #:code "000000"))
-      (check-false (authenticate c "alice" "pw-pw-pw1") "2FA is still required")
+      (check-equal? (authenticate c "alice" "pw-pw-pw1-12" #:code (totp (base32-decode seed) (current-seconds))) uid)
+      (check-false (authenticate c "alice" "pw-pw-pw1-12" #:code "000000"))
+      (check-false (authenticate c "alice" "pw-pw-pw1-12") "2FA is still required")
       ;; reset: the seed is revoked, so a dump of it is no longer replayable
       (check-true (reset-2fa! c uid))
       (check-true (sql-null? (query-value c "SELECT totp_secret FROM users WHERE id = ?" uid)))
-      (check-equal? (authenticate c "alice" "pw-pw-pw1") uid "…and 2FA is off")
+      (check-equal? (authenticate c "alice" "pw-pw-pw1-12") uid "…and 2FA is off")
       (check-false (reset-2fa! c uid) "resetting again says there was nothing to reset")
       (disconnect c))))
 

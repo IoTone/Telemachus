@@ -184,7 +184,7 @@
   (with-embedder
     (lambda ()
       (embedded! conn p "notes/octo.md" OCTO)
-      (define vic (create-user! conn #:username "vic" #:password "pw"))
+      (define vic (create-user! conn #:username "vic" #:password "pw-fixture-1"))
       (add-member! conn #:team tid #:user vic #:role "viewer")
       (define pv (user-principal conn vic tid))
       (check-true (can? conn pv "files:read") "the fixture role must hold files:read")
@@ -243,7 +243,7 @@
   ;; (b) forbidden — configured, but the caller may not spend the budget
   (with-embedder
     (lambda ()
-      (define vic (create-user! conn #:username "vic" #:password "pw"))
+      (define vic (create-user! conn #:username "vic" #:password "pw-fixture-1"))
       (add-member! conn #:team tid #:user vic #:role "viewer")
       (define pv (user-principal conn vic tid))
       (define-values (rs rn) (search-passages conn pv "octopuses"))
@@ -298,7 +298,7 @@
   (with-embedder
     (lambda ()
       (define secret (embedded! conn p "hr/secret.md" OCTO #:vis "private"))
-      (define bob (create-user! conn #:username "bob" #:password "pw"))
+      (define bob (create-user! conn #:username "bob" #:password "pw-fixture-1"))
       (add-member! conn #:team tid #:user bob #:role "member")
       (define pb (user-principal conn bob tid))
       ;; alice reads her own

@@ -18,7 +18,9 @@
          web-server/http
          json
          web-kit
-         (only-in "../../domain/authz/authz.rkt" audit! principal-team-id principal-user-id require-perm set-user-org-role! user-org)
+         (only-in "../../domain/authz/authz.rkt" audit! principal-team-id principal-user-id require-perm
+                  set-user-org-role! user-org password-floor-for-role)
+         (only-in "../../domain/authz/passwords.rkt" password-problem)
          (only-in "../../domain/authz/permissions.rkt" org-role-key?)
          ;; the invitation itself, shared with the team plane so the two cannot
          ;; describe one invitation differently
@@ -59,13 +61,21 @@
          (err (format "unknown plan; expected one of ~a"
                       (string-join (sort (hash-keys org-plan-quotas) string<?) ", ")) 400)]
         [else
+         ;; the owner's password, at the OWNER role's floor — an owner holds
+         ;; `members:manage`, so 12. Creating a company with an 8-character owner
+         ;; password would make its administrator the easiest account to guess on
+         ;; it, which is the account that can add and remove everybody else.
+         (define owner-pw (let ([pw (hash-ref b 'owner_password #f)]) (and pw (format "~a" pw))))
+         (when owner-pw
+           (define pw-problem (password-problem owner-pw (password-floor-for-role db-conn "owner")))
+           (when pw-problem (err pw-problem 400)))
          (define created
           (org-create! db-conn p
                        #:name (format "~a" name)
                        #:slug (let ([sl (hash-ref b 'slug #f)]) (and sl (format "~a" sl)))
                        #:plan (format "~a" (hash-ref b 'plan "trial"))
                        #:owner-username (format "~a" owner)
-                       #:owner-password (let ([pw (hash-ref b 'owner_password #f)]) (and pw (format "~a" pw)))
+                       #:owner-password owner-pw
                        #:owner-name (let ([n (hash-ref b 'owner_name #f)]) (and n (format "~a" n)))
                        #:team-name (format "~a" (hash-ref b 'team_name "Engineering"))
                        #:team-slug (org-slugify (hash-ref b 'team_slug "engineering"))))
@@ -351,9 +361,15 @@
         [(query-maybe-value db-conn "SELECT id FROM users WHERE username = ?" (format "~a" u))
          (err "username already exists on this instance" 409)]
         [else
+         ;; the ROLE decides the floor, as it does on the team plane: the account
+         ;; does not exist yet, so there is no membership to ask about
+         (define pw (let ([pw (hash-ref b 'password #f)]) (and pw (format "~a" pw))))
+         (when pw
+           (define pw-problem (password-problem pw (password-floor-for-role db-conn role)))
+           (when pw-problem (err pw-problem 400)))
          (define r (org-attach-member! db-conn p (caller-org p)
                                        #:username (format "~a" u)
-                                       #:password (let ([pw (hash-ref b 'password #f)]) (and pw (format "~a" pw)))
+                                       #:password pw
                                        #:display-name (let ([d (hash-ref b 'display_name #f)]) (and d (format "~a" d)))
                                        #:team (let ([t (hash-ref b 'team_id #f)]) (and t (format "~a" t)))
                                        #:role role

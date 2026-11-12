@@ -166,21 +166,21 @@ assert "bundle traversal refused"      "$(curl -s -o /dev/null -w '%{http_code}'
 # …and when the client does NOT collapse it either: a ".." segment reaches the
 # server as Racket's 'up symbol, and used to raise a 500 instead of being refused
 assert "…even unnormalized"           "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/beta/bundle/beta-onboarding/../plugin.json")" '404'
-BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"s3cret"}')
+BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"s3cret-enough"}')
 assert "bootstrap token" "$BS" '"token":"tk_'
 assert "bootstrap msg"   "$BS" 'Created operator alice'
 OP=$(printf '%s' "$BS" | grep -oP '"token":\s*"\K[^"]+')
-assert "login good"      "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret"}')" '"token":"tk_'
+assert "login good"      "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret-enough"}')" '"token":"tk_'
 assert "login bad pw"    "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"nope"}')" 'Authentication required'
 # issue #54: a password change now revokes every session it could have minted,
 # INCLUDING the one making the call, so the caller signs in again. This suite used
 # to change the password and keep using the same token.
-assert "change pw"       "$(curl -s -X POST $B/api/password -H "Authorization: Bearer $OP" -d '{"current_password":"s3cret","new_password":"newpass1"}')" '"signed_out":true'
+assert "change pw"       "$(curl -s -X POST $B/api/password -H "Authorization: Bearer $OP" -d '{"current_password":"s3cret-enough","new_password":"newpass-enough"}')" '"signed_out":true'
 assert "the change revoked the session that made it" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" 'Authentication required'
-NEWLOGIN=$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"newpass1"}')
+NEWLOGIN=$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"newpass-enough"}')
 assert "login new pw"    "$NEWLOGIN" '"token":"tk_'
 OP=$(printf '%s' "$NEWLOGIN" | grep -oP '"token":\s*"\K[^"]+')
-assert "old pw rejected" "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret"}')" 'Authentication required'
+assert "old pw rejected" "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret-enough"}')" 'Authentication required'
 assert "whoami operator" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" '"is_operator":true'
 
 # which build is this? Two instances a day apart were identical on screen, and
@@ -2500,7 +2500,7 @@ assert "a member may not reset another's password" \
   'Forbidden: instance:manage'
 assert "a short reset is refused" \
   "$(curl -s -X POST $B/api/admin/users/$EVE_ID/password -H "Authorization: Bearer $OP" -d '{"new_password":"x"}')" \
-  'min 6'
+  'min 8'
 assert "an operator resets a locked-out password" \
   "$(curl -s -X POST $B/api/admin/users/$EVE_ID/password -H "Authorization: Bearer $OP" -d '{"new_password":"eve-pass-333"}')" \
   '"ok":true'
