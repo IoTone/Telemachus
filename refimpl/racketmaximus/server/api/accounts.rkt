@@ -206,7 +206,7 @@
                                               'username (vector-ref r 1)
                                               'role (vector-ref r 2)
                                               'email_verified (not (sql-null? (vector-ref r 3)))
-                                              'email_pending (equal? 1 (vector-ref r 4)))))))))
+                                              'email_pending (db-true? (vector-ref r 4)))))))))
 
 
 ;; THE INVITATION ANSWERS WITH NO TOKEN (INVITE-1). The username form hands the

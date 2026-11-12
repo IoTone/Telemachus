@@ -220,7 +220,8 @@
             'display_name (nz (vector-ref r 2)) 'status (vector-ref r 3)
             'org_role (nz (vector-ref r 4))
             'email_verified (not (sql-null? (vector-ref r 6)))
-            'email_pending (equal? 1 (vector-ref r 7))
+            ;; EXISTS answers 1 on SQLite and #t on PostgreSQL (db-kit/portable's db-true?).
+            'email_pending (db-true? (vector-ref r 7))
             'teams (query-list conn
               (string-append "SELECT t.slug || ':' || m.role_key FROM memberships m "
                              "JOIN teams t ON t.id = m.team_id WHERE m.user_id = ? ORDER BY t.slug") uid))))
