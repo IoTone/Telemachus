@@ -556,6 +556,10 @@
       "text": "1つのエンティティとその関係・言及。各言及は元文書の公開範囲でフィルタされます。",
       "hash": "d338ecb68c99fd3c3f0e504fab3b623030700b10"
     },
+    "doc.route.get.api.kg.entities.id.graph": {
+      "text": "エンティティの近傍を、描画用のノードとエッジとして返します。`?hops=` は 1 または 2 で、範囲外の値は丸められます。近傍は名前順にたどり、`cap` 個のノードで打ち切り、打ち切った場合は `truncated` で知らせます。そのため同じグラフはどのインスタンスでも同じ図になります。ノードとエッジは言及ルールに従ってのみ表示され、呼び出し元が読める言及のない事実は描かれません。呼び出し元が見られないエンティティと存在しないエンティティは、どちらも同じ 404 になります。",
+      "hash": "ed10f685abfb0e721ebab1b1fba537d507aeb012"
+    },
     "doc.perm.memory:read": {
       "text": "エージェントのメモリを読む。",
       "hash": "321c16ac921e7da92b7b6d8bba60a88f2202c710"
@@ -2556,6 +2560,126 @@
       "text": "ドキュメント保管庫",
       "hash": "312386841084261c610413fa4de8b7505f469407"
     },
+    "ui.research": {
+      "text": "リサーチ",
+      "hash": "be601df25eea91eaaf0d5e80263930143af345be"
+    },
+    "ui.rs_hint": {
+      "text": "ページをブックマークすると TMach がアーカイブを保存するため、リンクが切れても内容は残ります。Index Documents に続けて Index Knowledge を実行すると、その内容がナレッジグラフに取り込まれます。",
+      "hash": "202d71d1d69b565ef0fe333a8c7448785c649344"
+    },
+    "ui.rs_url": {
+      "text": "URL",
+      "hash": "0e2d9b0777a485c1276de0803c12a7d76fbc5c39"
+    },
+    "ui.rs_title": {
+      "text": "タイトル（任意）",
+      "hash": "932fc13e7f6cdbbc6ad0c6794dbc34150f970fd8"
+    },
+    "ui.rs_note": {
+      "text": "メモ（任意）",
+      "hash": "4e39567064b69fa15af25d11c20f1e578e1a5d07"
+    },
+    "ui.rs_add": {
+      "text": "ブックマーク",
+      "hash": "441da1bf0eb8dcaca895f5d48325eab484ada1e0"
+    },
+    "ui.rs_none": {
+      "text": "ブックマークはまだありません。",
+      "hash": "20dcc408227524bbbe7eeef3dccb0da78346ca37"
+    },
+    "ui.rs_page": {
+      "text": "ページ",
+      "hash": "fb06270f7c212baabc8749ffc36e49dc8f321548"
+    },
+    "ui.rs_state": {
+      "text": "アーカイブ",
+      "hash": "2621c6fd51a58e1d1d5c491aac71488647b20224"
+    },
+    "ui.rs_lastok": {
+      "text": "最終取得",
+      "hash": "7df3af13492a4cb94363ba3d1cb47d13645c1b06"
+    },
+    "ui.rs_archived": {
+      "text": "保存済み",
+      "hash": "48f0f92b349bd93701c099522beb009b85f43956"
+    },
+    "ui.rs_notarchived": {
+      "text": "未保存",
+      "hash": "a0769015d772881b8ed99b28ef0f0e4087b04c81"
+    },
+    "ui.rs_lasterror": {
+      "text": "前回の取得に失敗しました",
+      "hash": "a6b54007a8f9e73503bbe96152c2d32fc3ec6957"
+    },
+    "ui.rs_refetch": {
+      "text": "再取得",
+      "hash": "33dbf3c76673ce408569794aff31b81276fd6858"
+    },
+    "ui.rs_openpage": {
+      "text": "ページを開く",
+      "hash": "9ee309dcedc93c428911c113b6d1d9f51583057c"
+    },
+    "ui.rs_delconfirm": {
+      "text": "このブックマークを削除しますか？アーカイブされたページはリポジトリに残ります。",
+      "hash": "b1f891061238d8eae65cec04a5d39b40e2426d82"
+    },
+    "ui.rs_fetchfailed": {
+      "text": "ページを取得できませんでした。ブックマークは残り、理由が記録されています。",
+      "hash": "0585a61081bb2f6a2bc9a24d5326a45964f5f6eb"
+    },
+    "ui.rs_unchanged": {
+      "text": "前回の取得から変更はありません。",
+      "hash": "4f5f3b93fe58af8db867d707032434c72f3f6696"
+    },
+    "ui.rs_newversion": {
+      "text": "新しいバージョンとして保存しました。",
+      "hash": "ea7d3473504fa4dfa4208b9e42048f1a63485785"
+    },
+    "ui.rs_fetches": {
+      "text": "{n} 回取得",
+      "hash": "b3e79bf2924172a04bc477ab6a0a93caf73964dd"
+    },
+    "ui.rs_entities": {
+      "text": "このページに出てくるもの",
+      "hash": "ba4b70e08ec088e9efd9f446a0c8e88c94674b0f"
+    },
+    "ui.rs_notarchivedhint": {
+      "text": "アーカイブはまだありません。ページを再取得してください。",
+      "hash": "f645d3ba2d4b77fd394f5acc24d822e138bb083e"
+    },
+    "ui.rs_unreadable": {
+      "text": "このアーカイブページを読む権限がありません。",
+      "hash": "15ef07ce95330847c0b6ca7761750457f0123a55"
+    },
+    "ui.rs_unread": {
+      "text": "Index Knowledge はまだこのページを読んでいません。",
+      "hash": "d629bd02d30d4dc30b181bce99a60fce2e5a6ae8"
+    },
+    "ui.rs_noentities": {
+      "text": "Index Knowledge はこのページを読みましたが、追加するものはありませんでした。",
+      "hash": "aacc6bb17470b80fffe8c82b401d28cb2b0307c6"
+    },
+    "ui.rs_stale": {
+      "text": "Index Knowledge が最後に読んだ後で、ページが変更されています。",
+      "hash": "87df27b971e683e2d14bc29d0fc0b7217d94c44e"
+    },
+    "ui.rs_graph": {
+      "text": "{n} の周辺",
+      "hash": "88e919d73898d6ca635123bfc4c4ed5246dba566"
+    },
+    "ui.rs_hops": {
+      "text": "ホップ数",
+      "hash": "d260994f2484a55cf92eb256edb96a17261236fc"
+    },
+    "ui.rs_graphcount": {
+      "text": "エンティティ {n} 件 · 関係 {e} 件",
+      "hash": "ccd7f95b9f11bded859c3714cc9a149b9a663c78"
+    },
+    "ui.rs_truncated": {
+      "text": "名前順で最初の {cap} 件を表示しています。ほかにもあります。",
+      "hash": "1f1094b98b125340213b8bdf1de11bfe5bd76654"
+    },
     "ui.removeconfirm": {
       "text": "{name} をチームから削除しますか？このチームに対するトークンは使えなくなります。",
       "hash": "811218e0dce226f0cfbd039126a12a4dd180e8f9"
@@ -2979,6 +3103,10 @@
     "doc.route.post.api.research.id.fetch": {
       "text": "ページをもう一度、いま取得し、**同じキーの新しいバージョン**として保存する。これが永続性への答えのすべてである。ブロブは SHA-256 で参照され、オブジェクトはバージョンの連なりなので、過去のどの取得のバイト列も参照可能なまま残り、「ブックマークした時点でこのページは何と書いていたか」はバージョンの読み出しになる。同一のバイト列は同じブロブに重複排除されるため、安定したページの再取得はバージョン行 1 件で済み、ストレージは増えない。どちらになったかは `unchanged` が示し、この取得の前に保持していたダイジェストと比較して判定される。キーは最初の取得時に一度だけ構成され、以後ずっと再利用される — 後に PDF を返すようになったページは、既に持っているキーの下の新しいバージョンになる。二つ目のアーカイブを作れば、最初のものと差分を取れる者は誰もいなくなる。`research.fetches` は**リクエスト単位**で、かつ**リクエストの前に**課される。応答しない、あるいは拒否するソースであっても、かかった分は支払われる。成功だけを計上すれば、失敗し続けるブックマークが他人のサイトを叩き続けても無料になってしまう。",
       "hash": "3ceb14b5fef282afd603e04d2e240d631ad30d44"
+    },
+    "doc.route.get.api.research.id.entities": {
+      "text": "ブックマークのアーカイブページに出てくるナレッジグラフのエンティティと、それぞれの言及回数を返します。ページには独自の公開範囲があるため、`research:use` に加えて、呼び出し元がそのページを読めるかどうかも確認します。ページがまだない場合 `reason` は `not-archived`、呼び出し元が読めない場合は `unreadable` になり、それ以外では含まれません。`extracted` は現在のバージョンが Index Knowledge を通ったかどうかを示し、空のリストが「何も見つからなかった」のか「まだ読まれていない」のかを区別します。",
+      "hash": "19dc38ab20d9b3172f5b92c3d35d8e8e66f48ad0"
     },
     "doc.plugin.research": {
       "text": "ブックマークしたページを蒸留するワークフロー。まだ処理が追いついていない保存済みページを見つけ、検索用にテキストを抽出し、そこから事実をナレッジグラフへ取り出す。いつ再実行してもよく、追いついていないものだけに触れる。",

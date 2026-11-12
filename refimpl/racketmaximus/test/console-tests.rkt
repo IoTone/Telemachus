@@ -1832,6 +1832,68 @@
   (check-true (and (regexp-match? #rx"console/21-notegraph.js" shell) #t)
               "the file is loaded, or none of it runs"))
 
+;; ---- #191 slice 3: the Research tab -------------------------------------------
+
+(test-case "the research picture is the note graph's layout, not a second one, and nothing ticks"
+  ;; ORG-13 and RG-9 made the determinism argument ONCE, for one seeded,
+  ;; fixed-tick layout. A second layout in this file would be a second place
+  ;; that argument had to stay true, so it is asked for by name and never
+  ;; defined here.
+  (define r (console-code "22-research.js"))
+  (check-true (and (regexp-match? #px"graphLayout\\(nodes, edges\\)" r) #t) "it asks the shared layout")
+  (check-false (regexp-match? #px"function graphLayout" r) "…and does not define its own")
+  (check-false (regexp-match? #px"function graphRng" r))
+  (check-false (regexp-match? #rx"Math.random" r))
+  (check-false (regexp-match? #rx"requestAnimationFrame" r) "QVIZ-6: nothing animates")
+  (check-false (regexp-match? #rx"setInterval" r) "…and nothing polls, or a left-open tab holds a session")
+  (check-false (regexp-match? #rx"setTimeout" r))
+  ;; the layout is defined in a file that LOADS FIRST, or `graphLayout` is a
+  ;; ReferenceError the first time anybody opens a picture
+  (check-true (string<? "21-notegraph.js" "22-research.js")))
+
+(test-case "the Research tab is shown only to somebody who may use it"
+  (define body (fn-body "visibleTabs"))
+  (check-true (and body (regexp-match? #px"canPerm\\('research:use'\\)\\) tabs\\.splice" body) #t)
+              "gated on the permission every one of its requests is checked against")
+  (check-true (and (regexp-match? #px"research:researchView" (console-code "07-render.js")) #t)
+              "and the tab has a view, or it paints Chat"))
+
+(test-case "a bookmark is created once however often it is pressed"
+  ;; #174's shape: the flag is the guard and the pending state, nothing awaits
+  ;; between the check and the set, and the `finally` releases it — a create
+  ;; FETCHES the page, so it is slow enough for a second press to land.
+  (define body (fn-body "rsCreate"))
+  (check-true (and body #t))
+  (check-true (string-contains? body "if(S.rsSending) return;"))
+  (define guard (caar (regexp-match-positions #rx"if[(]S.rsSending[)] return;" body)))
+  (define set (caar (regexp-match-positions #rx"S.rsSending = true" body)))
+  (check-false (regexp-match? #rx"await" (substring body guard set))
+               "no await between the check and the set")
+  (check-true (and (regexp-match? #px"finally \\{\\s*S\\.rsSending = false" body) #t)))
+
+(test-case "a hops change redraws the picture, not the tab"
+  ;; NPG-10's rule a fourth time: the create form's URL is a plain <input>, and
+  ;; `renderTab()` would throw away a URL somebody was typing.
+  (for ([f '("rsSetHops" "rsGraph" "rsGraphSwap")])
+    (define body (fn-body f))
+    (check-true (and body #t) f)
+    (check-false (regexp-match? #rx"renderTab" body) (format "~a must not re-render the tab" f))))
+
+(test-case "every ui.rs* string the Research tab shows is in the catalogs, both ways"
+  (define src (file->string (build-path console-dir "22-research.js")))
+  (define keys
+    (remove-duplicates
+     (map cadr (regexp-match* #px"'(rs_[a-z]+)'" src #:match-select values))))
+  (check-true (>= (length keys) 25))
+  (define en (file->string (build-path console-dir "../ui-strings.json")))
+  (for ([k (in-list keys)])
+    (check-true (and (regexp-match? (regexp (string-append "\"ui\\." (regexp-quote k) "\"")) en) #t)
+                (format "ui.~a is missing from static/ui-strings.json" k)))
+  (define shipped
+    (map cadr (regexp-match* #px"\"ui[.](rs_[a-z]+)\"" en #:match-select values)))
+  (check-equal? (remove* keys shipped) '()
+                "a ui.rs_* string nothing asks for means a label was typed in place"))
+
 ;; ---- #233: the Translate tab enqueues and follows ---------------------------
 
 (test-case "the translation is a JOB now, and the form is never held open"

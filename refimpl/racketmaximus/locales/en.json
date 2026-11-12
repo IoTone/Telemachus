@@ -67,6 +67,10 @@
       "text": "Every email delivery on the instance, newest first, including the two transactional messages — a confirmation and a transport test — which belong to no team. `?status=dead` is the dead-letter list an operator watches. `instance:read` rather than `:manage`, so a monitoring credential can see that mail is failing without being able to rewrite the relay's password.",
       "hash": "63d99c2efddfbe3ad2701cf78784907188139f1a"
     },
+    "ui.rs_archived": {
+      "text": "archived",
+      "hash": "48f0f92b349bd93701c099522beb009b85f43956"
+    },
     "ui.edzenhint": {
       "text": "full width, Esc to leave",
       "hash": "f2f31483e8f093458460cd7615139a612587a25f"
@@ -431,6 +435,14 @@
       "text": "verified at boot — the instance refuses to serve if it cannot write and read back",
       "hash": "29a84a02ef7893e5ad69f34a82045d6b36395139"
     },
+    "ui.rs_add": {
+      "text": "Bookmark",
+      "hash": "441da1bf0eb8dcaca895f5d48325eab484ada1e0"
+    },
+    "doc.route.post.api.2fa.recovery-codes": {
+      "text": "Issue a fresh set of single-use recovery codes, invalidating any outstanding ones; returned once (issue #26).",
+      "hash": "d242f21cac46785dbb55b28fec2eb3d821476cfa"
+    },
     "doc.route.post.api.beta.assets": {
       "text": "Upload an onboarding asset (logo, hero image, font), base64 in JSON, capped at 2 MiB.",
       "hash": "abd6aaedec0f9ebc0a17e4662212539b1c93384f"
@@ -438,10 +450,6 @@
     "doc.route.put.api.session-policy": {
       "text": "Set the instance session timeouts. null on a field means no limit on that axis; an org may tighten these and may never loosen them.",
       "hash": "1220312b0666ecb536e3e0bfa33a1399f684dda7"
-    },
-    "doc.route.post.api.2fa.recovery-codes": {
-      "text": "Issue a fresh set of single-use recovery codes, invalidating any outstanding ones; returned once (issue #26).",
-      "hash": "d242f21cac46785dbb55b28fec2eb3d821476cfa"
     },
     "doc.route.post.api.tokens": {
       "text": "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.",
@@ -483,6 +491,14 @@
       "text": "Already initialized.",
       "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
     },
+    "ui.rs_noentities": {
+      "text": "Index Knowledge read this page and found nothing to add.",
+      "hash": "aacc6bb17470b80fffe8c82b401d28cb2b0307c6"
+    },
+    "doc.route.get.api.notes.id.links": {
+      "text": "What this note links to, and what links to it (#246). `links` is outgoing in the order they appear in the body; `backlinks` is the same table read in reverse. A link to a note that is not there is reported broken, with the target as written and a reason (`missing`, or `ambiguous` when two notes share that title). A link whose other end the caller may not read is simply absent — it is never reported, because saying one was withheld would be an existence oracle on somebody's private note.",
+      "hash": "6e57c6c5443eb0156e471a0acd5d2d3dfb25c3cb"
+    },
     "ui.kg_alltypes": {
       "text": "any type",
       "hash": "a28c54bd6aac059f8e4c1e9241bd9772b3d2a3a4"
@@ -495,10 +511,6 @@
       "text": "Publish a workflow spec (validated; unknown fields refused); re-publishing a slug bumps its version.",
       "hash": "57f5717f784659e41b73f398f34d8c757d99d3ff"
     },
-    "doc.route.get.api.notes.id.links": {
-      "text": "What this note links to, and what links to it (#246). `links` is outgoing in the order they appear in the body; `backlinks` is the same table read in reverse. A link to a note that is not there is reported broken, with the target as written and a reason (`missing`, or `ambiguous` when two notes share that title). A link whose other end the caller may not read is simply absent — it is never reported, because saying one was withheld would be an existence oracle on somebody's private note.",
-      "hash": "6e57c6c5443eb0156e471a0acd5d2d3dfb25c3cb"
-    },
     "doc.route.get.api.model-roles": {
       "text": "Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default.",
       "hash": "79dc79b5e8a6eff3f6ad5dab481a4264815387e4"
@@ -506,6 +518,10 @@
     "ui.refresh": {
       "text": "Refresh",
       "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
+    },
+    "ui.rs_state": {
+      "text": "Archive",
+      "hash": "2621c6fd51a58e1d1d5c491aac71488647b20224"
     },
     "ui.mlbasehint": {
       "text": "This console's own external address. A notification links back to it, and it cannot be guessed — a message is composed by a sweep with no request in sight.",
@@ -795,6 +811,14 @@
       "text": "Everything at the team tier. Never reaches instance:* or org:*.",
       "hash": "9858077204559abb30b4e1ca17cb76ef2d5d35f4"
     },
+    "ui.rs_graphcount": {
+      "text": "{n} entities · {e} relations",
+      "hash": "ccd7f95b9f11bded859c3714cc9a149b9a663c78"
+    },
+    "ui.ednums": {
+      "text": "Lines",
+      "hash": "c6fd3870c86e7422a0146e1e2a052437fb8e51e2"
+    },
     "doc.tool.doc_extract_fields.object": {
       "text": "The source document's object id — write the fields as a derived document beside it",
       "hash": "af8362ab557f0334dca5f227dac8d3c64c401ab8"
@@ -806,10 +830,6 @@
     "ui.palhshift": {
       "text": "Insert a newline instead of sending",
       "hash": "be508a7b98a2ac90fc8a73e3cefa19295be68715"
-    },
-    "ui.ednums": {
-      "text": "Lines",
-      "hash": "c6fd3870c86e7422a0146e1e2a052437fb8e51e2"
     },
     "doc.route.post.api.schedules": {
       "text": "Create a job schedule: `kind` (a registered job kind) plus a cadence. `interval` wants `interval_seconds` (at least 60); `daily` and `weekly` want `at_minute` (the whole minute of the local day, 0 to 1439) and a `timezone`, which defaults to the caller's own; `weekly` also wants `days_of_week`, a comma-separated set of 0-6 with Sunday as 0. Optionally `payload`, `requirements`, `priority`, `name` and `paused`. The first firing is never immediate. The timezone is stored ON the schedule rather than resolved from its owner when it fires: a schedule is a standing instruction, and if its author travels and changes their profile, \"07:00 before the morning meeting\" must not silently move for everybody else. The schedule runs as the CALLER, whose authority every job it fires then spends — an unknown kind is refused here rather than enqueueing work nothing can run, for ever.",
@@ -1135,6 +1155,10 @@
       "text": "TELEMACHUS_MODEL_URL is unset, so this reply is a deterministic echo of your prompt rather than a model's answer.",
       "hash": "490ef95053c12b82ccd44c2b73db4715c12e78af"
     },
+    "ui.rs_delconfirm": {
+      "text": "Forget this bookmark? The archived page stays in the repository.",
+      "hash": "b1f891061238d8eae65cec04a5d39b40e2426d82"
+    },
     "doc.tool.doc_set_type.step": {
       "text": "The workflow step id, for provenance",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
@@ -1323,6 +1347,10 @@
       "text": "unclaimed",
       "hash": "4f24d75496e51eddcda170d8fa47b49f5034a85d"
     },
+    "ui.rs_note": {
+      "text": "Note (optional)",
+      "hash": "4e39567064b69fa15af25d11c20f1e578e1a5d07"
+    },
     "ui.ngraphteam": {
       "text": "The whole team",
       "hash": "7a2af95ed2a8f712ab55b77ffc343b85a7132c39"
@@ -1411,10 +1439,6 @@
       "text": "finished",
       "hash": "f957097d7a22775f6bea41b46cae4d14274dac9f"
     },
-    "ui.hblob": {
-      "text": "Blob store",
-      "hash": "e608b383cdca564c9fe730877021e38676288517"
-    },
     "ui.mlfrom": {
       "text": "From address",
       "hash": "19683459156b3c6a2dae1c9fe6be0f1500c64a7d"
@@ -1426,6 +1450,10 @@
     "doc.plugin.example-tools": {
       "text": "A sample third-party plugin: adds a word_count tool.",
       "hash": "08d4c34f73a5f64ccc20307d26f986326bc92808"
+    },
+    "ui.hblob": {
+      "text": "Blob store",
+      "hash": "e608b383cdca564c9fe730877021e38676288517"
     },
     "doc.route.get.api.l10n.coverage": {
       "text": "Per-locale coverage of the Localization Manager's catalog: total, approved, machine, missing, stale.",
@@ -1627,6 +1655,10 @@
       "text": "not claimed by a worker yet",
       "hash": "6f95f4a2ea37bc775f17f763215c1567f8d20b2c"
     },
+    "ui.rs_openpage": {
+      "text": "Open page",
+      "hash": "9ee309dcedc93c428911c113b6d1d9f51583057c"
+    },
     "doc.workflow.process-upload.name": {
       "text": "Process an uploaded document",
       "hash": "f6fb6d41104b1ef190eb930f261edccc501993de"
@@ -1759,6 +1791,10 @@
       "text": "Estimated days for {lane}.",
       "hash": "49ca6d4a241734f256e80e0d3927afab75a7a778"
     },
+    "doc.route.get.api.kg.entities.id.graph": {
+      "text": "An entity's neighbourhood as nodes and edges, for a drawing: `?hops=` 1 or 2, clamped. The walk takes neighbours in name order and stops at `cap` nodes, reporting `truncated` when it did, so the same graph gives the same picture on every instance. A node or an edge appears only under the mention rule — a fact the caller has no readable mention of is not drawn. An entity the caller cannot see and one that does not exist are the same 404.",
+      "hash": "ed10f685abfb0e721ebab1b1fba537d507aeb012"
+    },
     "doc.workflow.classify-review-extract.name": {
       "text": "Classify, ask a person when unsure, then extract",
       "hash": "d52ce9fd73bd8b0c60b13b4ef9681a58920fb37c"
@@ -1775,6 +1811,10 @@
       "text": "Import an org file as a note (#246). The request BODY is the org text itself, not JSON, so `curl --data-binary @note.org` is the whole of it; `?visibility=` sets the note's visibility. `#+TITLE:` becomes the title and `#+FILETAGS:` the tags, through the same normalization a typed tag gets; everything else is the body, verbatim. A file with no `#+TITLE:` imports untitled — it is then reachable by id and not by name, because a link resolves a title. Capped well under the control plane's own body limit; a larger document belongs in the repository.",
       "hash": "de0212801c62ee16f528a3212d561288ffaa0e51"
     },
+    "ui.rs_none": {
+      "text": "No bookmarks yet.",
+      "hash": "20dcc408227524bbbe7eeef3dccb0da78346ca37"
+    },
     "doc.route.get.api.beta.asset.id": {
       "text": "Serve one onboarding asset. Public: the funnel and the branding logo load it without a token.",
       "hash": "fac8d41e29fc24770c6447eb425859743bafbc89"
@@ -1786,6 +1826,14 @@
     "doc.route.post.api.workers.jobs.id.complete": {
       "text": "Post a result: {result, claim_token}. Accepted only from the current lease holder AND the attempt the token names (a lapsed attempt cannot land on the one that replaced it); validated by the kind.",
       "hash": "219718d4db6a99151cf728aab0ae218332b69122"
+    },
+    "doc.tool.doc_translate": {
+      "text": "Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt).",
+      "hash": "77333d768a6432e71994ec915f2aa7f7715177bf"
+    },
+    "ui.rs_url": {
+      "text": "URL",
+      "hash": "0e2d9b0777a485c1276de0803c12a7d76fbc5c39"
     },
     "doc.route.post.api.orgs.ref.suspend": {
       "text": "Suspend a company (id or slug); every team in it becomes read-only.",
@@ -1802,10 +1850,6 @@
     "ui.tokensleft": {
       "text": "tokens left today",
       "hash": "9ef8f2c20416fad3aab70dc3a50194dd830ffe73"
-    },
-    "doc.tool.doc_translate": {
-      "text": "Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt).",
-      "hash": "77333d768a6432e71994ec915f2aa7f7715177bf"
     },
     "doc.tool.voice_list_untranscribed.prefix": {
       "text": "Only documents whose key starts with this (default: every one in the team)",
@@ -1890,6 +1934,10 @@
     "ui.qvautohint": {
       "text": "Off by default: a screen that refreshes itself holds your session open.",
       "hash": "d6ca31f8dbbc6df6301f8f8a3aa8d0e7ca354cf7"
+    },
+    "ui.research": {
+      "text": "Research",
+      "hash": "be601df25eea91eaaf0d5e80263930143af345be"
     },
     "doc.route.get.api.sessions": {
       "text": "The caller's own browser sessions — prefix, when each was created and last used, when it expires, and which one this request is holding. Never a token.",
@@ -1995,6 +2043,14 @@
       "text": "Delete every object under `?prefix=`, cascading to what each one derived (#86). DRY RUN BY DEFAULT: without `confirm=1` nothing is removed and the reply is the count, the bytes and the ids that WOULD go. An empty or missing prefix is refused rather than read as \"every object in the team\". `?cascade=0` deletes only the listed objects and leaves their derivatives. The objects are found through the caller's own listing, so visibility, grants and the org gate apply exactly as on `GET /api/repo?prefix=`, and each deletion re-runs the per-object permission check.",
       "hash": "4dcaaec82eb3e54c0b1fa994b0eab57280527471"
     },
+    "ui.rs_lastok": {
+      "text": "Last fetched",
+      "hash": "7df3af13492a4cb94363ba3d1cb47d13645c1b06"
+    },
+    "ui.prhint": {
+      "text": "Enter the address on your account. If it has one, a link to set a new password is sent there. Nothing is sent to an address that has not been confirmed.",
+      "hash": "f25f7e7722ec06e653e3d61d40b9a51b0c58d169"
+    },
     "ui.helpnone": {
       "text": "Nothing in the documentation is close to that question.",
       "hash": "c7f3ca885c6d94efd37d9641e8de577f51b6aba6"
@@ -2002,10 +2058,6 @@
     "ui.trjobs": {
       "text": "Submitted in this session",
       "hash": "a34563ff79ecb1d62e6729f062f2bd6961cb1c61"
-    },
-    "ui.prhint": {
-      "text": "Enter the address on your account. If it has one, a link to set a new password is sent there. Nothing is sent to an address that has not been confirmed.",
-      "hash": "f25f7e7722ec06e653e3d61d40b9a51b0c58d169"
     },
     "ui.upload": {
       "text": "Upload",
@@ -2098,6 +2150,10 @@
     "ui.stepsused": {
       "text": "steps used",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
+    },
+    "ui.rs_unread": {
+      "text": "Index Knowledge has not read this page yet.",
+      "hash": "d629bd02d30d4dc30b181bce99a60fce2e5a6ae8"
     },
     "doc.route.post.api.beta.signup": {
       "text": "Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured.",
@@ -2275,6 +2331,14 @@
       "text": "Tools",
       "hash": "4fa8cc860c52b268dc6a3adcde7305e9415db5bb"
     },
+    "ui.rs_fetchfailed": {
+      "text": "The page could not be fetched; the bookmark is kept and says why.",
+      "hash": "0585a61081bb2f6a2bc9a24d5326a45964f5f6eb"
+    },
+    "ui.mlpass": {
+      "text": "Password",
+      "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
+    },
     "ui.sharedwithme": {
       "text": "Shared with me",
       "hash": "f40ca84f04474455cba711b1643a006b59aa1210"
@@ -2287,13 +2351,17 @@
       "text": "Created",
       "hash": "accf40c89baa4fa88e6a7ff11e1f805beecafd3f"
     },
-    "doc.route.post.api.workers.claim": {
-      "text": "A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease and a claim_token, which every later write about it must carry back.",
-      "hash": "5aa8b491c64d543c3c4b253ae91cc850a8b12a77"
+    "ui.rs_notarchivedhint": {
+      "text": "There is no archived copy yet. Fetch the page again.",
+      "hash": "f645d3ba2d4b77fd394f5acc24d822e138bb083e"
     },
     "ui.mluser": {
       "text": "Username",
       "hash": "84c29015de33e5d22422382a372caba5c58f8c01"
+    },
+    "doc.route.post.api.workers.claim": {
+      "text": "A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease and a claim_token, which every later write about it must carry back.",
+      "hash": "5aa8b491c64d543c3c4b253ae91cc850a8b12a77"
     },
     "ui.disable": {
       "text": "Disable",
@@ -2343,6 +2411,14 @@
       "text": "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate.",
       "hash": "bdd08e5c16c254a3c3febf0e2b56cee8498dd11a"
     },
+    "ui.rs_newversion": {
+      "text": "Stored as a new version.",
+      "hash": "ea7d3473504fa4dfa4208b9e42048f1a63485785"
+    },
+    "ui.kg_documents": {
+      "text": "documents extracted",
+      "hash": "c3ed5753cea882d8ebba13447927ef2d101ab9cd"
+    },
     "beta.field_too_long": {
       "text": "{field} must be at most {n} characters",
       "hash": "3afe7c02c6ba5ce03943650e048c0afa1394d04d"
@@ -2363,17 +2439,9 @@
       "text": "Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token.",
       "hash": "f7ad449011473be8c8f03abe7165a7dbb0d861dc"
     },
-    "ui.kg_documents": {
-      "text": "documents extracted",
-      "hash": "c3ed5753cea882d8ebba13447927ef2d101ab9cd"
-    },
     "doc.tool.doc_list_unclassified.prefix": {
       "text": "Only documents whose key starts with this (default: every document in the team)",
       "hash": "d6113e6bde134e7d4d62d2f7e4818576583878bb"
-    },
-    "ui.mlpass": {
-      "text": "Password",
-      "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
     },
     "ui.mlhost": {
       "text": "SMTP host",
@@ -2539,6 +2607,10 @@
       "text": "Issue #114 slices 5 and 6: a ranked, typed index over the documents a feed pulled, and an agent that PROPOSES what to do about one — with a review step between the proposal and any act.",
       "hash": "e36acab80869ec3bb13c07c3d9f03338ff9147c8"
     },
+    "doc.route.get.api.research.id.entities": {
+      "text": "The knowledge-graph entities the bookmark's archived page mentions, each with how often. The page carries its own visibility, so this is checked against the caller's right to READ it as well as against `research:use`: `reason` says `not-archived` when there is no page yet and `unreadable` when the page is not the caller's to read, and is absent otherwise. `extracted` says whether the current version has been through Index Knowledge, which is what separates an empty list meaning \"nothing found\" from one meaning \"not read yet\".",
+      "hash": "19dc38ab20d9b3172f5b92c3d35d8e8e66f48ad0"
+    },
     "doc.route.get.api.timezones": {
       "text": "Every IANA timezone this instance has data for, derived from the tz database on disk rather than a list in the source, so a tzdata upgrade needs no release.",
       "hash": "6bc03a33c62f0667f067b528bd9c62e4c34d5177"
@@ -2571,6 +2643,14 @@
       "text": "A pull worker reports what it is doing: {state} — ready, busy or paused. The one channel a worker with no job can use: a drained host has stopped claiming and holds nothing to heartbeat, so without this its silence is indistinguishable from a fault. `state` is also accepted on claim and heartbeat, so the normal loop needs no extra request; a call that names none leaves the stored state alone.",
       "hash": "192c06e57bc1c4015dbf99a2a27a832647f1edcd"
     },
+    "ui.brandthemereset": {
+      "text": "Reset theme",
+      "hash": "d8726c4de543a6d05fd3b09750488193ab6c3572"
+    },
+    "ui.rs_unchanged": {
+      "text": "Unchanged since the last fetch.",
+      "hash": "4f5f3b93fe58af8db867d707032434c72f3f6696"
+    },
     "ui.vishint": {
       "text": "You set this because you uploaded it. Sharing narrows a team document to just the people you name.",
       "hash": "d9da8f7413693271c88f9e04ab1bd51e6fb5a03c"
@@ -2598,6 +2678,10 @@
     "doc.tool.doc_extract_fields.redact_detectors": {
       "text": "Which detectors to run when redact is true: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary)",
       "hash": "11335323db31c901a531b7637537d3bbca98efa3"
+    },
+    "ui.rs_graph": {
+      "text": "Around {n}",
+      "hash": "88e919d73898d6ca635123bfc4c4ed5246dba566"
     },
     "doc.tool.doc_classify.run": {
       "text": "The workflow run id, for provenance",
@@ -2662,10 +2746,6 @@
     "ui.orgbacklinks": {
       "text": "Linked from",
       "hash": "e4f1c25c18826e02923f132c5a745854f85e9128"
-    },
-    "ui.brandthemereset": {
-      "text": "Reset theme",
-      "hash": "d8726c4de543a6d05fd3b09750488193ab6c3572"
     },
     "ui.brandtitle": {
       "text": "Title",
@@ -2874,6 +2954,10 @@
     "doc.route.post.api.research": {
       "text": "Bookmark a URL and archive the page behind it: `url`, and optionally `title` and `note`. The bytes become a repository document under `research/<host>/<slug>-<id8>`, so visibility, sharing, keyword search, `?semantic=1`, retention and the cascade delete all apply to it with no further work. The fetch happens NOW unless `fetch: false` — #191's motive is that links rot, and a bookmark whose page was never read is a bookmark of nothing. **A FAILED FETCH STILL LEAVES THE ROW**, with the reason on it, so the bookmark is recorded even when the site is down and a re-fetch can be tried later. Identity is the canonical URL (lower-cased scheme and host, no default port, no fragment, and nothing else normalized) and a duplicate is a 409 rather than a converging create. A credential in the URL is refused: a bookmark is a public page and this row has nowhere to keep one — a page that needs a credential is a FEED. The fetch is `'untrusted` egress and there is no way to ask for anything else, not even as an operator, so private address space is refused by name.",
       "hash": "80b0cfe35188f7ad6da81841f9f23d0597e6cecf"
+    },
+    "ui.rs_hops": {
+      "text": "Hops",
+      "hash": "d260994f2484a55cf92eb256edb96a17261236fc"
     },
     "ui.wkunclaimablewhy": {
       "text": "nothing in the fleet matches these — check a worker's models, or start one",
@@ -3183,6 +3267,10 @@
       "text": "One delivery on the instance, WITH the message exactly as it would go out. The transactional messages are reachable only here, because they have no team.",
       "hash": "a4ebe627b542ff52d32952e90e846a0a1a39c212"
     },
+    "ui.rs_hint": {
+      "text": "Bookmark a page and TMach keeps an archived copy, so it survives the link going dead. Run Index Documents and then Index Knowledge to distil what it says into the knowledge graph.",
+      "hash": "202d71d1d69b565ef0fe333a8c7448785c649344"
+    },
     "ui.quotaresets": {
       "text": "Resumes {when}.",
       "hash": "826fcc2fc0cc24a889c559c58c4e78c2d2a4e137"
@@ -3283,17 +3371,25 @@
       "text": "New note",
       "hash": "2b7b05c002d521157e8afcd92474276db36d1aa6"
     },
+    "ui.rs_fetches": {
+      "text": "Fetched {n} times",
+      "hash": "b3e79bf2924172a04bc477ab6a0a93caf73964dd"
+    },
     "doc.route.post.api.admin.seed": {
       "text": "Seed sample notes and documents into the caller's team.",
       "hash": "c9a7e323f4abf0ebc6ef99c4a87fee7475aaec0a"
     },
-    "doc.route.get.api.runs.id": {
-      "text": "One run with its steps, inputs, outputs and errors.",
-      "hash": "413e1b81c79fa3b7b825a572f0afd2a188f66588"
+    "ui.rs_stale": {
+      "text": "The page has changed since Index Knowledge last read it.",
+      "hash": "87df27b971e683e2d14bc29d0fc0b7217d94c44e"
     },
     "doc.workflow.classify-eval": {
       "text": "Measure the classifier against the team's labelled fixtures — the documents under a prefix carrying a doc_type_expected attribute. Reports accuracy and coverage for each backend on its own, per label, with what each label was confused for and how confident the right and wrong answers were. Writes nothing: no type is recorded and no trigger fires, so a fixture set can be evaluated as often as you like.",
       "hash": "6eecc1c3c8fb42402d04817a5c255ddea25bf1c3"
+    },
+    "doc.route.get.api.runs.id": {
+      "text": "One run with its steps, inputs, outputs and errors.",
+      "hash": "413e1b81c79fa3b7b825a572f0afd2a188f66588"
     },
     "doc.tool.feed_propose": {
       "text": "Read a pulled feed item and write a PROPOSAL about what to do with it, as a document beside the item. It proposes only — nothing acts on the proposal until a person decides, which is what the review step in the feed-propose workflow is for.",
@@ -3310,6 +3406,10 @@
     "doc.route.get.api.workflows.slug": {
       "text": "One workflow definition with its spec.",
       "hash": "f3a279bebfb752bea2de432d2056d692f5131c8d"
+    },
+    "ui.rs_title": {
+      "text": "Title (optional)",
+      "hash": "932fc13e7f6cdbbc6ad0c6794dbc34150f970fd8"
     },
     "ui.stopped": {
       "text": "stopped",
@@ -3855,6 +3955,14 @@
       "text": "Key created",
       "hash": "07e0345e1a38c941f5918f79a4f3e58c70f9cb76"
     },
+    "ui.mlnotify": {
+      "text": "Email notifications",
+      "hash": "b7b0bc36ba6162537ebe6c69ff67183d083f9b81"
+    },
+    "ui.rs_refetch": {
+      "text": "Fetch again",
+      "hash": "33dbf3c76673ce408569794aff31b81276fd6858"
+    },
     "doc.route.get.api.retention.plan": {
       "text": "What the policy WOULD delete right now, and nothing else: the object trees, the derived objects, the job payloads, and how many objects a legal hold is protecting. A retention rule runs unattended, which makes it the one most in need of a dry run. An object under legal hold is absent from the plan rather than filtered later, so the plan never promises something a rule cannot touch.",
       "hash": "da6cf2e104ab373fa890106ae02c2c864aca8673"
@@ -3862,10 +3970,6 @@
     "doc.workflow.feed-triage": {
       "text": "Put one pulled item on the work queue with a priority, a due date and skills. The queue is an index: this records what triage decided.",
       "hash": "c2cfa5a2a1a3bd69124a30633ecf8e152dd5a0b1"
-    },
-    "ui.mlnotify": {
-      "text": "Email notifications",
-      "hash": "b7b0bc36ba6162537ebe6c69ff67183d083f9b81"
     },
     "doc.route.delete.api.sessions.id": {
       "text": "End one of the caller's own sessions. A session that is not theirs and one that does not exist are the same 404.",
@@ -3947,6 +4051,14 @@
       "text": "The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them.",
       "hash": "80282f87d17426ec9fcc94a64519d2691104a001"
     },
+    "ui.newdoc": {
+      "text": "New document",
+      "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
+    },
+    "ui.rs_page": {
+      "text": "Page",
+      "hash": "fb06270f7c212baabc8749ffc36e49dc8f321548"
+    },
     "ui.setpw": {
       "text": "Set your password",
       "hash": "4f9f9c131024bbda7e9be202a9e7c43f4d05fbe4"
@@ -3963,6 +4075,14 @@
       "text": "The loaded plugins with their tools and workflows.",
       "hash": "167fb82427d578125bb3840706a7f14dc9cdc5dd"
     },
+    "doc.tool.doc_set_type.label": {
+      "text": "The type that was decided, spelled exactly as in the label set; empty to withdraw the type",
+      "hash": "c05644c4235b6cc6e353c480e57173c6629ed9e1"
+    },
+    "ui.rs_truncated": {
+      "text": "Showing the first {cap} entities by name. There are more.",
+      "hash": "1f1094b98b125340213b8bdf1de11bfe5bd76654"
+    },
     "ui.wkerrhint": {
       "text": "Jobs this host reported as failed in the window. The job itself was at fault, or the model refused it — a host that cannot run work releases it instead.",
       "hash": "cfdbef058d05adb2200693df3e67b3ab5c0d7782"
@@ -3978,10 +4098,6 @@
     "ui.ngraphnodes": {
       "text": "{n} drawn of {total} notes, {e} links",
       "hash": "4c34463118bdb05e43928a95d19a545eac99e3bb"
-    },
-    "doc.tool.doc_set_type.label": {
-      "text": "The type that was decided, spelled exactly as in the label set; empty to withdraw the type",
-      "hash": "c05644c4235b6cc6e353c480e57173c6629ed9e1"
     },
     "doc.route.get.beta-sdk.js": {
       "text": "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).",
@@ -4050,6 +4166,10 @@
     "ui.helpsources": {
       "text": "Sources",
       "hash": "2eb56be3c2d93cdab0c52e677e3167dfddb30ac5"
+    },
+    "ui.rs_unreadable": {
+      "text": "The archived page is not yours to read.",
+      "hash": "15ef07ce95330847c0b6ca7761750457f0123a55"
     },
     "ui.model": {
       "text": "Model",
@@ -4147,10 +4267,6 @@
       "text": "Nothing has been shared with you yet.",
       "hash": "3e65d083f7d44c17c1b1f6f409bf2db8f3bd7594"
     },
-    "doc.route.delete.api.executor-policy": {
-      "text": "Drop the instance's executor policy, which is the only way to turn the feature OFF: `{\"labels\": {}}` is still a configured policy, and a configured policy refuses every label it does not mention. An org policy, if one exists, then governs on its own.",
-      "hash": "b1dd75971926d15a703975f7d0a21619532cc7ac"
-    },
     "ui.thbrand": {
       "text": "Brand",
       "hash": "62b4aa574f708ad26153df481b7f720473b4f1c5"
@@ -4158,6 +4274,10 @@
     "doc.route.get.api.branding": {
       "text": "Title, tagline, logo and theme tokens. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d).",
       "hash": "f3e64499ded4920c022bac80f5a0907720610f51"
+    },
+    "doc.route.delete.api.executor-policy": {
+      "text": "Drop the instance's executor policy, which is the only way to turn the feature OFF: `{\"labels\": {}}` is still a configured policy, and a configured policy refuses every label it does not mention. An org policy, if one exists, then governs on its own.",
+      "hash": "b1dd75971926d15a703975f7d0a21619532cc7ac"
     },
     "doc.perm.documents:write": {
       "text": "Create and edit text documents.",
@@ -4182,10 +4302,6 @@
     "inbox.summary": {
       "text": "You have {count, plural, one {# new message} other {# new messages}}.",
       "hash": "66270ce646713e518e97c8d4a3d782756579bba7"
-    },
-    "ui.newdoc": {
-      "text": "New document",
-      "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
     },
     "doc.tool.translate_text": {
       "text": "Translate text into a target language.",
@@ -4283,6 +4399,10 @@
       "text": "around {t}",
       "hash": "67ac4445bb983743bd95132bc846bedfd8c84589"
     },
+    "ui.rs_notarchived": {
+      "text": "not archived",
+      "hash": "a0769015d772881b8ed99b28ef0f0e4087b04c81"
+    },
     "doc.tool.list_notes": {
       "text": "List the current user's notes (title and visibility).",
       "hash": "4f1bac788f076a7c3d361dd1dff2b3150e25f62c"
@@ -4358,6 +4478,10 @@
     "doc.route.post.api.webhooks.id.ping": {
       "text": "Deliver a `ping` event to this subscription NOW, synchronously, and answer with what happened. The way to check a receiver's signature verification before a real event depends on it. Refused with 409 if the subscription is inactive or does not subscribe to `ping`.",
       "hash": "42fe13e91181661959b4b37a92d2b84407b3f910"
+    },
+    "ui.rs_entities": {
+      "text": "What this page mentions",
+      "hash": "ba4b70e08ec088e9efd9f446a0c8e88c94674b0f"
     },
     "doc.route.post.api.notes.id.share": {
       "text": "Share a note with a user (owner, or notes:manage). The permission granted must be a notes:* one.",
@@ -4658,6 +4782,10 @@
     "doc.route.get.api.feeds.id": {
       "text": "One feed. Another team's id is a 404, not a 403.",
       "hash": "7cbf68872016efd24eec9befddf94a66fe1a34ad"
+    },
+    "ui.rs_lasterror": {
+      "text": "the last fetch failed",
+      "hash": "a6b54007a8f9e73503bbe96152c2d32fc3ec6957"
     },
     "ui.jobscope": {
       "text": "This list is the SCHEDULER queue. Chat streams its answer and Ask is answered in the request itself, so neither leaves anything here. A translation IS a job now, so it does. What appears: what you submit above, every translation, a workflow's steps, a trigger's run, and any work a fleet worker claims.",

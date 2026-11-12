@@ -10,7 +10,7 @@
          ep-documents-get ep-documents-update ep-documents-delete
          ep-notes-get ep-notes-update ep-notes-delete ep-notes-share
          ep-note-tags ep-notes-autotag ep-note-links ep-notes-graph ep-notes-import
-         ep-search ep-kg-entities ep-kg-entity ep-kg-extract)
+         ep-search ep-kg-entities ep-kg-entity ep-kg-graph ep-kg-extract)
 
 (require racket/string
          web-kit
@@ -28,7 +28,7 @@
          ;; #239: a project is a key prefix, so the folder list is derived there
          (only-in "../../domain/repo/repo.rkt" repo-prefixes)
          (only-in "../../domain/apps/search.rkt" search-all search-passages)
-         (only-in "../../domain/kg/kg.rkt" STARTER-TYPES kg-entity kg-find kg-stats)
+         (only-in "../../domain/kg/kg.rkt" STARTER-TYPES kg-entity kg-find kg-stats kg-graph)
          (only-in "../../domain/flow/run.rkt" flow-def-by-slug flow-run-start!)
          (only-in "../../domain/i18n/i18n.rkt" t)
          "../kit.rkt")
@@ -341,6 +341,17 @@
   (with-auth req (lambda (p)
     (define e (kg-entity db-conn p id))
     (if e (json-response e) (err "not found" 404)))))
+
+;; #191 slice 3 (RG-9): the drawable neighbourhood. `?hops=` is 1 or 2 and a
+;; nonsense value is CLAMPED rather than refused — its effect is on screen, and a
+;; 400 for a bad query parameter on a picture is not worth anybody's time. An
+;; entity the caller cannot see and one that does not exist are one 404.
+(define (ep-kg-graph req id)
+  (with-auth req (lambda (p)
+    (define h (let ([n (string->number (query-param req 'hops "1"))])
+                (if (exact-integer? n) n 1)))
+    (define g (kg-graph db-conn p id #:hops h))
+    (if g (json-response g) (err "not found" 404)))))
 
 (define (ep-kg-extract req)
   (with-auth req (lambda (p)
