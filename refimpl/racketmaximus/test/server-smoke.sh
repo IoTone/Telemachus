@@ -1907,9 +1907,20 @@ TKT=$(curl -s -X POST $B/api/x/example-tools/bundle-ticket -H "Authorization: Be
 assert "a bundle ticket is minted"           "$TKT" '"ticket":"'
 assert "…with the url to open"               "$TKT" '"url":"/api/x/example-tools/bundle/?ticket='
 TICKET=$(printf '%s' "$TKT" | grep -oP '"ticket":\s*"\K[^"]+')
-assert "the page opens with the ticket, no bearer" "$(curl -s "$B/api/x/example-tools/bundle/?ticket=$TICKET")" 'Word count'
+# 0.13.0: the ticket leaves the URL. A browser navigation to the ENTRY document is answered with a
+# 302 to the clean path, and the cookie is set on that response, so the ticket is never in the
+# address bar, in history, or in a Referer the page sends later. A sub-resource fetched WITH
+# ?ticket= is still served (a script or a rehearsal probe has no cookie jar), which is the contract
+# the route always had.
+JAR=$(mktemp)
+assert "the ticket navigation is a 302, not a page" "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/?ticket=$TICKET")" '302'
+assert "…and its Location carries no ticket"  "$(curl -s -D- -o /dev/null "$B/api/x/example-tools/bundle/?ticket=$TICKET" | tr -d '\r' | grep -i '^location:' | grep -c 'ticket=' || true)" '0'
 assert "…and sets a cookie scoped to that bundle" "$(curl -s -D- -o /dev/null "$B/api/x/example-tools/bundle/?ticket=$TICKET" | tr -d '\r' | grep -i '^set-cookie:')" 'tmx_bundle='
 assert "…HttpOnly and SameSite=Strict"        "$(curl -s -D- -o /dev/null "$B/api/x/example-tools/bundle/?ticket=$TICKET" | tr -d '\r' | grep -i '^set-cookie:')" 'HttpOnly; SameSite=Strict'
+assert "following it with the cookie jar opens the page" "$(curl -sL -c "$JAR" -b "$JAR" "$B/api/x/example-tools/bundle/?ticket=$TICKET")" 'Word count'
+assert "…and the browser ends on the clean URL" "$(curl -sL -c "$JAR" -b "$JAR" -o /dev/null -w '%{url_effective}' "$B/api/x/example-tools/bundle/?ticket=$TICKET")" "/api/x/example-tools/bundle/"
+assert "a sub-resource with ?ticket= is still served" "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/app.js?ticket=$TICKET")" '200'
+rm -f "$JAR"
 assert "a sub-resource loads on the cookie alone" "$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: tmx_bundle=$TICKET" $B/api/x/example-tools/bundle/index.html)" '200'
 assert "a made-up ticket is refused"          "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/?ticket=nope")" '401'
 assert "a ticket for one plugin is not another's" "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/integrator-demo/bundle/?ticket=$TICKET")" '401'

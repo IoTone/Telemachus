@@ -6788,3 +6788,17 @@ plugin that calls `secret-wrap` directly is invisible to it twice over.
 | **SEAL‑3** | What happens when the plugin is uninstalled | **A platform ledger written at boot and never deleted** · vs an in-memory registry only | The rows outlive the code that wrote them, and they still need rotating. `plugin_seals` (0076) keeps `plugin_id`, the template, the form and `last_seen_epoch`; `rewrap` and `status` walk the ledger as well as the loaded plugins, and `status` can name a row whose plugin is gone instead of silently ignoring it. |
 | **SEAL‑4** | What the registry does not cover | **A sealed BLOB is out of scope, stated** · vs pretending a column list can express it | A column is one row and one `UPDATE`. A blob is keyed by the digest of its own ciphertext, so rotating it means writing a new object and repointing the row — a different mechanism with its own crash window. A product that owns a blob (RCNT's vault) owns its rotation; the registry says so rather than half-promising. |
 | **SEAL‑5** | A ledger row whose table does not exist yet | **Report it and skip it; never die** | A plugin's tables are created by its own migrations, which may run after the ledger is read on a fresh database. `status` must answer "this table does not exist" rather than failing the whole command, because the command is also how an operator checks a half-migrated instance. |
+
+## TICKET — the ticket leaves the URL (built 12 Nov 2026)
+
+The console opened a plugin's authenticated bundle by minting a ticket and navigating to
+`/api/x/<id>/bundle/?ticket=…`. The first response set the ticket as a `tmx_bundle` cookie, so the page's
+own sub-resources loaded on the cookie — but the ticket stayed in the URL of the document that was
+opened. It survived in browser history, in a copied or bookmarked link, and in any `Referer` a page sent
+later, and it is valid for thirty minutes.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **TICKET‑1** | Where the ticket may travel | **The cookie, after ONE 302** · vs the URL for the page's lifetime · vs a `Referrer-Policy` header instead | A header would stop the Referer leak and nothing else: history and a shared link still carry a live credential. The 302 removes it from all three at once, and the cookie it sets is already `HttpOnly; SameSite=Strict` and scoped to that one plugin's bundle path. |
+| **TICKET‑2** | What the 302 covers | **The ENTRY document only** (`/bundle/` or `/bundle/index.html`) · vs every request carrying `?ticket=` | A script, a rehearsal probe or any other client with no cookie jar fetches a sub-resource with `?ticket=` and must keep working; that is the contract the route has always had and the readiness rehearsal depends on it. Only a browser navigation is a document, so only that is redirected. |
+| **TICKET‑3** | When it does not redirect | **An invalid ticket keeps its refusal (401), and a cookie-only request is served as it was** | A redirect for a bad ticket would answer 302 and then 401 with nothing to say why. The page's own 401 is the honest answer, and `a ticket for one plugin is not another's` stays a 401. |

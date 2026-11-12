@@ -224,10 +224,21 @@
                     ;; Racket, so `or` alone would take it and never look at the
                     ;; cookie — which is how every sub-resource 401'd the first
                     ;; time this ran.
-                    (define ticket (let ([q (query-param req 'ticket #f)])
-                                     (or (and (string? q) (not (string=? q "")) q)
-                                         (bundle-cookie-of req))))
+                    (define query-ticket (let ([q (query-param req 'ticket #f)])
+                                           (and (string? q) (not (string=? q "")) q)))
+                    (define ticket (or query-ticket (bundle-cookie-of req)))
                     (define via-ticket (and ticket (bundle-ticket-valid? ticket plugin)))
+                    ;; 0.13.0: the ticket leaves the URL. A browser navigation to the bundle's entry
+                    ;; document carries the ticket in the query, where it survives in history, in a
+                    ;; copied link and in any Referer a page later sends. The entry document is served
+                    ;; through a 302 to the clean path with the cookie set on that response, so every
+                    ;; request after it carries the ticket in the cookie and the URL carries nothing.
+                    ;; Only the ENTRY document redirects: a sub-resource fetched with ?ticket= (a script
+                    ;; or a rehearsal probe with no cookie jar) is still served, which is the contract
+                    ;; `/api/x/:plugin/bundle/*` has always had.
+                    (define segs (filter (lambda (s) (not (string=? s "")))
+                                         (string-split (or path "") "/")))
+                    (define entry? (or (null? segs) (equal? segs (list "index.html"))))
                     (define (serve-it set-cookie?)
                       (define f (plugin-bundle-file-path plugin path))
                       (if f
@@ -241,16 +252,15 @@
                                                        ;; permits inline script.
                                                        (bundle-csp-header (plugin-csp-mode plugin)))
                                                  (if set-cookie?
-                                                     (list (make-header
-                                                            #"Set-Cookie"
-                                                            (string->bytes/utf-8
-                                                             (format "tmx_bundle=~a; Path=/api/x/~a/bundle/; Max-Age=~a; HttpOnly; SameSite=Strict~a"
-                                                                     ticket plugin BUNDLE-TICKET-SECONDS
-                                                                     (if (tls-on?) "; Secure" "")))))
+                                                     (list (bundle-cookie-header plugin ticket))
                                                      '())))
                           (err "not found" 404)))
                     (cond
-                      [via-ticket (serve-it (and (query-param req 'ticket) #t))]
+                      [(and via-ticket query-ticket entry?)
+                       (found-to (string-append (format "/api/x/~a/bundle/" plugin)
+                                                (if (null? segs) "" (string-join segs "/")))
+                                 #:headers (list (bundle-cookie-header plugin query-ticket)))]
+                      [via-ticket (serve-it #f)]
                       [else (with-auth req (lambda (p) (serve-it #f)))]))
    'plugin-bundle-ticket (lambda (req plugin)
                            (with-auth req

@@ -353,6 +353,20 @@
   (define h (req-header req #"cookie"))
   (define m (and (string? h) (regexp-match #px"(?:^|;\\s*)tmx_bundle=([A-Za-z0-9_-]+)" h)))
   (and m (cadr m)))
+;; The one Set-Cookie a bundle ticket ever gets: scoped to one plugin's static files, HttpOnly and
+;; SameSite=Strict, so nothing ambient rides on the JSON API. Shared by the 302 that takes the ticket
+;; out of the URL and by the direct response a sub-resource with ?ticket= still receives.
+(define (bundle-cookie-header plugin ticket)
+  (make-header #"Set-Cookie"
+               (string->bytes/utf-8
+                (format "tmx_bundle=~a; Path=/api/x/~a/bundle/; Max-Age=~a; HttpOnly; SameSite=Strict~a"
+                        ticket plugin BUNDLE-TICKET-SECONDS (if (tls-on?) "; Secure" "")))))
+;; A 302 with headers, for the one place the server answers "ask again at this URL". `redirect-to` from
+;; web-server/http/redirect would do, but it is not part of the collection this module already loads.
+(define (found-to url #:headers [headers '()])
+  (response/output #:code 302 #:message #"Found"
+                   #:headers (cons (make-header #"Location" (string->bytes/utf-8 url)) headers)
+                   void))
 
 (define (plugin-bundle-file-path plugin rest-path)
   (define rest (filter (lambda (s) (not (string=? s "")))
