@@ -78,7 +78,7 @@ async function trgCreate(){
   }
   const r=await api('/api/doc-triggers',{method:'POST',body:{workflow_slug:val('tg_wf'),match_prefix:val('tg_prefix'),
     match_types:val('tg_types'),match_attrs,input,fire_on_derived:!!document.getElementById('tg_derived').checked}});
-  if(r.ok){ toast(t('triggeradded'),true); renderTab(); } else toast(r.json.error||'error');
+  if(r.ok){ toast(tRaw('triggeradded'),true); renderTab(); } else toast(r.json.error||'error');
 }
 async function trgToggle(id,on){
   const r=await api('/api/doc-triggers/'+encodeURIComponent(id),{method:'PATCH',body:{enabled:on}});
@@ -86,7 +86,7 @@ async function trgToggle(id,on){
 }
 async function trgDelete(id){
   const r=await api('/api/doc-triggers/'+encodeURIComponent(id),{method:'DELETE'});
-  if(r.ok){ toast(t('deleted'),true); renderTab(); } else toast(r.json.error||'error');
+  if(r.ok){ toast(tRaw('deleted'),true); renderTab(); } else toast(r.json.error||'error');
 }
 async function trgHistory(id){
   const r=await api('/api/doc-triggers/'+encodeURIComponent(id));
@@ -213,13 +213,13 @@ async function wfRunView(id){
   const err=(run.error&&run.error!=='null')
     ? `<div class="card" style="margin-top:14px;border-color:#5e332c"><b style="color:var(--bad)">error</b>
        <div class="mono" style="font-size:13px;margin-top:6px">${esc(run.error)}</div></div>` : '';
-  return `<h2>${esc(run.slug||t('runs'))} <span class="muted mono" style="font-size:14px">${esc(run.id.slice(0,8))}…</span></h2>
+  return `<h2>${esc(run.slug||tRaw('runs'))} <span class="muted mono" style="font-size:14px">${esc(run.id.slice(0,8))}…</span></h2>
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
         <div style="flex:none">${wfBadge(run.status)} <span class="muted">${esc(run.steps_used)} ${t('stepsused')}</span>${live?' <span class="muted">· live</span>':''}</div>
         <div style="flex:none">${live?`<button class="btn sm bad" data-h-click="${H((el,ev)=>wfCancel((run.id)))}">${t('cancel')}</button> `:''}<button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${t('refresh')}</button> <button class="btn sm ghost" data-h-click="${H((el,ev)=>wfBack())}">${t('back')}</button></div>
       </div>
-      ${wfJson(run.input,t('input'))}${wfJson(run.output,t('output'))}
+      ${wfJson(run.input,tRaw('input'))}${wfJson(run.output,tRaw('output'))}
     </div>${err}
     <div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">${t('steps')}</h3>
       <table><thead><tr><th>step</th><th>${t('status')}</th><th>${t('output')}</th></tr></thead><tbody>${rows}</tbody></table></div>`;

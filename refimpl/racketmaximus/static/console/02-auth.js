@@ -57,7 +57,7 @@ function authView(){
 function resetCard(){
   if(S.resetToken) return `<div class="card" style="margin-top:14px">
       <h2>${t('prnew')}</h2>
-      <p class="muted">${esc(t('prnewhint'))}</p>
+      <p class="muted">${t('prnewhint')}</p>
       <label>${t('prpass')}</label><input id="prp" type="password" autofocus>
       <label>${t('prpass2')}</label><input id="prp2" type="password">
       <button class="btn" style="width:100%" id="prbtn" data-h-click="${H((el,ev)=>doResetConfirm())}">${t('prset')}</button>
@@ -65,7 +65,7 @@ function resetCard(){
   return `<details class="card" style="margin-top:14px">
       <summary style="cursor:pointer" class="muted">${t('prforgot')}</summary>
       <div style="margin-top:12px">
-        <p class="muted">${esc(t('prhint'))}</p>
+        <p class="muted">${t('prhint')}</p>
         <label>${t('praddr')}</label><input id="pra" type="email">
         <button class="btn ghost" id="prask" data-h-click="${H((el,ev)=>doResetRequest())}">${t('prsend')}</button>
       </div>
@@ -91,20 +91,20 @@ function claimResetToken(){
 async function doResetRequest(){
   if(S.resetAsking) return;
   const address=val('pra');
-  if(!address){ toast(t('praddrneeded')); return; }
+  if(!address){ toast(tRaw('praddrneeded')); return; }
   S.resetAsking=true; const btn=document.getElementById('prask');
-  if(btn){ btn.disabled=true; btn.textContent=t('prsending'); }
+  if(btn){ btn.disabled=true; btn.textContent=tRaw('prsending'); }
   try{
     const r=await api('/api/password-reset',{method:'POST',body:{address}});
     // The server answers the same thing whether or not that address has an
     // account, so the console must not improve on it: "sent" would be a claim
     // the server deliberately declines to make.
-    if(r.ok) toast((r.json&&r.json.message)||t('prasked'),true);
-    else toast((r.json&&r.json.error)||t('error'));
+    if(r.ok) toast((r.json&&r.json.message)||tRaw('prasked'),true);
+    else toast((r.json&&r.json.error)||tRaw('error'));
   } finally {
     S.resetAsking=false;
     const b=document.getElementById('prask');
-    if(b){ b.disabled=false; b.textContent=t('prsend'); }
+    if(b){ b.disabled=false; b.textContent=tRaw('prsend'); }
   }
 }
 // The two fields are compared HERE and not on the server: a mistyped new
@@ -113,10 +113,10 @@ async function doResetRequest(){
 async function doResetConfirm(){
   if(S.resetSetting) return;
   const pw=val('prp'); const pw2=val('prp2');
-  if(!pw){ toast(t('prpassneeded')); return; }
-  if(pw!==pw2){ toast(t('prmismatch')); return; }
+  if(!pw){ toast(tRaw('prpassneeded')); return; }
+  if(pw!==pw2){ toast(tRaw('prmismatch')); return; }
   S.resetSetting=true; const btn=document.getElementById('prbtn');
-  if(btn){ btn.disabled=true; btn.textContent=t('prsetting'); }
+  if(btn){ btn.disabled=true; btn.textContent=tRaw('prsetting'); }
   try{
     const r=await api('/api/password-reset/confirm',{method:'POST',body:{token:S.resetToken,password:pw}});
     if(r.ok){
@@ -126,14 +126,14 @@ async function doResetConfirm(){
         // No session, which is not a failure: the account has a second factor
         // and this path does not go through the check that enforces it. The
         // password IS set, so the person signs in with their code.
-        toast(t('prset2fa'),true);
+        toast(tRaw('prset2fa'),true);
         await render();
       }
     } else {
       S.resetToken=null;       // spent once, whatever happened
       const b=document.getElementById('prbtn');
-      if(b){ b.disabled=false; b.textContent=t('prset'); }
-      toast((r.json&&r.json.error)||t('error'));
+      if(b){ b.disabled=false; b.textContent=tRaw('prset'); }
+      toast((r.json&&r.json.error)||tRaw('error'));
       await render();
     }
   } finally {
@@ -149,12 +149,12 @@ async function doLogin(){
   if(S.signingIn) return;
   const body={username:val('lu'),password:val('lp')}; const c=val('lc'); if(c) body.code=c;
   S.signingIn=true; const btn=document.getElementById('lbtn');
-  if(btn){ btn.disabled=true; btn.textContent=t('signingin'); }
+  if(btn){ btn.disabled=true; btn.textContent=tRaw('signingin'); }
   try{
     const r=await api('/api/login',{method:'POST',body});
     if(r.ok){ setTok(r.json.token); await render(); }
     else {
-      if(btn){ btn.disabled=false; btn.textContent=t('signin'); }
+      if(btn){ btn.disabled=false; btn.textContent=tRaw('signin'); }
       toast(r.json.error||'login failed');
     }
   } finally {
@@ -225,10 +225,10 @@ function appShell(){
       <span class="brand">${brandLockup(22)}</span>
       <span class="sp"></span>
       <span class="langtog">${langBtns()}</span>
-      <button class="kbd-hint" title="${esc(t('palhint'))}"
+      <button class="kbd-hint" title="${t('palhint')}"
         data-h-click="${H(()=>palOpen())}">${esc(palModLabel()+'K')}</button>
-      ${helpBlocked() ? '' : `<button class="kbd-hint" title="${esc(t('helphint'))}"
-        data-h-click="${H(()=>helpOpen())}">${esc(t('helpask'))}</button>`}
+      ${helpBlocked() ? '' : `<button class="kbd-hint" title="${t('helphint')}"
+        data-h-click="${H(()=>helpOpen())}">${t('helpask')}</button>`}
       <span class="chip">${esc(S.me.user_id.slice(0,8))}… ${S.me.is_operator?`<span class="badge op">${t('operator')}</span>`:''}</span>
       <button class="btn ghost sm" data-h-click="${H((el,ev)=>logout())}">${t('logout')}</button>
     </header>
@@ -254,8 +254,8 @@ function buildFooter(){
   const dev = (b.commit === 'dev');
   return `<footer class="build">
     <span>${esc(S.brand.title||'TMach')} <span class="mono">${esc(b.version||'')}</span></span>
-    ${commit?`<span class="mono" title="${esc(b.commit)}${started?' \u00b7 '+esc(t('buildstarted'))+' '+esc(started):''}">${
-        dev ? esc(t('builddev')) : esc(commit)}</span>`:''}
+    ${commit?`<span class="mono" title="${esc(b.commit)}${started?' \u00b7 '+t('buildstarted')+' '+esc(started):''}">${
+        dev ? t('builddev') : esc(commit)}</span>`:''}
     ${b.source?`<a href="${esc(b.source)}" target="_blank" rel="noopener noreferrer">${t('buildsource')}</a>`:''}
   </footer>`;
 }

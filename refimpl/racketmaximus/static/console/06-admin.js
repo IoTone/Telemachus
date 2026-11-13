@@ -11,7 +11,7 @@ async function doSessionPolicySave(){
     idle_seconds: idle==null?null:Math.round(idle*60),
     absolute_seconds: abs==null?null:Math.round(abs*3600),
     warn_seconds: warn==null?0:Math.round(warn)}});
-  if(r.ok && r.json){ S.adminPolicy=r.json; toast(t('saved')); await refreshMe(); render(); }
+  if(r.ok && r.json){ S.adminPolicy=r.json; toast(tRaw('saved')); await refreshMe(); render(); }
   else toast((r.json&&r.json.error)||'error');
 }
 async function doI18nSave(){
@@ -19,7 +19,7 @@ async function doI18nSave(){
     body:{default:val('locdef'), enabled:document.getElementById('locsw').checked}});
   if(r.ok && r.json){ S.i18n=Object.assign(S.i18n,r.json);
     if(!S.i18n.enabled) localStorage.removeItem('tmx_lang');
-    toast(t('saved')); render(); }
+    toast(tRaw('saved')); render(); }
   else toast((r.json&&r.json.error)||'error');
 }
 // ---- branding (Admin) ----
@@ -68,21 +68,21 @@ function brandContrast(th){
   const bad=checks.map(([label,fg,bg,min])=>{ const r=bxContrast(fg,bg);
     return r===null||r>=min?null:{label,ratio:r,min}; }).filter(Boolean);
   if(!bad.length) return '';
-  return `<div class="bx-warn" style="margin-top:8px"><b>${esc(t('thcontrast'))}</b>${bad.map(w=>
+  return `<div class="bx-warn" style="margin-top:8px"><b>${t('thcontrast')}</b>${bad.map(w=>
     `<div>${esc(w.label)} — <b>${w.ratio.toFixed(2)}:1</b> (${w.min}:1)</div>`).join('')}
-    <div class="muted" style="margin-top:6px">${esc(t('thcontrasthint'))}</div></div>`; }
+    <div class="muted" style="margin-top:6px">${t('thcontrasthint')}</div></div>`; }
 function brandThemeEditor(){
   const th=Object.assign({},THEME_DEFAULTS,S.brand.theme||{});
   const col=(k,label)=>`<div><label>${esc(label)}</label>
     <input type="color" value="${esc(th[k])}" data-h-input="${H((el,ev)=>brandThemeSet((k),el.value))}"></div>`;
   const pick=(k,label,opts)=>`<div><label>${esc(label)}</label><select data-h-change="${H((el,ev)=>brandThemeSet((k),el.value))}">
     ${opts.map(o=>`<option value="${esc(o)}"${th[k]===o?' selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
-  return `<h4 style="margin:16px 0 4px">${esc(t('brandtheme'))}</h4>
-    <p class="muted" style="margin-top:0">${esc(t('brandthemehint'))}</p>
-    <div class="row">${col('bg',t('thbg'))}${col('surface',t('thsurface'))}${col('ink',t('think'))}${col('muted',t('thmuted'))}</div>
-    <div class="row">${col('brand',t('thbrand'))}${col('brandInk',t('thbrandink'))}
-      ${pick('mode',t('thmode'),['dark','light'])}${pick('fontBody',t('thfont'),['System','Serif','Mono','Rounded'])}
-      ${pick('radius',t('thradius'),['0px','4px','8px','12px','16px'])}</div>
+  return `<h4 style="margin:16px 0 4px">${t('brandtheme')}</h4>
+    <p class="muted" style="margin-top:0">${t('brandthemehint')}</p>
+    <div class="row">${col('bg',tRaw('thbg'))}${col('surface',tRaw('thsurface'))}${col('ink',tRaw('think'))}${col('muted',tRaw('thmuted'))}</div>
+    <div class="row">${col('brand',tRaw('thbrand'))}${col('brandInk',tRaw('thbrandink'))}
+      ${pick('mode',tRaw('thmode'),['dark','light'])}${pick('fontBody',tRaw('thfont'),['System','Serif','Mono','Rounded'])}
+      ${pick('radius',tRaw('thradius'),['0px','4px','8px','12px','16px'])}</div>
     <div id="thwarn">${brandContrast(th)}</div>`; }
 async function doBrandThemeReset(){
   S.brand.theme=Object.assign({},THEME_DEFAULTS); applyTheme(S.brand.theme); await doBrandSave(); }
@@ -90,23 +90,23 @@ async function doBrandThemeReset(){
 async function doBrandSave(){
   const r=await api('/api/branding',{method:'PUT',
     body:{title:val('brt'),tagline:val('brg'),logo:S.brand.logo||'',theme:S.brand.theme||undefined}});
-  if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
+  if(r.ok){ await applyBrand(r.json); toast(tRaw('saved'),true); } else toast(r.json.error||'error');
 }
 async function doBrandReset(){
   S.brand.theme=Object.assign({},THEME_DEFAULTS);
   const r=await api('/api/branding',{method:'PUT',body:{title:'TMach',tagline:'',logo:'',theme:S.brand.theme}});
-  if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
+  if(r.ok){ await applyBrand(r.json); toast(tRaw('saved'),true); } else toast(r.json.error||'error');
 }
 async function doBrandLogoClear(){
   const r=await api('/api/branding',{method:'PUT',body:{title:S.brand.title,tagline:S.brand.tagline,logo:''}});
-  if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
+  if(r.ok){ await applyBrand(r.json); toast(tRaw('saved'),true); } else toast(r.json.error||'error');
 }
 async function doBrandLogo(input){
   const f=input.files&&input.files[0]; if(!f) return;
   const b64=await new Promise((res,rej)=>{ const rd=new FileReader();
     rd.onload=()=>res(String(rd.result).split(',')[1]); rd.onerror=rej; rd.readAsDataURL(f); });
   const r=await api('/api/branding/logo',{method:'POST',body:{mime:f.type,filename:f.name,data:b64}});
-  if(r.ok){ await applyBrand(r.json.branding); toast(t('saved'),true); } else toast(r.json.error||'error');
+  if(r.ok){ await applyBrand(r.json.branding); toast(tRaw('saved'),true); } else toast(r.json.error||'error');
 }
 
 async function doSeedSamples(){
