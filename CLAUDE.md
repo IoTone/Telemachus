@@ -3006,11 +3006,45 @@ bash test/e2e/validate.sh                 # §3c7 — the real form, and a seede
 - **`api()` ENCODES `body` ITSELF**, and passing `JSON.stringify(...)` sends a
   JSON string. The server answered that with a **500** from `hash-ref`; the
   create now treats a non-object body as empty, so it is a 400 naming the
-  missing URL. Other handlers that `hash-ref` a body have the same shape and
-  were not swept here.
+  missing URL. The other handlers had the same shape — see "A JSON body that is
+  not an object" below.
 - **The browser gate drives a fetch the egress policy refuses at once** (RG-3),
   so it needs no network, and asks for no 4xx: every 4xx is a console error to
   that gate.
+
+## A JSON body that is not an object (the body-shape sweep)
+
+`server/body.rkt`; `read-json-body` in kit is its one asker for core handlers.
+**No route, no migration, no permission.**
+
+```sh
+raco test test/body-tests.rkt    # the rule, no server; controlled
+bash test/server-smoke.sh        # the "body shape" block: every write route, four bodies
+```
+
+- **IT WAS 252 FAULTS OVER 63 ROUTES, MEASURED BEFORE THE FIX.**
+  `read-json-body` turned MALFORMED JSON into `{}` and passed a VALID non-object
+  (`"x"`, `[1]`, `1`, `null`) straight through, so every handler that
+  `hash-ref`s its body answered a 500 for a mistake wholly the caller's — public
+  doors among them (`/api/login`, `/api/bootstrap`, `/api/beta/signup`,
+  `/api/activate`), where a 500 is also log noise anybody can make. A
+  non-object now reads as `{}`, so each route gives the 400 it gives a missing
+  field. Fixed in the reader, not per handler: one rule rather than 63 guards.
+- **A PLUGIN ROUTE STILL GETS ANY JSON VALUE** (`read-json-value`). Its
+  `'body` is a published contract that never promised an object, so narrowing
+  it would break a downstream route that takes an array.
+- **The rule is in its own DB-free module** because a test that requires
+  `kit.rkt` instantiates the pool, and CI's SQLite leg sets `DATABASE_URL=""`.
+- **THE SWEEP READS `ROUTES`, NOT A LIST**, so a route added later is swept the
+  day it lands, and it asserts it covered at least 150 of them, or an empty list
+  would sweep nothing and pass. It fails on a **500** (what `handle` answers for
+  an unhandled exception) or a dropped connection, not on every 5xx:
+  `/api/agent`'s 503 naming `TMACH_MODEL_URL` is deliberate, whatever the body.
+  It skips only `POST /api/logout`, which would end the token it is using, and
+  sits **above** the `redeem` block, which exhausts the redemption throttle and
+  would otherwise answer 429 for two routes before they read a body.
+- **The per-handler `(if (hash? b) b (hasheq))` guards are now redundant** and
+  were left in place: removing ~15 of them is a tidy, not a fix.
 
 ## The citation rule has one home (RG‑10, #191)
 

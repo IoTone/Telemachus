@@ -429,7 +429,7 @@
   (hasheq 'params (for/hasheq ([n (in-list names)] [v (in-list vals)]) (values (string->symbol n) v))
           'query (for/hasheq ([kv (in-list (url-query (request-uri req)))] #:when (cdr kv))
                    (values (car kv) (cdr kv)))
-          'body (read-json-body req)
+          'body (read-json-value req)
           'headers (headers->hash (request-headers/raw req))))
 
 (define (install-plugin-routes!)

@@ -47,6 +47,7 @@
          "../domain/agent/plugins.rkt"                    ; plugin-dir — where a plugin's pages live
          (only-in "../domain/db/id.rkt" new-id random-token)
          "errors.rkt"
+         "body.rkt"
          "../surface/messages.rkt")
 
 ;; ---- HTTP methods -----------------------------------------------------------
@@ -146,10 +147,13 @@
     (cdr kv)))
 
 (define (read-json-body req)
-  (define raw (request-post-data/raw req))
-  (if (and raw (> (bytes-length raw) 0))
-      (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (bytes->jsexpr raw))
-      (hasheq)))
+  (json-body-object (request-post-data/raw req)))
+
+;; The plugin-route mount's reader: any JSON value, because a plugin's 'body is a
+;; published contract that never promised an object. Core handlers use the one
+;; above. Both rules live in server/body.rkt.
+(define (read-json-value req)
+  (json-body-value (request-post-data/raw req)))
 
 ;; Through `locales-dir`, not impl-root directly: the suites point that at a temp
 ;; copy so the runtime and the Manager see the same catalogs during a test run.
