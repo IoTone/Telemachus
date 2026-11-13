@@ -3012,6 +3012,33 @@ bash test/e2e/validate.sh                 # §3c7 — the real form, and a seede
   so it needs no network, and asks for no 4xx: every 4xx is a console error to
   that gate.
 
+## The citation rule has one home (RG‑10, #191)
+
+`domain/ai/citations.rkt`, no dependencies. In-product help's three rules —
+the score floor (HELP‑15), resolving every citation against what was offered
+(HELP‑16) and "citing every source is citing nothing" (HELP‑22) — moved there
+so #191's research answerer (RG‑6) asks the same rules rather than a copy.
+**No route, no migration, no behaviour change.**
+
+```sh
+raco test test/citations-tests.rkt test/help-tests.rkt   # 7 + 27 cases, two controls
+```
+
+- **The RULE is shared; the floor's VALUE is not.** `floor-admits?` takes the
+  caller's floor, because `HELP-SCORE-FLOOR` is model-dependent and
+  provisional, and a research corpus will want its own number.
+- **It takes identifiers as plain strings** (a help passage's path, a research
+  passage's object key) and knows nothing about a passage's shape, so neither
+  asker has to require the other's subsystem.
+- **`uncited` and `unfocused` belong to the rule** (`CITATION-REASONS`); a
+  caller's own "no corpus" reasons are APPENDED to them, so neither can invent a
+  spelling the other's client does not know. Help's order is unchanged.
+- **`citations-tests.rkt` refuses a second copy in `answer.rkt`**: a source
+  scan, with comment lines stripped, for the marker regexp and the two reason
+  literals. Positive-controlled.
+- **For now it has one caller.** RG‑6 is still waiting on a recall measurement,
+  so this is #110 r4's stated exception: an export with a test behind it.
+
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 
 Built 22 Oct 2026 — the configuration half of the external-feed work, on top of
