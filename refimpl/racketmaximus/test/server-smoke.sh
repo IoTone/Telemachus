@@ -4164,6 +4164,31 @@ assert "trjob: and a stranger gets 401" \
       -d '{"text":"hi","target_lang":"ja"}')" 'Authentication required'
 rm -f /tmp/tmx-trlong.json /tmp/tmx-trhuge.json
 
+echo '== body shape: a JSON body that is not an object is never a 500 =='
+# EVERY write route in the table, read from server/routes.rkt rather than listed
+# here, so a route added later is swept the day it lands. Each is sent a string,
+# an array, a number and null as its JSON body; a 4xx or an ordinary answer is
+# fine, a 500 is not (a deliberate 503, like /api/agent with no model, is
+# fine). Before server/body.rkt this was 252 faults over 63 routes,
+# public ones among them (/api/login, /api/bootstrap, /api/beta/signup).
+#
+# It sits ABOVE the redeem block on purpose: that block exhausts the redemption
+# throttle, after which /api/activate and /api/password-reset/confirm answer 429
+# before reading a body at all, and this would pass for them by never reaching
+# them. It changes state on the way (an empty branding or feature document is a
+# valid write), which is why it is this late; nothing after it reads that state.
+BS_DIR=$(mktemp -d)
+racket -e '(require "server/routes.rkt") (for ([r ROUTES] #:unless (member (rt-method r) (list "GET" "HEAD" "OPTIONS"))) (printf "~a ~a\n" (rt-method r) (rt-path r)))' > "$BS_DIR/routes.txt"
+BS_OUT=$(python3 -I test/body-shape-sweep.py "$B" "$OP" "$BS_DIR/routes.txt"); BS_RC=$?
+echo "$BS_OUT"
+# The count first, or a route list that came back empty would sweep nothing and pass.
+BS_N=$(printf '%s' "$BS_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["routes"])' 2>/dev/null || echo 0)
+if [ "${BS_N:-0}" -ge 150 ]; then echo "  ok   body shape: the sweep covered $BS_N write routes"
+else echo "  FAIL body shape: the sweep covered only ${BS_N:-0} write routes"; fail=1; fi
+assert "body shape: no write route answers a non-object body with a 500" "$BS_OUT" '"faults": []'
+[ $BS_RC -eq 0 ] || { echo "  FAIL body shape: the sweep exited $BS_RC"; fail=1; }
+rm -rf "$BS_DIR"
+
 echo "== redeem: a mailed token's redemption is throttled (SEC-13) =="
 # THIS BLOCK IS LAST, for the reason the reset-request throttle above is last: it
 # EXHAUSTS the per-address allowance for fifteen minutes, so no redemption after
