@@ -47,6 +47,8 @@ function emailTransportCard(){
       <div><label>${t('mluser')}</label><input id="mlu" value="${esc((T&&T.username)||'')}" autocomplete="off"></div>
       <div><label>${t('mlpass')}</label><input id="mlw" type="password" autocomplete="new-password" placeholder="${T&&T.has_password?esc(t('mlpasskeep')):''}"></div>
     </div>
+    ${T && T.password_stored === 'plaintext'
+      ? `<p class="muted" id="mlplain" style="font-size:12px;margin:4px 0 0"><span class="badge bad">${t('mlpwplain')}</span> ${t('mlpwplainhint')}</p>` : ''}
     <div class="row">
       <div><label>${t('mlfrom')}</label><input id="mlf" value="${esc((T&&T.from_address)||'')}" placeholder="tmach@example.com"></div>
       <div><label>${t('mlfromname')}</label><input id="mln" value="${esc((T&&T.from_name)||'')}" placeholder="TMach"></div>

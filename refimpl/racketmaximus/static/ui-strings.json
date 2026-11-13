@@ -599,6 +599,8 @@
   "ui.mluser": "Username",
   "ui.mlpass": "Password",
   "ui.mlpasskeep": "leave blank to keep the stored one",
+  "ui.mlpwplain": "stored unencrypted",
+  "ui.mlpwplainhint": "This instance has no TMACH_SECRET_KEY, or the password was saved before one was set, so the relay password is in the database in the clear. Set the key, restart, and run telemachus-secrets rewrap.",
   "ui.mlfrom": "From address",
   "ui.mlfromname": "From name",
   "ui.mlbase": "Console URL",
