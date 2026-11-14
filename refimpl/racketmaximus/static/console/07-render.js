@@ -11,7 +11,7 @@ async function refreshMe(){ if(!S.token){S.me=null;S.sessionPolicy=null;return;}
 function idleBar(show, msg){
   const bar=document.getElementById('idlebar'); if(!bar) return;
   if(show){ document.getElementById('idlemsg').textContent=msg;
-            document.getElementById('idlestay').textContent=t('idlestay');
+            document.getElementById('idlestay').textContent=tRaw('idlestay');
             bar.hidden=false; }
   else bar.hidden=true;
 }
@@ -19,7 +19,7 @@ async function idleStay(){ idleBar(false); await api('/api/whoami'); }
 function idleSignOut(){
   idleBar(false);
   S.token=null; localStorage.removeItem('tmx_token'); S.me=null; S.sessionPolicy=null;
-  S.forceLogin=true; toast(t('idleout')); render();
+  S.forceLogin=true; toast(tRaw('idleout')); render();
 }
 function idleTick(){
   const pol=S.sessionPolicy;
@@ -104,7 +104,7 @@ async function doTranslate(){
   // dead.
   if(S.trSending) return;
   const text=val('trsrc'), target_lang=val('trtgt'), use_glossary=document.getElementById('trgl').checked;
-  if(!text){toast(t('empty'));return;}
+  if(!text){toast(tRaw('empty'));return;}
   S.trSending=true;
   const out=document.getElementById('trout');
   try {
@@ -115,7 +115,7 @@ async function doTranslate(){
       // criterion that could not be met while the answer arrived in the request
       S.trJobs=[r.json.job_id].concat(S.trJobs||[]);
       const c=r.json.sections||1;
-      toast(t('traccepted').replace('{c}', c), true);
+      toast(tRaw('traccepted').replace('{c}', c), true);
       trFollow();
     } else {
       // A REFUSAL GOES IN THE OUTPUT PANE, NOT IN A TOAST (#231): the
@@ -123,7 +123,7 @@ async function doTranslate(){
       // limit, why longer comes back wrong, and the two remedies — and a toast
       // scrolls away in 2.6 seconds with no second chance.
       out.style.color='var(--bad)';
-      out.textContent=(r.json && r.json.error) || t('trfailed');
+      out.textContent=(r.json && r.json.error) || tRaw('trfailed');
     }
   } finally { S.trSending=false; }
 }
@@ -198,7 +198,7 @@ function trProgress(j){
   const pr=j.progress;
   if(!pr || pr==='null' || !(pr.total>1)) return '';
   const pct=Math.round(100*Math.min(pr.done,pr.total)/pr.total);
-  return `<span class="muted">${esc(t('trprogress').replace('{d}', pr.done).replace('{n}', pr.total))}</span>`
+  return `<span class="muted">${esc(tRaw('trprogress').replace('{d}', pr.done).replace('{n}', pr.total))}</span>`
     + `<div style="height:4px;background:var(--line);border-radius:2px;margin-top:4px">`
     + `<div style="height:4px;width:${pct}%;background:var(--accent3);border-radius:2px"></div></div>`;
 }
@@ -208,7 +208,7 @@ function trProgress(j){
 // leaving a cancelled row still saying `running` until the next poll.
 async function doTrCancel(id){
   const r=await api('/api/jobs/'+id+'/cancel',{method:'POST'});
-  if(r.ok) toast(t('canceled'),true); else toast((r.json&&r.json.error)||t('error'));
+  if(r.ok) toast(tRaw('canceled'),true); else toast((r.json&&r.json.error)||tRaw('error'));
   trFollow();
 }
 
@@ -374,12 +374,12 @@ async function betaLandingView(){
 function powhash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h=(h^s.charCodeAt(i))>>>0; h=Math.imul(h,16777619)>>>0; } return h>>>0; }
 function solvePow(nonce,difficulty){ const mask=(difficulty>=32)?0xFFFFFFFF:(((1<<difficulty)>>>0)-1); for(let n=0;;n++){ if((powhash(nonce+':'+n)&mask)===0) return n; } }
 async function doBetaSignup(){
-  const msg=document.getElementById('betamsg'); msg.innerHTML=`<span class="muted">${esc(t('bxverifying'))}</span>`;
+  const msg=document.getElementById('betamsg'); msg.innerHTML=`<span class="muted">${t('bxverifying')}</span>`;
   // no ?lang= needed: an overlay may localize a field's LABEL but never its key,
   // so the submitted body is identical in every language (experience.rkt).
   const cfgR=await api('/api/beta/config'); const fields=cfgR.ok?cfgR.json.fields:[];
   if(!S.betaChallenge){ const chR=await api('/api/beta/challenge'); S.betaChallenge=chR.ok?chR.json:null; }
-  if(!S.betaChallenge){ msg.innerHTML=`<span class="badge">${esc(t('bxrestart'))}</span>`; return; }
+  if(!S.betaChallenge){ msg.innerHTML=`<span class="badge">${t('bxrestart')}</span>`; return; }
   const {challenge,difficulty,honeypot}=S.betaChallenge;
   const pow=solvePow(challenge.split('.')[0], difficulty);      // proof of work (CPU cost per signup)
   const body={}; for(const f of fields){ const el=document.getElementById('bf_'+f.key); if(el) body[f.key]=el.value; }
@@ -387,7 +387,7 @@ async function doBetaSignup(){
   body.challenge=challenge; body.pow=pow;
   const res=await api('/api/beta/signup',{method:'POST',body});
   if(res.ok){ document.getElementById('betaform').style.display='none';
-    msg.innerHTML=`<b>${esc(t('bxthanks'))}</b><br><span class="muted">${esc(t('bxtouch'))}</span>`; }
+    msg.innerHTML=`<b>${t('bxthanks')}</b><br><span class="muted">${t('bxtouch')}</span>`; }
   else { S.betaChallenge=null; msg.innerHTML=`<span class="badge">${esc(res.json.error||'error')}</span>`; }   // drop the used/stale challenge
 }
 function teamSignIn(){ S.forceLogin=true; render(); }
@@ -458,7 +458,7 @@ function docEditCancel(){ S.docEdit=null; edReset('doc', '', 'dc'); renderTab();
 async function doSaveDoc(){
   const r=await api('/api/documents/'+S.docEdit,{method:'PUT',
     body:{title:val('dt'), content:edRead('doc'), visibility:val('dv')}});
-  if(r.ok){ S.docEdit=null; edReset('doc','', 'dc'); toast(t('saved'),true); renderTab(); }
+  if(r.ok){ S.docEdit=null; edReset('doc','', 'dc'); toast(tRaw('saved'),true); renderTab(); }
   else toast((r.json&&r.json.error)||'error');
 }
 async function doCreateDoc(){ const r=await api('/api/documents',{method:'POST',body:{title:val('dt'),content:edRead('doc'),key:val('dk'),visibility:val('dv')}});

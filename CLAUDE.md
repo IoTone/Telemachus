@@ -3046,6 +3046,44 @@ bash test/server-smoke.sh        # the "body shape" block: every write route, fo
 - **The per-handler `(if (hash? b) b (hasheq))` guards are now redundant** and
   were left in place: removing ~15 of them is a tidy, not a fix.
 
+## A translated string is escaped once, by `t` itself (#282 item 3)
+
+`static/console/01-base.js`. **Console only: no route, no migration, no catalog
+change.**
+
+```sh
+raco test test/console-tests.rkt   # the three source shapes
+bash test/e2e/validate.sh          # "a translation cannot be markup", controlled
+```
+
+- **A catalog string is somebody's TRANSLATION**, approved in the Localize tab
+  and exported to disk, and `t()` handed it to `innerHTML` as written. Of 862
+  calls, 135 were wrapped in `esc()` and the rest were not. `script-src 'self'`
+  still blocked script, so the reach was defacement by whoever could get a
+  translation approved.
+- **TWO ACCESSORS, CHOSEN BY DESTINATION.** `t(key)` is for markup and is
+  already escaped. `tRaw(key)` is for a place that takes plain text: a toast
+  (`textContent`), `confirm()`, a DOM property, or a helper that escapes its own
+  argument (`hRow`, `hBadge`, `col`, `pick`, `pill`, `qvSpark`, `seg`, `tog`,
+  `wfJson`, `visLabel`'s callers, the palette's labels).
+- **NEVER `esc(t(…))`.** It is escaping twice, and it shows nothing until a
+  translation contains an ampersand, which then reads `&amp;`. No shipped
+  string in any of the four catalogs contains `< > & "` today, which is why
+  neither defect had ever been visible.
+- **THE BROWSER GATE IS THE PROOF, because this is a question about what the
+  console COMPUTES.** It gives every string a tag and an entity, renders every
+  tab the operator can see plus the shell and the sign-in view, and asserts that
+  nothing became an element and nothing shows an entity as text. A static pass
+  changed about 290 sites; the gate then found **about twenty more**, all one shape: a
+  string returned from a small function or held in a variable and escaped again
+  by its consumer. Control: with the escape removed from `t`, marked strings
+  become elements on every tab.
+- **What it does not reach, stated**: a card that only opens on a click (a
+  detail panel, a run view). Those were converted by the static pass and are
+  covered by the source test, not by the runtime one.
+- **Older console tests matched the literal `t('…')` spelling**; the catalog
+  scans accept `t(?:Raw)?` now. Same catalog, so no assertion is weaker.
+
 ## The citation rule has one home (RG‑10, #191)
 
 `domain/ai/citations.rkt`, no dependencies. In-product help's three rules —

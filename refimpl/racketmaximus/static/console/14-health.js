@@ -70,16 +70,16 @@ function healthServer(sr){
   // point of naming the ids rather than counting them (startup.rkt's own
   // message says the same thing to the log, where nobody is looking later).
   const schema = pending.length
-    ? `${hBadge(t('hschemapending').replace('{n}', pending.length), 'bad')}
+    ? `${hBadge(tRaw('hschemapending').replace('{n}', pending.length), 'bad')}
        <span class="mono muted">${pending.map(esc).join(', ')}</span>`
     : `${hBadge(sch.applied+' / '+sch.known, 'ok')} <span class="muted">${t('hmigrations')}</span>`;
   const sealed = st.secrets === 'sealed';
   const secrets = sealed
-    ? `${hBadge(t('hsealed'), 'ok')}${st.secret_key_id&&st.secret_key_id!=='null'
+    ? `${hBadge(tRaw('hsealed'), 'ok')}${st.secret_key_id&&st.secret_key_id!=='null'
          ? ` <span class="mono muted">${esc(st.secret_key_id)}</span>`:''}`
-    : `${hBadge(t('hplaintext'), 'warn')} <span class="muted">${t('hplaintexthint')}</span>`;
+    : `${hBadge(tRaw('hplaintext'), 'warn')} <span class="muted">${t('hplaintexthint')}</span>`;
   const commit = b.commit_short
-    ? ` <span class="mono muted" title="${esc(b.commit||'')}">${b.commit==='dev'?esc(t('builddev')):esc(b.commit_short)}</span>`
+    ? ` <span class="mono muted" title="${esc(b.commit||'')}">${b.commit==='dev'?t('builddev'):esc(b.commit_short)}</span>`
     : '';
   const drain = (st.drain_seconds===0)
     ? `<span class="muted">${t('hdrainnow')}</span>`
@@ -87,17 +87,17 @@ function healthServer(sr){
   return `<div class="card" id="hserver">
     <h3>${t('hserver')} <span class="muted" style="font-size:13px">— ${t('healthhint')}</span></h3>
     <table>
-      ${hRow(t('version'), `<span class="mono">${esc(st.version||'')}</span>${commit}`)}
-      ${hRow(t('huptime'), esc(up))}
-      ${hRow(t('hdb'), `<span class="mono">${esc(st.dialect||'–')}</span>`)}
-      ${hRow(t('hschema'), schema)}
-      ${hRow(t('hsecrets'), secrets)}
-      ${hRow(t('htls'), st.tls?hBadge(t('featon'),'ok'):hBadge(t('hoff')))}
-      ${hRow(t('hblob'), `<span class="mono">${esc((st.blob_store||{}).name||'–')}</span>
+      ${hRow(tRaw('version'), `<span class="mono">${esc(st.version||'')}</span>${commit}`)}
+      ${hRow(tRaw('huptime'), esc(up))}
+      ${hRow(tRaw('hdb'), `<span class="mono">${esc(st.dialect||'–')}</span>`)}
+      ${hRow(tRaw('hschema'), schema)}
+      ${hRow(tRaw('hsecrets'), secrets)}
+      ${hRow(tRaw('htls'), st.tls?hBadge(tRaw('featon'),'ok'):hBadge(tRaw('hoff')))}
+      ${hRow(tRaw('hblob'), `<span class="mono">${esc((st.blob_store||{}).name||'–')}</span>
          <span class="muted" style="font-size:12px">${t('hblobhint')}</span>`)}
-      ${hRow(t('hdrain'), drain, t('hdrainhint'))}
-      ${hRow(t('hmt'), st.multitenant?hBadge(t('featon'),'ok'):hBadge(t('hoff')))}
-      ${hRow(t('haccounts'), esc(t('haccountsline')
+      ${hRow(tRaw('hdrain'), drain, tRaw('hdrainhint'))}
+      ${hRow(tRaw('hmt'), st.multitenant?hBadge(tRaw('featon'),'ok'):hBadge(tRaw('hoff')))}
+      ${hRow(tRaw('haccounts'), esc(tRaw('haccountsline')
           .replace('{users}', st.users).replace('{teams}', st.teams).replace('{orgs}', st.orgs)))}
     </table></div>`;
 }
@@ -119,7 +119,7 @@ async function healthView(){
   const read = hTime(Date.now());
   return `<h2>${t('health')}</h2>
     <p class="muted" style="margin:-.4em 0 1em">
-      <span id="hread">${esc(t('hread').replace('{time}', read))}</span>
+      <span id="hread">${esc(tRaw('hread').replace('{time}', read))}</span>
       <button class="btn sm ghost" style="margin-left:10px"
         data-h-click="${H(()=>renderTab())}">${t('refresh')}</button></p>
     ${healthServer(sr)}

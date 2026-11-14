@@ -21,7 +21,7 @@
 // hard-coded English literal goes through unnoticed. A composed key would read
 // as an orphan in exactly that gate.
 const CATLABEL = {workflows:'workflows', jobs:'jobs', documents:'documents', reviews:'reviews'};
-function catLabel(c){ return CATLABEL[c] ? t(CATLABEL[c]) : c; }
+function catLabel(c){ return CATLABEL[c] ? tRaw(CATLABEL[c]) : c; }
 
 function emailPendingDraft(){ return (document.getElementById('mlad')||{}).value ?? S.mailDraft ?? ''; }
 
@@ -33,7 +33,7 @@ function emailTransportCard(){
   const test = T && T.last_test_epoch
     ? `<p class="muted" style="font-size:12px;margin:6px 0 0">${t('mltested')}: ${esc(new Date(T.last_test_epoch*1000).toLocaleString())} — ${
          T.last_test_ok === true ? `<span class="badge ok">${t('mlok')}</span>`
-       : T.last_test_ok === false ? `<span class="badge bad">${esc(T.last_test_error||t('error'))}</span>` : '—'}</p>`
+       : T.last_test_ok === false ? `<span class="badge bad">${esc(T.last_test_error||tRaw('error'))}</span>` : '—'}</p>`
     : '';
   return `<div class="card" id="mlcard" style="margin-top:14px"><h3>${t('mltransport')}</h3>
     <p class="muted" style="margin-top:0">${t('mltransporthint')}</p>
@@ -45,7 +45,7 @@ function emailTransportCard(){
     </div>
     <div class="row">
       <div><label>${t('mluser')}</label><input id="mlu" value="${esc((T&&T.username)||'')}" autocomplete="off"></div>
-      <div><label>${t('mlpass')}</label><input id="mlw" type="password" autocomplete="new-password" placeholder="${T&&T.has_password?esc(t('mlpasskeep')):''}"></div>
+      <div><label>${t('mlpass')}</label><input id="mlw" type="password" autocomplete="new-password" placeholder="${T&&T.has_password?t('mlpasskeep'):''}"></div>
     </div>
     <div class="row">
       <div><label>${t('mlfrom')}</label><input id="mlf" value="${esc((T&&T.from_address)||'')}" placeholder="tmach@example.com"></div>
@@ -99,7 +99,7 @@ function myNotifyCard(){
   const rows = cats.map(c=>`<tr>
       <td>${esc(catLabel(c.category))}</td>
       <td>${c.enabled?`<span class="badge ok">${t('enable')}d</span>`:`<span class="badge">${t('disable')}d</span>`}</td>
-      <td class="muted" style="font-size:12px">${c.disabled_by?esc(t('mlby')+' '+c.disabled_by):''}</td>
+      <td class="muted" style="font-size:12px">${c.disabled_by?esc(tRaw('mlby')+' '+c.disabled_by):''}</td>
       <td>${
         // A PERSON MAY ALWAYS TURN ONE OFF and may never turn one on past a
         // layer above them, so the Enable button is absent where the refusal is
@@ -133,22 +133,22 @@ async function doMailSave(){
   const pw = val('mlw');
   if(pw) body.password = pw;
   const r = await api('/api/email-transport',{method:'PUT',body});
-  if(r.ok){ toast(t('saved'),true); renderTab(); } else toast((r.json&&r.json.error)||t('error'));
+  if(r.ok){ toast(tRaw('saved'),true); renderTab(); } else toast((r.json&&r.json.error)||tRaw('error'));
 }
 async function doMailClear(){
-  if(!confirm(t('mlremoveask'))) return;
+  if(!confirm(tRaw('mlremoveask'))) return;
   const r = await api('/api/email-transport',{method:'DELETE'});
-  if(r.ok){ toast(t('saved'),true); renderTab(); } else toast((r.json&&r.json.error)||t('error'));
+  if(r.ok){ toast(tRaw('saved'),true); renderTab(); } else toast((r.json&&r.json.error)||tRaw('error'));
 }
 async function doMailTest(){
   const to = val('mlt');
-  if(!to){ toast(t('mltestto')); return; }
+  if(!to){ toast(tRaw('mltestto')); return; }
   const r = await api('/api/email-transport/test',{method:'POST',body:{to}});
   // IT ANSWERS 200 EVEN WHEN THE RELAY REFUSED, so `r.ok` is not the verdict —
   // the body is. A toast that said "sent" because the request succeeded is the
   // exact confusion this endpoint's own shape exists to avoid.
-  if(r.ok && r.json && r.json.ok) toast(t('mltestok'),true);
-  else toast((r.json&&(r.json.error||t('error')))||t('error'));
+  if(r.ok && r.json && r.json.ok) toast(tRaw('mltestok'),true);
+  else toast((r.json&&(r.json.error||tRaw('error')))||tRaw('error'));
   renderTab();
 }
 // THE WHOLE DOCUMENT, because there is no per-category route at this tier — a
@@ -160,24 +160,24 @@ async function doMailNotifySave(){
     if(b.checked) doc[b.dataset.cat] = true;
   });
   const r = await api('/api/email-notify',{method:'PUT',body:{categories:doc}});
-  if(r.ok){ toast(t('saved'),true); renderTab(); } else toast((r.json&&r.json.error)||t('error'));
+  if(r.ok){ toast(tRaw('saved'),true); renderTab(); } else toast((r.json&&r.json.error)||tRaw('error'));
 }
 async function doMyNotify(category, enabled){
   const r = await api('/api/email-prefs',{method:'PUT',body:{category,enabled}});
   if(r.ok){ S.mailP = Object.assign({}, S.mailP, {categories:r.json.categories}); renderTab(); }
-  else toast((r.json&&r.json.error)||t('error'));
+  else toast((r.json&&r.json.error)||tRaw('error'));
 }
 async function doMyAddress(){
   const a = val('mlad');
-  if(!a){ toast(t('mladdr')); return; }
+  if(!a){ toast(tRaw('mladdr')); return; }
   S.mailDraft = a;
   const r = await api('/api/email-address',{method:'PUT',body:{address:a}});
-  if(r.ok){ S.mailDraft=''; toast(r.json.note||t('saved'),!!r.json.queued); renderTab(); }
-  else toast((r.json&&r.json.error)||t('error'));
+  if(r.ok){ S.mailDraft=''; toast(r.json.note||tRaw('saved'),!!r.json.queued); renderTab(); }
+  else toast((r.json&&r.json.error)||tRaw('error'));
 }
 async function doMyAddressClear(){
   const r = await api('/api/email-address',{method:'DELETE'});
-  if(r.ok){ S.mailDraft=''; toast(t('saved'),true); renderTab(); } else toast((r.json&&r.json.error)||t('error'));
+  if(r.ok){ S.mailDraft=''; toast(tRaw('saved'),true); renderTab(); } else toast((r.json&&r.json.error)||tRaw('error'));
 }
 
 // ---- confirming an address ----------------------------------------------------
@@ -206,6 +206,6 @@ async function spendVerifyToken(){
   if(!tok || !S.me) return;
   S.verifyEmail = null;
   const r = await api('/api/email-address/verify',{method:'POST',body:{token:tok}});
-  if(r.ok) toast(t('mlconfirmedtoast'),true);
-  else toast((r.json&&r.json.error)||t('error'));
+  if(r.ok) toast(tRaw('mlconfirmedtoast'),true);
+  else toast((r.json&&r.json.error)||tRaw('error'));
 }

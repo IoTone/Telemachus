@@ -138,7 +138,7 @@ function graphLabel(s){
 // does nothing is worse than one that plainly offers nothing.
 function noteGraphSVG(G){
   const nodes = G.nodes || [], edges = G.edges || [];
-  if(!nodes.length) return `<p class="muted">${esc(t('ngraphempty'))}</p>`;
+  if(!nodes.length) return `<p class="muted">${t('ngraphempty')}</p>`;
   const deg = {};
   for(const e of edges){ deg[e.from] = (deg[e.from] || 0) + 1; deg[e.to] = (deg[e.to] || 0) + 1; }
   const laid = graphLayout(nodes, edges);
@@ -164,7 +164,7 @@ function noteGraphSVG(G){
            role="button" tabindex="0" aria-label="${esc(full)}">${dot}${label}</g>`;
   }).join('');
   return `<svg class="ng-svg" viewBox="0 0 ${GRAPH_W} ${GRAPH_H}" role="img"
-      aria-label="${esc(t('ngraph'))}: ${nodes.length}">${lines}${dots}</svg>`;
+      aria-label="${t('ngraph')}: ${nodes.length}">${lines}${dots}</svg>`;
 }
 
 // What was left out, in words. ORG-16 reports BOTH ways of stopping and they
@@ -177,11 +177,11 @@ function graphNotes(G){
   if(G.truncated){
     const key = G.reason === 'neighbourhood' ? 'ngraphnb'
               : G.reason === 'scan' ? 'ngraphscan' : 'ngraphcap';
-    out.push(`<p class="muted" style="font-size:12px">${esc(t(key))}</p>`);
+    out.push(`<p class="muted" style="font-size:12px">${esc(tRaw(key))}</p>`);
   }
   if(G.ambiguous > 0)
     out.push(`<p class="muted" style="font-size:12px">${
-      esc(t('ngraphamb').replace('{n}', G.ambiguous))}</p>`);
+      esc(tRaw('ngraphamb').replace('{n}', G.ambiguous))}</p>`);
   return out.join('');
 }
 
@@ -190,13 +190,13 @@ function noteGraphCard(G, focusTitle){
   const sel = [1, 2, 3].map(d =>
     `<option value="${d}"${d === depth ? ' selected' : ''}>${d}</option>`).join('');
   const head = S.graphNote
-    ? esc(t('ngraphfocus').replace('{t}', focusTitle || ''))
-    : esc(t('ngraphteam'));
-  const count = esc(t('ngraphnodes')
+    ? esc(tRaw('ngraphfocus').replace('{t}', focusTitle || ''))
+    : t('ngraphteam');
+  const count = esc(tRaw('ngraphnodes')
     .replace('{n}', (G.nodes || []).length)
     .replace('{e}', (G.edges || []).length)
     .replace('{total}', G.total));
-  return `<div class="card" id="ngraph"><h3 style="margin-top:0">${esc(t('ngraph'))}
+  return `<div class="card" id="ngraph"><h3 style="margin-top:0">${t('ngraph')}
       <span class="muted" style="font-size:13px">${head}</span></h3>
     <div class="row" style="gap:8px;align-items:flex-end">
       <div style="flex:0 0 auto"><button class="btn sm ghost"
