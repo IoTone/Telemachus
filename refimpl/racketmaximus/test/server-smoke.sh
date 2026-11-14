@@ -166,6 +166,11 @@ assert "bundle traversal refused"      "$(curl -s -o /dev/null -w '%{http_code}'
 # …and when the client does NOT collapse it either: a ".." segment reaches the
 # server as Racket's 'up symbol, and used to raise a 500 instead of being refused
 assert "…even unnormalized"           "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/beta/bundle/beta-onboarding/../plugin.json")" '404'
+# #282 item 2: an operator password is chosen, never defaulted — an empty or
+# short one is refused BEFORE any account exists, so the real bootstrap below
+# still finds a fresh instance.
+assert "bootstrap refuses an empty password" "$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":""}')" 'password too short'
+assert "bootstrap refuses a short password"  "$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"abc"}')" 'password too short'
 BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"s3cret"}')
 assert "bootstrap token" "$BS" '"token":"tk_'
 assert "bootstrap msg"   "$BS" 'Created operator alice'
@@ -2427,6 +2432,7 @@ assert "...and the declared scope is visible to an operator" \
 echo
 echo "== members and passwords =="
 # a user of this block's own, so revoking sessions cannot strip $OP or $BOB
+assert "a member's password is held to the floor too" "$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"dana","password":"abc","role":"member"}')" 'password too short'
 DN=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"dana","password":"dana-pass-1","role":"member"}')
 DANA=$(printf '%s' "$DN" | grep -oP '"token":\s*"\K[^"]+')
 DANA_ID=$(printf '%s' "$DN" | grep -oP '"user_id":\s*"\K[^"]+')

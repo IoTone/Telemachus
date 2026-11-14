@@ -2001,3 +2001,15 @@
                       "trigger_input" "trigger_prefix" "trigger_types" "triggeradded"))
   (check-equal? (remove* (append keys elsewhere) shipped) '()
                 "a ui.tr* string nothing asks for means a label was typed in place, or a screen was removed"))
+
+;; #282 item 2: the first-run form used to ship `value="alice"` and
+;; `value="s3cret"`, so pressing the button unedited created an operator whose
+;; credentials were published in this repository's own deploy notes. Neither
+;; field may carry a value now; the operator types both.
+(test-case "the first-run form pre-fills no credential"
+  (define src (file->string (build-path console-dir "02-auth.js")))
+  (for ([id (in-list '("bu" "bp"))])
+    (define m (regexp-match (pregexp (string-append "<input id=\"" id "\"[^>]*>")) src))
+    (check-true (and m #t) (format "#~a is still in the form" id))
+    (check-false (regexp-match? #rx"value=" (car m)) (format "#~a carries a value: ~a" id (car m))))
+  (check-false (regexp-match? #rx"s3cret" src) "no default password anywhere in the sign-in screen"))

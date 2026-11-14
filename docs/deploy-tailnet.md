@@ -134,18 +134,40 @@ sudo ufw status                                   # confirm the rule landed
 Anyone on the local network can reach the app — including the **public beta signup**
 at `/`, which by design takes submissions without an account. That is a different
 audience from the tailnet (your own devices). Before binding `0.0.0.0` on a network
-you don't control: rotate `alice` off `s3cret`, and remember the seeded `demo`
-login works for anyone who reaches the page.
+you don't control: make sure every account has a password you chose (below),
+and remember the `demo` login works for anyone who reaches the page and knows it.
 
-### Demo accounts (runtime state, not in git)
+### Demo accounts
 
-| Login | Password | Role | Shows |
-|---|---|---|---|
-| `demo` | `Telemachus2026` | member | normal user — chat, notes, usage; **no** admin |
-| `alice` | `s3cret` | operator | admin — members, quotas, admin status |
+Two logins, **with passwords you choose when you create them**. This page does
+not print any: a password in a public repository is a password for every
+instance deployed by following it.
 
-Change a password in the UI (**Team → Change your password**) or `POST /api/password`.
-`alice` is on the first-run default — rotate it before any wider exposure.
+| Login | Role | Shows |
+|---|---|---|
+| `demo` | member | normal user — chat, notes, usage; **no** admin |
+| `alice` | operator | admin — members, quotas, admin status |
+
+- **`alice`** is the first-run operator. Create it from the console's **First
+  run** form on the sign-in screen (it pre-fills nothing), or on the host itself:
+  ```bash
+  read -rs -p 'operator password: ' PW; echo
+  curl -s -X POST http://127.0.0.1:8835/api/bootstrap \
+    -d "$(jq -n --arg p "$PW" '{username:"alice",password:$p}')"
+  unset PW
+  ```
+- **`demo`** is an ordinary member. Signed in as `alice`, add it under **Team**,
+  or with alice's token:
+  ```bash
+  read -rs -p 'demo password: ' PW; echo
+  curl -s -X POST http://127.0.0.1:8835/api/members -H "Authorization: Bearer $TOKEN" \
+    -d "$(jq -n --arg p "$PW" '{username:"demo",password:$p,role:"member"}')"
+  unset PW
+  ```
+
+Both routes refuse a password under six characters. Keep the two passwords out of
+shell history and out of this file; change one later in the UI (**Team → Change
+your password**) or with `POST /api/password`.
 
 ### 60-second demo script
 1. Log in as **`demo`** → **Chat** (real model, streams token-by-token); **Notes**
@@ -183,7 +205,7 @@ Everything under *serve* above, plus:
 - Then: `tailscale funnel --bg 8835`  → public `https://<host>.<tailnet>.ts.net`
 
 **Before funnelling:**
-- Rotate `alice` off `s3cret`; remember the seeded `demo` login is then reachable by
-  anyone with the URL.
+- Use passwords you chose for both logins (see *Demo accounts*), and remember the
+  `demo` login is then reachable by anyone with the URL and its password.
 - Prototype-grade: no rate limiting, bots will probe. Enable Funnel only for the
   call, then `tailscale funnel reset` and stop the server.

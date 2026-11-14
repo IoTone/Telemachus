@@ -305,6 +305,11 @@
        ;; is one field.
        [email (invite-branch req p body email username role)]
        [(not username) (err "username or email required" 400)]
+       ;; #282 item 2: a password a caller DOES send is held to the floor a change,
+       ;; a reset and a bootstrap use. An absent one is the token-only member.
+       [(and (hash-has-key? body 'password) (not (eq? (hash-ref body 'password) 'null))
+             (reset-password-problem (hash-ref body 'password)))
+        => (lambda (pr) (err pr 400))]
        ;; #123: this went straight to `create-user!`, so a username that exists
        ;; raised the UNIQUE violation and the dispatcher turned it into a 500
        ;; carrying the INSERT. `POST /api/org/members` has always checked first
