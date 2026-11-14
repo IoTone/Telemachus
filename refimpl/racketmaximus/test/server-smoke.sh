@@ -3417,6 +3417,13 @@ assert "email: a stored credential is reported"    "$MT" '"has_password":true'
 # THE PASSWORD IS NEVER IN A READ — #19's rule for a token, and `webhook-list`'s.
 refute "email: …and never the password itself"     "$MT" 's3cret'
 refute "email: nor a password field at all"        "$MT" '"password"'
+# #282 item 1: HOW it is stored is on the read, so the card can warn. Mode-aware,
+# like the #19 block: the same instance answers differently with a key set.
+if [ -n "${TMACH_SECRET_KEY:-}" ]; then
+  assert "email: the read says the password is sealed"     "$MT" '"password_stored":"sealed"'
+else
+  assert "email: the read says the password is in the clear" "$MT" '"password_stored":"plaintext"'
+fi
 
 # An ABSENT password leaves the stored one alone, or editing the port would
 # silently clear the credential and the operator would find out from a dead letter.

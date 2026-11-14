@@ -51,6 +51,7 @@
          net/base64
          openssl
          (only-in "../authz/sealed.rkt" define-sealed-column)
+         (only-in "../authz/secretbox.rkt" wrapped-secret?)
          "../db/nulls.rkt")
 
 (provide SECURITY-MODES TRANSPORT-ID SMTP-TIMEOUT
@@ -185,6 +186,21 @@
 ;; nothing else — #19's rule for a token, and `webhook-list`'s. An operator who
 ;; needs to change it types a new one; one who does not, does not send the field.
 (define (row->transport r)
+  (define pw (vector-ref r 5))
+  (define base (row->transport/base r))
+  ;; HOW THE PASSWORD IS STORED, never what it is (#282 item 1). With no
+  ;; `TMACH_SECRET_KEY` a `PUT` stores it in the clear, and the boot log was the
+  ;; only thing that said so — a live relay password sat unencrypted on a demo
+  ;; for a day while the card that saved it looked exactly like a sealed one. A
+  ;; row written BEFORE a key was configured reads `plaintext` too, until
+  ;; `telemachus-secrets rewrap` seals it; that is the same remedy, so it is the
+  ;; same answer. ABSENT when there is no password (PULL-11e): a field about a
+  ;; value that does not exist is one a reader learns to distrust.
+  (if (sql-null? pw)
+      base
+      (hash-set base 'password_stored (if (wrapped-secret? pw) "sealed" "plaintext"))))
+
+(define (row->transport/base r)
   (hasheq 'host (vector-ref r 1)
           'port (vector-ref r 2)
           'security (vector-ref r 3)
