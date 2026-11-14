@@ -141,18 +141,35 @@
 ;; cannot carry a half-declared shape while the note still disclaims everything.
 ;; When 2b lands, both halves of this case are edited deliberately — which is the
 ;; point of pinning them.
-(test-case "no request or response schemas, and the document says so"
+(test-case "a requestBody exactly where a route declares one, no responses, and the note says so"
+  ;; #227 slice 2b edited this case DELIBERATELY, which is what pinning it was
+  ;; for. The note must say bodies are partial and responses are absent, and the
+  ;; document must agree with the TABLE in both directions: every route that
+  ;; declares `#:body` carries exactly that schema, and no route that does not
+  ;; carries one — so an operation without a requestBody can be read as
+  ;; "undeclared" and never as "takes nothing".
   (define note (hash-ref (hash-ref doc 'info) 'description))
-  (check-true (string-contains? note "no request or response schemas"))
+  (check-true (string-contains? note "most routes do not have one yet"))
   (check-true (string-contains? note "never as absent"))
-  (define (walk v)
-    (cond [(hash? v) (for ([(k x) (in-hash v)])
-                       (check-false (memq k '(requestBody responses content))
-                                    (format "the document carries ~a while promising it does not" k))
-                       (walk x))]
-          [(list? v) (for-each walk v)]
-          [else (void)]))
-  (walk (hash-ref doc 'paths)))
+  (check-true (string-contains? note "no operation carries `responses`"))
+  (define declared
+    (for/hash ([r (in-list routes)] #:when (hash? (hash-ref r 'body #f)))
+      (values (route-key r) (hash-ref r 'body))))
+  (check-true (>= (hash-count declared) 5) "the first increment declares five routes")
+  (for ([o (in-list (ops))])
+    (define op (caddr o))
+    (define id (hash-ref op 'operationId))
+    (check-false (hash-has-key? op 'responses) (format "~a carries responses" id))
+    (define rb (hash-ref op 'requestBody #f))
+    (cond
+      [(hash-ref declared id #f)
+       => (lambda (b)
+            (check-true (hash? rb) (format "~a declares a body and the document omits it" id))
+            (define schema (hash-ref (hash-ref (hash-ref rb 'content) (string->symbol "application/json")) 'schema))
+            ;; through JSON and back, so the comparison is of what was EMITTED
+            (check-equal? schema (string->jsexpr (jsexpr->string b)) id)
+            (check-equal? (hash-ref rb 'required) (pair? (hash-ref b 'required '())) id))]
+      [else (check-false rb (format "~a declares no body and the document invents one" id))])))
 
 ;; ---------------------------------------------------------------------------
 ;; 7. the keys are WRITTEN in sorted order

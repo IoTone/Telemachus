@@ -130,10 +130,14 @@
               'permissions (hash-ref builtin-role-perms k '()))))
   (define routes
     (for/list ([r (in-list ROUTES)])
-      (hasheq 'method (rt-method r) 'path (rt-path r) 'handler (symbol->string (rt-handler r))
-              'auth (symbol->string (rt-auth r)) 'permission (or (rt-perm r) 'null)
-              'scope (symbol->string (rt-scope r))
-              'feature (or (rt-feature r) 'null) 'description (rt-doc r))))
+      (define row
+        (hasheq 'method (rt-method r) 'path (rt-path r) 'handler (symbol->string (rt-handler r))
+                'auth (symbol->string (rt-auth r)) 'permission (or (rt-perm r) 'null)
+                'scope (symbol->string (rt-scope r))
+                'feature (or (rt-feature r) 'null) 'description (rt-doc r)))
+      ;; #227 slice 2b: the declared request shape, or ABSENT — never a null,
+      ;; which would read as "declared to take nothing" (PULL-11e)
+      (if (rt-body r) (hash-set row 'body (rt-body r)) row)))
   (define plugins
     (sort (for/list ([p (in-list (loaded-plugins))])
             (hasheq 'id (hash-ref p 'id) 'name (hash-ref p 'name) 'version (hash-ref p 'version)
@@ -489,14 +493,17 @@
 ;; enforces and whether the dispatcher pre-checks it by role, the feature flag,
 ;; the handler key.
 ;;
-;; IT CARRIES NO REQUEST OR RESPONSE SCHEMAS, AND SAYS SO IN ITS OWN
-;; `info.description`. They do not exist in declarative form anywhere in this
-;; tree — they are read out of 290-odd handler bodies — so emitting them is not a
-;; generation problem but a contract decision about where a shape LIVES (a field
-;; on the `R` entry, a form beside the handler, a catalogue), with 259 core
-;; instances behind it. That is #227 slice 2b. A reference that implied
-;; completeness would be worse than no reference at all: the whole value of this
-;; one is that every field in it is a field somebody declared.
+;; IT CARRIES A REQUEST SCHEMA ONLY WHERE A ROUTE DECLARES ONE, AND SAYS SO IN
+;; ITS OWN `info.description`. Slice 2a shipped with none, because shapes did not
+;; exist in declarative form anywhere — they were read out of 290-odd handler
+;; bodies. #227 slice 2b decided where one lives (`#:body` on the route's `R`
+;; entry, owner's decision 8 Nov 2026) and is declaring them a route at a time,
+;; so most operations still carry none — and an operation with no `requestBody`
+;; is UNDECLARED, not "takes nothing". A reference that implied completeness
+;; would be worse than no reference at all: the whole value of this one is that
+;; every field in it is a field somebody declared, and every declared body is
+;; one the dispatcher ENFORCES, so the document cannot describe a shape the
+;; server does not hold callers to.
 ;;
 ;; `responses` is omitted entirely rather than stubbed. OpenAPI 3.1 made it
 ;; optional — 3.0 required it — and a fabricated `"200": {"description": "OK"}` on
@@ -521,14 +528,19 @@
    "(`server/routes.rkt`) — do not edit by hand; `telemachus-docs check` fails CI "
    "on drift. The Markdown form of the same table, with the prose in context, is "
    "`api.md` beside this file.\n\n"
-   "**This document carries no request or response schemas, and no `responses` at "
-   "all.** It describes what the route table declares — the path, how the route "
-   "authenticates, the permission it enforces, the feature flag it sits behind — "
-   "and the request and response shapes are not declared anywhere in the source "
-   "it is generated from, so there is nothing here to generate them from. Treat a "
-   "missing body or response as unknown, never as absent. Supplying them is a "
-   "separate piece of work that has to decide where a shape lives before anything "
-   "can emit one.\n\n"
+   "**Request schemas are declared route by route, and most routes do not have "
+   "one yet; no operation carries `responses`.** It describes what the route table "
+   "declares — the path, how the route authenticates, the permission it enforces, "
+   "the feature flag it sits behind, and, where the route declares it, the shape "
+   "of its request body. An operation WITH a `requestBody` is one whose shape the "
+   "server enforces: a body that contradicts it is refused with a 400 naming the "
+   "JSON path, before the handler runs. An operation WITHOUT one is undeclared — "
+   "treat a missing body as unknown, never as absent. A declared object is open "
+   "unless its schema says `additionalProperties: false`, because the routes it "
+   "was declared on already ignored fields they did not read. A schema states a "
+   "field's TYPE and whether it is required; which values are allowed (a "
+   "visibility, a note format) is the server's, and a wrong value is refused by "
+   "name after the shape has passed. Response shapes are not declared anywhere yet.\n\n"
    "What the table does declare rides in `x-tmach-*` on each operation. "
    "`x-tmach-auth` is how the route authenticates: `public` needs no credential, "
    "`bearer` a session or API token, `provision` the hosted-mode provisioning "
@@ -609,6 +621,16 @@
                      'x-tmach-auth (hash-ref r 'auth)
                      'x-tmach-handler (hash-ref r 'handler))]
          [op (if (null? params) op (hash-set op 'parameters params))]
+         ;; #227 slice 2b. `required` is whether a body must be SENT, which is
+         ;; true only when the shape requires a field — an empty POST is the
+         ;; empty object, and the shape decides whether that is acceptable.
+         [op (let ([b (hash-ref r 'body #f)])
+               (if (hash? b)
+                   (hash-set op 'requestBody
+                             (hasheq 'required (pair? (hash-ref b 'required '()))
+                                     'content (hasheq (string->symbol "application/json")
+                                                      (hasheq 'schema b))))
+                   op))]
          [op (if (string? perm)
                  (hash-set* op 'x-tmach-permission perm
                             'x-tmach-permission-checked (hash-ref r 'scope "role"))

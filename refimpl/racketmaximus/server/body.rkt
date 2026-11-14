@@ -23,9 +23,9 @@
 ;;   headers}) and nothing there promises an object, so a downstream route that
 ;;   takes an array must still receive one. Malformed JSON is still `{}`.
 
-(require json)
+(require json racket/string "../domain/tools/jsonschema.rkt")
 
-(provide json-body-object json-body-value)
+(provide json-body-object json-body-value body-problems)
 
 (define (json-body-value raw)
   (if (and (bytes? raw) (> (bytes-length raw) 0))
@@ -35,3 +35,30 @@
 (define (json-body-object raw)
   (define v (json-body-value raw))
   (if (hash? v) v (hasheq)))
+
+;; #227 slice 2b — the check a DECLARED request shape gets, before the handler.
+;; -> '() when the body conforms, else the validator's problem strings.
+;;
+;; A THIRD READING OF THE SAME BYTES, and it is stricter than the other two on
+;; purpose. Both of them turn malformed JSON into `{}`, which is right for a
+;; route that declares nothing — it then refuses the missing field it would have
+;; refused anyway. A route that DECLARES a shape is saying what its body is, so
+;; a body that is not JSON at all is refused as exactly that rather than reported
+;; as "missing required field", which would send the caller looking for a field
+;; they did send. And a valid non-object is refused by its type (`$: expected
+;; object, got array`) instead of being read as `{}`.
+;;
+;; An EMPTY body is still `{}`: a POST with no body is how a caller says "no
+;; fields", and the schema then decides whether that is acceptable.
+;;
+;; The problem strings name a path, a constraint and a TYPE and quote no value
+;; (jsonschema.rkt's own rule, SEC-7), so returning them to the caller cannot
+;; echo anything back but the field names they sent.
+(define (body-problems schema raw)
+  (define v
+    (cond
+      [(not (and (bytes? raw) (> (bytes-length raw) 0))) (hasheq)]
+      [else (with-handlers ([exn:fail? (lambda (_) 'malformed)]) (bytes->jsexpr raw))]))
+  (if (eq? v 'malformed)
+      (list "$: the body is not JSON")
+      (validate-json schema v)))

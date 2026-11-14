@@ -56,15 +56,56 @@
 ;; it from the permission left /api/retention unprotected by the dispatcher while
 ;; looking covered, and the control that strips a handler's own check is what
 ;; showed it.
-(struct rt (method path handler auth perm feature doc scope) #:transparent)
+(struct rt (method path handler auth perm feature doc scope body) #:transparent)
 
 (define (R method path handler
            #:auth [auth 'bearer] #:perm [perm #f] #:feature [feature #f] #:doc doc
            ;; 'role by default: the common case is a permission the role decides,
            ;; and defaulting the OTHER way would silently stop the dispatcher
            ;; checking a route somebody forgot to annotate.
-           #:scope [scope 'role])
-  (rt method path handler auth perm feature doc scope))
+           #:scope [scope 'role]
+           ;; #227 slice 2b: the request body's SHAPE, as a JSON Schema in the
+           ;; subset domain/tools/jsonschema.rkt validates. #f — the default, and
+           ;; still most routes — means UNDECLARED, and an undeclared route
+           ;; behaves exactly as it did before shapes existed. See `body-object`.
+           #:body [body #f])
+  (rt method path handler auth perm feature doc scope body))
+
+;; ---- request shapes (#227 slice 2b) -------------------------------------------------
+;;
+;; WHERE A SHAPE LIVES WAS THE OWNER'S DECISION (8 Nov 2026): on the route's own
+;; entry, beside its permission and its prose. The table is already the one thing
+;; the dispatcher enforces and both reference pages are generated from, so a shape
+;; here is enforced and published by the machinery that exists — a form beside
+;; the handler would have to be joined back by handler key, and a handler with no
+;; form would be invisible rather than an absence anybody could see.
+;;
+;; A DECLARED SHAPE IS ENFORCED, OR IT ROTS. `dispatch` validates the body against
+;; it after authentication, the feature flag and a role permission, and before the
+;; handler runs, so a route that declares a shape cannot be called with a body
+;; that contradicts it. That is #113's and #110 r2's rule: a declaration nothing
+;; checks is documentation that a generated reference then publishes as fact.
+;;
+;; THE SCHEMA STATES THE SHAPE AND THE DOMAIN KEEPS THE VALUES. A field's TYPE and
+;; whether it is required belong here; which visibilities or note formats exist
+;; does not, because those are closed vocabularies with a home in the domain
+;; (`NOTE-FORMATS`, the visibility check) and an `enum` here would be a second
+;; copy that drifts — `executor-can-run?`'s shape. The domain's refusal still
+;; names the bad value; the shape refuses the wrong KIND of value, which is the
+;; case that used to reach a `hash-ref` or a SQL bind and come back a 500.
+;;
+;; OPEN UNLESS SAID OTHERWISE, and that is the one place this differs from the
+;; validator's own default. jsonschema.rkt treats an object with no
+;; `additionalProperties` as CLOSED, which is right for a model's extraction and
+;; wrong for retrofitting a shape onto a route callers already use: every route
+;; here ignored a field it did not read, so closing one is a behaviour change for
+;; whoever sends extra fields today. `#:closed? #t` is that decision, per route.
+(define (body-object fields #:required [required '()] #:closed? [closed? #f])
+  (hasheq 'type "object" 'properties fields 'required required
+          'additionalProperties (not closed?)))
+;; one field of one or more JSON types
+(define (of . types) (hasheq 'type (if (null? (cdr types)) (car types) types)))
+(define (array-of item) (hasheq 'type "array" 'items item))
 
 (define ROUTES
   (list
@@ -144,7 +185,7 @@
    (R "POST" "/api/instance/quota" 'instance-quota #:auth 'provision #:doc "Hosted mode: set a quota limit for the tenant's team.")
    (R "POST" "/api/password-reset" 'password-reset-request #:auth 'public #:doc "Ask for a password reset link: {address}. PUBLIC, and it answers the SAME thing whether or not that address has an account — a reset endpoint that distinguished them would enumerate accounts for anybody who can type, which is the question #117 closed a timing oracle on at the sign-in screen. The link is mailed to a VERIFIED address only, and only for an active account, so nothing is sent to an address that has never answered. Throttled per address AND per source with a 429, because this is an endpoint that makes the instance send mail to somebody a stranger named. With no transport configured nothing is queued and the answer is still the same. The reset is transactional: it ignores the notification categories, or turning the last one off would be a way to lock yourself out permanently.")
    (R "POST" "/api/password-reset/confirm" 'password-reset-confirm #:auth 'public #:doc "Set a new password from a reset link: {token, password}. PUBLIC and carrying no bearer, which it cannot avoid — the person asking is by definition one who cannot sign in. The token is single-use, expires in an hour and is refused if it was minted for anything else. Every session is revoked and the login throttle is cleared; `users.status` is deliberately NOT touched, so a suspended account stays suspended. A session is returned ONLY when the account has no second factor — with TOTP enrolled `signed_in` is false and the person signs in with their code, because this path does not go through the check that enforces it. Every way it can fail answers one refusal.")
-   (R "POST" "/api/login" 'login #:auth 'public #:doc "Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. Attempts are throttled per address and per account with a growing delay (429 and `Retry-After`), every attempt is audited as `user.login`, and an account may be locked outright when the operator sets TMACH_LOGIN_LOCK_FAILURES (423, cleared by an operator password reset).")
+   (R "POST" "/api/login" 'login #:auth 'public #:body (body-object (hasheq 'username (of "string") 'password (of "string") 'code (of "string")) #:required '("username" "password")) #:doc "Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. Attempts are throttled per address and per account with a growing delay (429 and `Retry-After`), every attempt is audited as `user.login`, and an account may be locked outright when the operator sets TMACH_LOGIN_LOCK_FAILURES (423, cleared by an operator password reset).")
    ;; issue #118: a person's OWN sessions. No permission — these are the caller's
    ;; own rows, scoped by user_id and kind in the statement itself. Deliberately
    ;; not GET /api/tokens, which is the TEAM's API tokens behind settings:manage
@@ -207,7 +248,7 @@
    (R "POST" "/api/org/branding/logo" 'my-org-branding-logo #:auth 'org-admin #:perm "org:manage" #:doc "Upload the company's logo (base64) and make it the company's mark.")
 
    ;; ---- notes and text documents ----------------------------------------------------
-   (R "POST" "/api/notes" 'notes-create #:perm "notes:write" #:doc "Create a note with a visibility.")
+   (R "POST" "/api/notes" 'notes-create #:perm "notes:write" #:body (body-object (hasheq 'title (of "string") 'body (of "string") 'visibility (of "string") 'format (of "string") 'tags (array-of (of "string")))) #:doc "Create a note with a visibility.")
    (R "GET" "/api/notes" 'notes-list #:perm "notes:read" #:doc "List a page of the notes the caller can read, newest first, with `total`, `limit` and `offset`; `?limit=` defaults to 50 and is capped at 200, `?offset=` walks. `?tag=` is repeatable and several are an AND. `?scope=org` spans every team in the company (an org_reader sees team-visible notes, never private ones). `total` counts the window and not what the caller may read, so a page may come back short.")
    (R "POST" "/api/documents" 'documents-create #:perm "files:write" #:doc "Create a text document (a repository object with content_type text/markdown). `key` files it into a project (#239): a key ending in `/` is a folder and the filename is composed from the title, a full key is taken verbatim, and an absent or blank one composes `documents/<slug>-<id8>.md` as before.")
    (R "GET" "/api/documents" 'documents-list #:perm "files:read" #:doc "List text documents — every non-derived `text/markdown` object in the team, narrowed to one project by `?prefix=`. `folders` carries the paths directly under that prefix, derived from the keys that exist and filtered to what the caller may read.")
@@ -228,7 +269,7 @@
    ;; pattern would otherwise swallow it — the lesson `/api/reviews/stats` paid.
    (R "GET" "/api/notes/:id/links" 'note-links #:perm "notes:read" #:scope 'resource #:doc "What this note links to, and what links to it (#246). `links` is outgoing in the order they appear in the body; `backlinks` is the same table read in reverse. A link to a note that is not there is reported broken, with the target as written and a reason (`missing`, or `ambiguous` when two notes share that title). A link whose other end the caller may not read is simply absent — it is never reported, because saying one was withheld would be an existence oracle on somebody's private note.")
    (R "GET" "/api/notes/:id" 'notes-get #:perm "notes:read" #:scope 'resource #:doc "One note. `?as=org` answers it as an org FILE instead — `#+TITLE:` and `#+FILETAGS:` composed in front of the body, as an attachment. The body round-trips byte for byte through `POST /api/notes/import`. Any format is exportable: a Markdown note in an org envelope is still a readable file, and refusing would make \"give me this note as a file\" depend on a declaration that says nothing about whether somebody wants one.")
-   (R "PUT" "/api/notes/:id" 'notes-update #:perm "notes:write" #:scope 'resource #:doc "Update a note.")
+   (R "PUT" "/api/notes/:id" 'notes-update #:perm "notes:write" #:scope 'resource #:body (body-object (hasheq 'title (of "string") 'body (of "string") 'visibility (of "string") 'format (of "string") 'tags (array-of (of "string")))) #:doc "Update a note.")
    (R "DELETE" "/api/notes/:id" 'notes-delete #:perm "notes:delete" #:scope 'resource #:doc "Delete a note.")
 
    ;; ---- AI: chat, agent, translation ---------------------------------------------------
@@ -272,9 +313,9 @@
 
    ;; ---- quotas, tools, tokens, search, audit, jobs -------------------------------------
    (R "GET" "/api/usage" 'usage #:doc "The team's quota dimensions with used, limit, remaining and the window's reset time, plus `held` naming the limit that is currently holding the team's queued jobs (null when none is).")
-   (R "POST" "/api/quota" 'quota-set #:perm "quota:manage" #:doc "Set a quota limit for the caller's team (dimension, limit, window). `quota:manage` and NOT `instance:manage` (issue #113): a team owner sets their own team's limit, and an org admin may too, because the company's own limit still caps whatever a team asks for (admission takes the org decision first). A team ADMIN deliberately does not hold it — spending is the steward's call.")
+   (R "POST" "/api/quota" 'quota-set #:perm "quota:manage" #:body (body-object (hasheq 'dimension (of "string") 'limit (of "integer") 'window (of "string")) #:required '("dimension" "limit")) #:doc "Set a quota limit for the caller's team (dimension, limit, window). `quota:manage` and NOT `instance:manage` (issue #113): a team owner sets their own team's limit, and an org admin may too, because the company's own limit still caps whatever a team asks for (admission takes the org decision first). A team ADMIN deliberately does not hold it — spending is the steward's call.")
    (R "GET" "/api/tools" 'tools-list #:doc "Every registered tool with its permission, source and per-team enabled state.")
-   (R "POST" "/api/tokens" 'tokens-create #:perm "settings:manage" #:doc "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.")
+   (R "POST" "/api/tokens" 'tokens-create #:perm "settings:manage" #:body (body-object (hasheq 'name (of "string") 'scopes (array-of (of "string")) 'ttl (of "number" "string" "null"))) #:doc "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.")
    (R "GET" "/api/tokens" 'tokens-list #:perm "settings:manage" #:doc "The team's API tokens.")
    (R "DELETE" "/api/tokens/:id" 'tokens-revoke #:perm "settings:manage" #:doc "Revoke an API token.")
    (R "GET" "/api/search" 'search #:feature "search" #:doc "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader; ?semantic=1 also returns passages found by meaning, which costs an embedding request and needs chat:use.")

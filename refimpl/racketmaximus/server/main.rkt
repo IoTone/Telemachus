@@ -71,6 +71,7 @@
          (only-in "../domain/authz/signing.rkt" anchor-signing-enabled?)
          (only-in "../domain/idem/idem.rkt" idem-reap!)
          (only-in "../domain/retention/retention.rkt" retention-sweep!)
+         (only-in "body.rkt" body-problems)       ; a declared request shape (#227 slice 2b)
          "routes.rkt"                             ; the declared HTTP surface (slice 60)
          (only-in "../domain/repo/blobs.rkt" blob-root blob-store-names blob-store-probe
                   active-blob-store-name)
@@ -514,7 +515,19 @@
 ;; at once would leave no way to tell which half broke something.
 (define (dispatch entry params req)
   (define h (hash-ref HANDLERS (rt-handler entry)))
-  (define (run) (apply h req params))
+  ;; #227 slice 2b: a route that DECLARES its body's shape is held to it here,
+  ;; AFTER authentication, the feature flag and a role permission (so a caller
+  ;; who may not use the route is told that first, r2's order) and BEFORE the
+  ;; handler, which therefore never sees a body of the wrong kind. An undeclared
+  ;; route (`rt-body` #f, still most of them) runs exactly as before.
+  (define (run)
+    (define shape (rt-body entry))
+    (define problems (if shape (body-problems shape (request-post-data/raw req)) '()))
+    (if (null? problems)
+        (apply h req params)
+        (json-response (hasheq 'error (string-append "request body: " (car problems))
+                               'problems problems)
+                       #:code 400)))
   (define (authed)
     (with-auth req (lambda (p)
       (define f (rt-feature entry))
