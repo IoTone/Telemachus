@@ -23,6 +23,7 @@
          (only-in "../../domain/saas/onboarding.rkt" activate! provision! set-tenant-quota!)
          (only-in "../../domain/quota/quota.rkt" default-policy!)
          (only-in "../../domain/authz/crypto.rkt" constant-time=?)
+         (only-in "../../domain/accounts/reset.rkt" reset-password-problem)
          (only-in "../../surface/messages.rkt" msg-already-init msg-bootstrap-done)
          "../admission.rkt"
          "../kit.rkt")
@@ -58,6 +59,14 @@
                          "or set TMACH_BOOTSTRAP_SECRET and send it as X-Telemachus-Bootstrap.")
           403)]
     [(not username) (err "username required" 400)]
+    ;; #282 item 2: the operator's password is the operator's to choose, and the
+    ;; console no longer pre-fills one, so an untouched form sends "" — which
+    ;; would mint an operator nobody can ever sign in as. A password that IS sent
+    ;; is held to the floor a change and a reset already use (one rule, three
+    ;; askers). An ABSENT one is still the scripted, token-only bootstrap.
+    [(and (hash-has-key? body 'password) (not (eq? (hash-ref body 'password) 'null))
+          (reset-password-problem (hash-ref body 'password)))
+     => (lambda (p) (err p 400))]
     [(query-maybe-value db-conn "SELECT id FROM users LIMIT 1") (err (msg-already-init) 409)]
     [else
      (define mt (multitenant?))
