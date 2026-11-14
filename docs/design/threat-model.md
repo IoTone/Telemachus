@@ -135,6 +135,31 @@ with the numbers**, which is #110 r7's shape for its five remaining complexity
 rows. What would change the answer is an HTML-injection path turning up — and the
 enumeration above is the thing to re-run, not the attribute count.
 
+### The recount (#282 item 7, 13 Nov 2026)
+
+Re-run after the org renderer, the note links panel, the notes pager, the note
+graph and the Research tab — five new places that build markup from server
+data. **1,995 interpolations now, against 1,499.** 745 go through `esc`, `iv`
+or a handler index, 499 are catalog strings through `t()`, and 751 are
+neither. Rather than re-read all 751, the recount read the **135 of them on
+lines added since SEC‑11** (`git diff 177dec2`), because the earlier lines were
+read then and came back clean.
+
+**It is clean again.** Every server-supplied string on those lines reaches
+markup through `esc`: note titles and bodies (`bodyRender`, which escapes first
+— ORG‑3), link targets and labels, tags, graph node titles in both drawings
+(escaped once, where the label and the tooltip are written), research titles,
+URLs, notes and errors. What is interpolated raw is a coordinate, a count, a
+page number, a CSS class chosen from fixed strings, an internal editor key, or
+a uuid the server minted — the same shapes SEC‑11 accepted.
+
+**What the recount added is a rule it found holding by luck.** `esc` escapes
+`& < > "` and not the single quote, so it is safe only inside a double-quoted
+attribute. No interpolation in the console sits in a `'…'` attribute or an
+unquoted one, and nothing said it must not: `test/console-tests.rkt` now
+refuses both, positive-controlled for each. The catalog strings were the other
+open half, and #282 item 3 closes it by making `t()` escape.
+
 ## Surface 8 — outbound egress
 
 | | |
@@ -171,7 +196,8 @@ Ranked by what the columns above actually say, not by novelty:
 3. ~~**Throttling the two token-redemption endpoints**~~ — **done, SEC‑13**, and
    the reason changed in the doing: not guessing, which was never feasible, but
    unbounded keyed-hash and database work for a stranger.
-4. **Re-run the console interpolation enumeration** when a renderer is added;
+4. **Re-run the console interpolation enumeration** when a renderer is added
+   (last re-run 13 Nov 2026, #282 item 7 — clean, see surface 7);
    that is what makes surface 7's answer about `style-src` still true.
 
 **That two of the four were done the same day they were ranked is the argument
