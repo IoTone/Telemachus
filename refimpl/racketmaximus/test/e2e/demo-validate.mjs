@@ -970,6 +970,65 @@ try {
   await page.evaluate(() => renderTab());
   await page.waitForSelector('#nlist', { timeout: 5000 });
 
+  // ── 3c7. the Research tab: a bookmark, what it says, and its picture (#191 slice 3)
+  // Driven through the real form. The URL is one the egress policy refuses at
+  // once (RG-3), so the create needs no network and still exercises the one
+  // path that matters most: a bookmark whose fetch failed is KEPT, and the
+  // detail card names why there is nothing to show rather than showing an
+  // empty list. Nothing here asks for a 404 — this gate fails on any console
+  // error, and the browser logs one for every 4xx.
+  step('research: a bookmark, and a seeded picture');
+  ok('the Research tab is offered', await goTab(page, 'research', '#rsurl'));
+  await page.fill('#rsurl', 'http://169.254.169.254/e2e-research');
+  await page.fill('#rstitle', 'E2E bookmark');
+  await page.click('#rsadd');
+  ok('the bookmark is listed though its fetch was refused',
+    await until(page, () => (document.getElementById('main') || {}).innerHTML?.includes('e2e-research'),
+      { timeout: 10000 }));
+  ok('…and its detail names the remedy instead of an empty list',
+    await until(page, () => {
+      const n = document.getElementById('rsentnote');
+      return !!n && n.textContent === t('rs_notarchivedhint');
+    }, { timeout: 10000 }));
+  // THE DRAWING IS A PURE FUNCTION OF WHAT THE SERVER SENT, called as one —
+  // §3c6's rule, and the layout is the note graph's, so this is also the check
+  // that sharing it worked.
+  const pic = await page.evaluate(() => {
+    const G = { nodes: [{ id: 'a', name: 'Acme', type: 'organization', focus: true },
+                        { id: 'b', name: 'Ada', type: 'person', focus: false },
+                        { id: 'c', name: 'Globex', type: 'organization', focus: false }],
+                edges: [{ id: 'r1', from: 'b', to: 'a', predicate: 'works_at' },
+                        { id: 'r2', from: 'a', to: 'c', predicate: 'customer_of' }] };
+    const one = entityGraphSVG(G), two = entityGraphSVG(G);
+    const d = document.createElement('div'); d.innerHTML = one;
+    // the H() indices differ between two calls by design, so the comparison is
+    // over the GEOMETRY, which is what determinism is about
+    const geo = (h) => h.replace(/data-h-click="\d+"/g, '');
+    return { same: geo(one) === geo(two), circles: d.querySelectorAll('circle').length,
+             focus: d.querySelectorAll('circle.ng-focus').length,
+             clickable: d.querySelectorAll('g.ng-click[data-h-click]').length,
+             lines: d.querySelectorAll('line').length };
+  });
+  ok('the same neighbourhood draws the same picture', pic.same, JSON.stringify(pic));
+  ok('…one node per entity, the focus marked once, two edges',
+    pic.circles === 3 && pic.focus === 1 && pic.lines === 2, JSON.stringify(pic));
+  ok('…and every node but the focus refocuses the picture', pic.clickable === 2, JSON.stringify(pic));
+  // A HOPS CHANGE REDRAWS THE PICTURE, NOT THE TAB: a half-typed URL survives it
+  await page.fill('#rsurl', 'https://half-typed.example/');
+  const rseq = await page.evaluate(() => renderSeq);
+  await page.evaluate(() => rsSetHops('2'));
+  await page.waitForTimeout(600);
+  ok('a hops change left the tab alone', await page.evaluate(() => renderSeq) === rseq);
+  ok('…so the URL being typed survived', await page.inputValue('#rsurl') === 'https://half-typed.example/');
+  // put the world back: §3c6's lesson about a fixture that changes global state
+  await page.evaluate(async () => {
+    const r = await fetch('/api/research', { headers: { 'Authorization': 'Bearer ' + S.token } });
+    for (const s of ((await r.json()).sources || []))
+      if ((s.url || '').includes('e2e-research'))
+        await fetch('/api/research/' + s.id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + S.token } });
+    S.rs = { sel: null, ent: null, hops: 1 };
+  });
+
   // ── 3d. the command palette and the keyboard (issue #182) ───────────────────
   // Real key events through the real delegated listener: a source assertion can
   // say the hook is wired and only a browser can say the key arrives.
@@ -2301,6 +2360,59 @@ try {
        `status ${self.status} ${JSON.stringify(self.json)}`);
   }
   pageErrors.length = errMark;   // the refusals above were the point of the test
+
+  // ── a translation cannot be markup (#282 item 3) ────────────────────────────
+  // A catalog string is somebody's translation, approved in the Localize tab and
+  // exported to disk, and `t()` used to hand it to innerHTML as written. This is
+  // a question about what the console COMPUTES, so it is asked at runtime (§3c's
+  // rule): every string is given a tag and an entity, every tab the operator
+  // can see is rendered, and two things must hold on each —
+  //   * nothing from a string became an ELEMENT, and
+  //   * nothing shows an entity as text, which is what escaping TWICE looks like
+  //     (`esc(t(…))`, or `t(…)` handed to a helper that escapes its own label).
+  // It covers each tab as it first renders plus the shell and the sign-in view;
+  // a card that only opens on a click is not reached, and that is stated.
+  step('a translation cannot be markup');
+  const poison = await page.evaluate(async () => {
+    const saved = S.cat, savedTab = S.tab, out = [];
+    const bad = {};
+    for (const k in saved) bad[k] = saved[k] + ' <i class="tmx-poison">&amp;</i>';
+    const look = (where, root) => {
+      const injected = root.querySelectorAll('.tmx-poison').length;
+      // a sample of each, so a failure names the string rather than the tab
+      const twice = /&lt;i class|&amp;amp;|&quot;tmx-poison/, samples = [];
+      let doubled = 0;
+      const note = (kind, txt) => { doubled++; const i = txt.search(twice);
+        if (samples.length < 4) samples.push(kind + ': ' + txt.slice(Math.max(0, i - 40), i + 12)); };
+      const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = walk.nextNode(); n; n = walk.nextNode())
+        if (twice.test(n.nodeValue)) note('text', n.nodeValue);
+      for (const el of root.querySelectorAll('*'))
+        for (const a of el.attributes)
+          if (twice.test(a.value)) note(el.tagName.toLowerCase() + '@' + a.name, a.value);
+      const reached = root.textContent.includes('<i class="tmx-poison">');
+      out.push({ where, injected, doubled, reached, samples });
+    };
+    S.cat = bad;
+    try {
+      for (const tab of visibleTabs()) {
+        S.tab = tab; await renderTab();
+        look(tab, document.getElementById('main'));
+      }
+      const d = document.createElement('div');
+      d.innerHTML = appShell(); look('shell', d);
+      d.innerHTML = authView(); look('sign-in', d);
+    } finally { S.cat = saved; S.tab = savedTab; await renderTab(); }
+    return out;
+  });
+  const bad1 = poison.filter(x => x.injected), bad2 = poison.filter(x => x.doubled);
+  ok('the check reached every view (the marked strings are on screen as text)',
+    poison.length > 8 && poison.every(x => x.reached),
+    JSON.stringify(poison.filter(x => !x.reached).map(x => x.where)));
+  ok('no translated string becomes an element, on any tab',
+    bad1.length === 0, JSON.stringify(bad1));
+  ok('…and none is escaped twice',
+    bad2.length === 0, JSON.stringify(bad2));
 
   step('sign out and sign back in');
   await page.evaluate(() => window.logout());

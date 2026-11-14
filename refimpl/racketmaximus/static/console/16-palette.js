@@ -50,14 +50,14 @@ const PAL_ACTIONS = {
 function palStaticItems(){
   const out = [];
   for (const tab of visibleTabs())
-    out.push({ kind: 'tab', label: t(tab), hint: t('paltab'), run: () => go(tab) });
+    out.push({ kind: 'tab', label: tRaw(tab), hint: tRaw('paltab'), run: () => go(tab) });
   // #183: an action available on every tab, because the question "how does this
   // work" is not about the tab you happen to be on.
   if (typeof helpBlocked === 'function' && !helpBlocked())
-    out.push({ kind: 'action', label: t('helptitle'), hint: t('palaction'),
+    out.push({ kind: 'action', label: tRaw('helptitle'), hint: tRaw('palaction'),
                run: () => helpOpen() });
   for (const [key, fn] of (PAL_ACTIONS[S.tab] || []))
-    out.push({ kind: 'action', label: t(key), hint: t('palaction'), run: fn });
+    out.push({ kind: 'action', label: tRaw(key), hint: tRaw('palaction'), run: fn });
   return out;
 }
 function palMatch(items, q){
@@ -82,7 +82,7 @@ async function palSearch(q){
   S.pal.records = rows.slice(0, 8).map(x => ({
     kind: 'record',
     label: x.title || x.id || '',
-    hint: t('palrecord').replace('{type}', x.type || ''),
+    hint: tRaw('palrecord').replace('{type}', x.type || ''),
     run: () => {
       // Jump to where the record LIVES. The search result's own type is what
       // says which tab that is; an entity belongs to the Knowledge tab.
@@ -108,16 +108,16 @@ function palPaint(){
       data-h-click="${Hk(() => palRun(i))}">
       <span class="pal-k">${esc(x.label)}</span>
       <span class="pal-h muted">${esc(x.hint || '')}</span></li>`).join('')
-    || `<li class="pal-none muted">${esc(t('palnone'))}</li>`;
+    || `<li class="pal-none muted">${t('palnone')}</li>`;
   const ul = document.getElementById('pallist');
   if (ul) { ul.innerHTML = list; return; }       // typing: only the list moves
   box.innerHTML = `<div class="pal-box">
     <input id="palq" autocomplete="off" spellcheck="false"
-      placeholder="${esc(t('palplaceholder'))}" value="${esc(S.pal.q || '')}"
+      placeholder="${t('palplaceholder')}" value="${esc(S.pal.q || '')}"
       data-h-input="${Hk((el) => { S.pal.q = el.value; S.pal.sel = 0; palPaint(); palSearch(el.value); })}"
       data-h-keydown="${Hk((el, ev) => palInputKey(ev))}">
     <ul id="pallist">${list}</ul>
-    <div class="pal-foot muted">${esc(t('palfoot'))}</div></div>`;
+    <div class="pal-foot muted">${t('palfoot')}</div></div>`;
 }
 function palOpen(){
   S.pal = S.pal || {};
@@ -171,10 +171,10 @@ function palHelp(on){
   ];
   box.hidden = false;
   box.innerHTML = `<div class="pal-box">
-    <h3 style="margin:0 0 8px">${esc(t('palhtitle'))}</h3>
+    <h3 style="margin:0 0 8px">${t('palhtitle')}</h3>
     <table>${rows.map(([k, d]) =>
       `<tr><td class="mono" style="width:9em">${esc(k)}</td><td>${esc(d)}</td></tr>`).join('')}</table>
-    <div class="pal-foot muted">${esc(t('palhclose'))}</div></div>`;
+    <div class="pal-foot muted">${t('palhclose')}</div></div>`;
 }
 function palHelpOpen(){ return !(document.getElementById('shortcuts') || { hidden: true }).hidden; }
 

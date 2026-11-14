@@ -28,7 +28,8 @@
 
 (provide STARTER-TYPES normalize-name normalize-predicate
          kg-upsert! kg-mark-extracted! kg-list-unextracted
-         kg-entity kg-find kg-neighbourhood kg-stats)
+         kg-entity kg-find kg-neighbourhood kg-stats
+         kg-entities-on kg-graph KG-GRAPH-CAP)
 
 (define STARTER-TYPES '("person" "organization" "product" "place" "event" "concept"))
 
@@ -292,6 +293,125 @@
              oe))
          (loop next (add1 depth))))
      (sort (hash-values seen) string<? #:key (lambda (e) (hash-ref e 'name)))]))
+
+;; ---- #191 slice 3: what one document says, and a drawable neighbourhood --------------
+
+;; The entities ONE document mentions, for the Research tab's "what did this
+;; page tell us". Under KG-3 an entity is visible iff it has a mention on an
+;; object the caller can read — and every row here has one by construction,
+;; because the object IS readable and the mention is on it. So the readability
+;; of THIS object is the whole check, and it is made once rather than per row.
+;;
+;; `#f` for an object the caller cannot read or that does not exist: one answer,
+;; `repo-get`'s collapse, so this read is not an existence oracle on an id.
+;; `extracted` says whether the CURRENT version has been through the graph drain
+;; — an empty list means "nothing found" only when it is true, and "not read
+;; yet" otherwise, and those have different remedies (CLS-27's line).
+(define (kg-entities-on conn p object-id)
+  (require-perm conn p "files:read")
+  (define o (readable-object conn p object-id))
+  (and o
+       (let ()
+         (define rows
+           (query-rows conn
+             (string-append "SELECT e.id, e.type, e.name, COUNT(*) FROM kg_mentions m "
+                            "JOIN kg_entities e ON e.id = m.entity_id "
+                            "WHERE m.object_id = ? AND e.team_id = ? "
+                            "GROUP BY e.id, e.type, e.name ORDER BY e.name, e.id")
+             object-id (principal-team-id p)))
+         (define extracted?
+           (and (query-maybe-value conn
+                  (string-append "SELECT 1 FROM kg_extractions x JOIN repo_objects o "
+                                 "ON o.id = x.object_id AND x.version_id = o.current_version_id "
+                                 "WHERE x.object_id = ?")
+                  object-id)
+                #t))
+         (hasheq 'object_id object-id
+                 'extracted extracted?
+                 'entities (for/list ([r (in-list rows)])
+                             (hasheq 'id (vector-ref r 0) 'type (vector-ref r 1) 'name (vector-ref r 2)
+                                     'mention_count (let ([n (vector-ref r 3)]) (if (exact-integer? n) n (string->number (format "~a" n))))))))))
+
+;; A neighbourhood as NODES and EDGES, for a picture (RG-9). `kg-neighbourhood`
+;; above answers a list of whole entities for the agent tool; a drawing needs the
+;; edges between them and, above all, a BOUND — a well-connected entity at two
+;; hops is the whole team's graph, and RG-9's argument is that no layout makes
+;; that readable. So the walk stops at `cap` nodes and SAYS so.
+;;
+;; 🔑 EVERYTHING ABOUT THE ORDER IS DETERMINISTIC, because the drawing's layout
+;; is seeded and a seeded layout over an arbitrary node order is still an
+;; arbitrary picture (ORG-13's lesson). The frontier is walked in (name, id)
+;; order and each entity's neighbours are taken in (name, id) order, so the same
+;; graph gives the same node list on every instance — and which nodes a cap
+;; drops is decided by that order rather than by random relation ids.
+;;
+;; Visibility is `kg-entity`'s, asked per node: a relation is drawn only when
+;; `kg-entity` returned it (it has a readable mention) AND both its ends are
+;; nodes the caller may see. Nothing here re-derives the mention rule.
+(define KG-GRAPH-CAP 40)
+(define (kg-graph conn p id #:hops [hops 1] #:cap [cap KG-GRAPH-CAP])
+  (define h (min 2 (max 1 (if (exact-integer? hops) hops 1))))
+  (define start (kg-entity conn p id))
+  (and start
+       (let ()
+         (define seen (make-hash))          ; id -> entity
+         (hash-set! seen id start)
+         (define order (list id))           ; reversed walk order
+         (define truncated #f)
+         (define (by-name a b)
+           (or (string<? (car a) (car b))
+               (and (string=? (car a) (car b)) (string<? (cdr a) (cdr b)))))
+         (let loop ([frontier (list start)] [depth 0])
+           (when (and (< depth h) (pair? frontier) (not truncated))
+             (define next '())
+             (for ([e (in-list (sort frontier by-name
+                                     #:key (lambda (e) (cons (hash-ref e 'name) (hash-ref e 'id)))))]
+                   #:break truncated)
+               (define cands
+                 (sort (remove-duplicates
+                        (for/list ([r (in-list (hash-ref e 'relations))])
+                          (if (equal? (hash-ref r 'direction) "out")
+                              (cons (hash-ref r 'object) (hash-ref r 'object_id))
+                              (cons (hash-ref r 'subject) (hash-ref r 'subject_id)))))
+                       by-name))
+               (for ([c (in-list cands)] #:unless (hash-has-key? seen (cdr c)) #:break truncated)
+                 (define oe (kg-entity conn p (cdr c)))
+                 (when oe
+                   (cond
+                     [(>= (hash-count seen) cap) (set! truncated #t)]
+                     [else (hash-set! seen (cdr c) oe)
+                           (set! order (cons (cdr c) order))
+                           (set! next (cons oe next))]))))
+             (loop next (add1 depth))))
+         (define edges
+           (let ([acc (make-hash)])
+             (for* ([e (in-hash-values seen)]
+                    [r (in-list (hash-ref e 'relations))]
+                    #:when (and (hash-has-key? seen (hash-ref r 'subject_id))
+                                (hash-has-key? seen (hash-ref r 'object_id))))
+               (hash-set! acc (hash-ref r 'id)
+                          (hasheq 'id (hash-ref r 'id) 'from (hash-ref r 'subject_id)
+                                  'to (hash-ref r 'object_id) 'predicate (hash-ref r 'predicate)
+                                  'key (list (hash-ref r 'subject) (hash-ref r 'predicate)
+                                             (hash-ref r 'object) (hash-ref r 'id)))))
+             (for/list ([x (in-list (sort (hash-values acc)
+                                          (lambda (a b)
+                                            (let loop ([a (hash-ref a 'key)] [b (hash-ref b 'key)])
+                                              (cond [(null? a) #f]
+                                                    [(string<? (car a) (car b)) #t]
+                                                    [(string=? (car a) (car b)) (loop (cdr a) (cdr b))]
+                                                    [else #f])))))])
+               (hash-remove x 'key))))
+         (hasheq 'focus id
+                 'hops h
+                 'cap cap
+                 'truncated truncated
+                 'nodes (for/list ([nid (in-list (reverse order))])
+                          (define e (hash-ref seen nid))
+                          (hasheq 'id nid 'name (hash-ref e 'name) 'type (hash-ref e 'type)
+                                  'focus (equal? nid id)
+                                  'mention_count (length (hash-ref e 'mentions))))
+                 'edges edges))))
 
 (define (kg-stats conn p)
   (require-perm conn p "files:read")

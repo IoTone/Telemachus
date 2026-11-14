@@ -2968,6 +2968,149 @@ raco test test/flow-tests.rkt                                          # 34 case
   — 16 added lines, no reordering.
 
 
+## The Research tab: what a bookmark said, drawn (RG-9, #191 slice 3)
+
+Built 11 Nov 2026. `kg-entities-on` and `kg-graph` in `domain/kg/kg.rkt`;
+`GET /api/research/:id/entities` and `GET /api/kg/entities/:id/graph`;
+`static/console/22-research.js`. **No migration, no new permission.** Slice 4
+(RG-6's graph-first retrieval, RG-10's shared citation rule) waits on a recall
+measurement, as decided on #191.
+
+```sh
+raco test test/research-graph-tests.rkt   # 5 cases; the readability and name-order controls bite
+raco test test/console-tests.rkt          # the five Research cases
+bash test/server-smoke.sh                 # the slice-3 lines of the "research:" block
+bash test/e2e/validate.sh                 # §3c7 — the real form, and a seeded picture
+```
+
+- **TWO GATES ON ONE READ, AND THEY ARE DIFFERENT QUESTIONS.** `research:use`
+  is whether the caller may use the bookmark surface; the archived page carries
+  its OWN visibility, so `kg-entities-on` asks `can?` on the page. A member may
+  see that a bookmark exists and not be shown what its page says. Under KG-3
+  every entity on a readable page is visible by construction, so the page's
+  readability is the whole check, made once.
+- **EVERY STATE A READER CAN ACT ON IS NAMED**: `not-archived` (fetch again),
+  `unreadable`, and `extracted` beside the list, which separates "nothing found"
+  from "Index Knowledge has not read this version yet". The marker is keyed to
+  the CURRENT version, so a re-fetch makes the page unread again with nothing
+  to reset.
+- **THE GRAPH IS BOUNDED AND ITS ORDER IS DETERMINISTIC.** `KG-GRAPH-CAP` 40,
+  `hops` clamped to 1..2, the frontier and each entity's neighbours walked in
+  (name, id) order, so a cap drops the same nodes on every instance and
+  `truncated` says it did. The control is a hub whose spokes are inserted in
+  REVERSE name order; a walk that followed row order keeps the wrong ones.
+- **ONE LAYOUT.** The picture calls 21-notegraph.js's `graphLayout`, so
+  ORG-13's determinism argument is made once; 22 sorts after 21 for that
+  reason, and the console test refuses a second layout, a timer or
+  `Math.random` in the file.
+- **`api()` ENCODES `body` ITSELF**, and passing `JSON.stringify(...)` sends a
+  JSON string. The server answered that with a **500** from `hash-ref`; the
+  create now treats a non-object body as empty, so it is a 400 naming the
+  missing URL. The other handlers had the same shape — see "A JSON body that is
+  not an object" below.
+- **The browser gate drives a fetch the egress policy refuses at once** (RG-3),
+  so it needs no network, and asks for no 4xx: every 4xx is a console error to
+  that gate.
+
+## A JSON body that is not an object (the body-shape sweep)
+
+`server/body.rkt`; `read-json-body` in kit is its one asker for core handlers.
+**No route, no migration, no permission.**
+
+```sh
+raco test test/body-tests.rkt    # the rule, no server; controlled
+bash test/server-smoke.sh        # the "body shape" block: every write route, four bodies
+```
+
+- **IT WAS 252 FAULTS OVER 63 ROUTES, MEASURED BEFORE THE FIX.**
+  `read-json-body` turned MALFORMED JSON into `{}` and passed a VALID non-object
+  (`"x"`, `[1]`, `1`, `null`) straight through, so every handler that
+  `hash-ref`s its body answered a 500 for a mistake wholly the caller's — public
+  doors among them (`/api/login`, `/api/bootstrap`, `/api/beta/signup`,
+  `/api/activate`), where a 500 is also log noise anybody can make. A
+  non-object now reads as `{}`, so each route gives the 400 it gives a missing
+  field. Fixed in the reader, not per handler: one rule rather than 63 guards.
+- **A PLUGIN ROUTE STILL GETS ANY JSON VALUE** (`read-json-value`). Its
+  `'body` is a published contract that never promised an object, so narrowing
+  it would break a downstream route that takes an array.
+- **The rule is in its own DB-free module** because a test that requires
+  `kit.rkt` instantiates the pool, and CI's SQLite leg sets `DATABASE_URL=""`.
+- **THE SWEEP READS `ROUTES`, NOT A LIST**, so a route added later is swept the
+  day it lands, and it asserts it covered at least 150 of them, or an empty list
+  would sweep nothing and pass. It fails on a **500** (what `handle` answers for
+  an unhandled exception) or a dropped connection, not on every 5xx:
+  `/api/agent`'s 503 naming `TMACH_MODEL_URL` is deliberate, whatever the body.
+  It skips only `POST /api/logout`, which would end the token it is using, and
+  sits **above** the `redeem` block, which exhausts the redemption throttle and
+  would otherwise answer 429 for two routes before they read a body.
+- **The per-handler `(if (hash? b) b (hasheq))` guards are now redundant** and
+  were left in place: removing ~15 of them is a tidy, not a fix.
+
+## A translated string is escaped once, by `t` itself (#282 item 3)
+
+`static/console/01-base.js`. **Console only: no route, no migration, no catalog
+change.**
+
+```sh
+raco test test/console-tests.rkt   # the three source shapes
+bash test/e2e/validate.sh          # "a translation cannot be markup", controlled
+```
+
+- **A catalog string is somebody's TRANSLATION**, approved in the Localize tab
+  and exported to disk, and `t()` handed it to `innerHTML` as written. Of 862
+  calls, 135 were wrapped in `esc()` and the rest were not. `script-src 'self'`
+  still blocked script, so the reach was defacement by whoever could get a
+  translation approved.
+- **TWO ACCESSORS, CHOSEN BY DESTINATION.** `t(key)` is for markup and is
+  already escaped. `tRaw(key)` is for a place that takes plain text: a toast
+  (`textContent`), `confirm()`, a DOM property, or a helper that escapes its own
+  argument (`hRow`, `hBadge`, `col`, `pick`, `pill`, `qvSpark`, `seg`, `tog`,
+  `wfJson`, `visLabel`'s callers, the palette's labels).
+- **NEVER `esc(t(…))`.** It is escaping twice, and it shows nothing until a
+  translation contains an ampersand, which then reads `&amp;`. No shipped
+  string in any of the four catalogs contains `< > & "` today, which is why
+  neither defect had ever been visible.
+- **THE BROWSER GATE IS THE PROOF, because this is a question about what the
+  console COMPUTES.** It gives every string a tag and an entity, renders every
+  tab the operator can see plus the shell and the sign-in view, and asserts that
+  nothing became an element and nothing shows an entity as text. A static pass
+  changed about 290 sites; the gate then found **about twenty more**, all one shape: a
+  string returned from a small function or held in a variable and escaped again
+  by its consumer. Control: with the escape removed from `t`, marked strings
+  become elements on every tab.
+- **What it does not reach, stated**: a card that only opens on a click (a
+  detail panel, a run view). Those were converted by the static pass and are
+  covered by the source test, not by the runtime one.
+- **Older console tests matched the literal `t('…')` spelling**; the catalog
+  scans accept `t(?:Raw)?` now. Same catalog, so no assertion is weaker.
+
+## The citation rule has one home (RG‑10, #191)
+
+`domain/ai/citations.rkt`, no dependencies. In-product help's three rules —
+the score floor (HELP‑15), resolving every citation against what was offered
+(HELP‑16) and "citing every source is citing nothing" (HELP‑22) — moved there
+so #191's research answerer (RG‑6) asks the same rules rather than a copy.
+**No route, no migration, no behaviour change.**
+
+```sh
+raco test test/citations-tests.rkt test/help-tests.rkt   # 7 + 27 cases, two controls
+```
+
+- **The RULE is shared; the floor's VALUE is not.** `floor-admits?` takes the
+  caller's floor, because `HELP-SCORE-FLOOR` is model-dependent and
+  provisional, and a research corpus will want its own number.
+- **It takes identifiers as plain strings** (a help passage's path, a research
+  passage's object key) and knows nothing about a passage's shape, so neither
+  asker has to require the other's subsystem.
+- **`uncited` and `unfocused` belong to the rule** (`CITATION-REASONS`); a
+  caller's own "no corpus" reasons are APPENDED to them, so neither can invent a
+  spelling the other's client does not know. Help's order is unchanged.
+- **`citations-tests.rkt` refuses a second copy in `answer.rkt`**: a source
+  scan, with comment lines stripped, for the marker regexp and the two reason
+  literals. Positive-controlled.
+- **For now it has one caller.** RG‑6 is still waiting on a recall measurement,
+  so this is #110 r4's stated exception: an export with a test behind it.
+
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 
 Built 22 Oct 2026 — the configuration half of the external-feed work, on top of

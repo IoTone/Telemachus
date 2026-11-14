@@ -3444,6 +3444,13 @@ assert "email: a stored credential is reported"    "$MT" '"has_password":true'
 # THE PASSWORD IS NEVER IN A READ — #19's rule for a token, and `webhook-list`'s.
 refute "email: …and never the password itself"     "$MT" 's3cret'
 refute "email: nor a password field at all"        "$MT" '"password"'
+# #282 item 1: HOW it is stored is on the read, so the card can warn. Mode-aware,
+# like the #19 block: the same instance answers differently with a key set.
+if [ -n "${TMACH_SECRET_KEY:-}" ]; then
+  assert "email: the read says the password is sealed"     "$MT" '"password_stored":"sealed"'
+else
+  assert "email: the read says the password is in the clear" "$MT" '"password_stored":"plaintext"'
+fi
 
 # An ABSENT password leaves the stored one alone, or editing the port would
 # silently clear the credential and the operator would find out from a dead letter.
@@ -3958,6 +3965,11 @@ assert "research: a member sees an empty archive" \
 assert "research: a credential in the URL is refused — this row has nowhere to keep one" \
   "$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
       -d '{"url":"https://user:pass@example.com/x"}')" 'take the credential out of'
+# A body that is valid JSON and not an OBJECT is the caller's mistake, so a 400
+# naming what is missing — it was a 500 until the console encoded a body twice.
+RSBAD=$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/research -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/json' -d '"https://example.com/"')
+assert "research: a JSON string where an object belongs is a 400, not a 500" "$RSBAD" '400'
 assert "research: a non-http URL is refused" \
   "$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
       -d '{"url":"ftp://example.com/x"}')" 'must be an http(s) URL'
@@ -4008,6 +4020,26 @@ assert "research: the listing carries the team's bookmarks" \
 # usage endpoint, which is where an operator would look.
 assert "research: the fetch budget is reported, so a team can see it" \
   "$(curl -s $B/api/usage -H "Authorization: Bearer $OP")" '"dimension":"research.fetches"'
+
+# #191 slice 3: what the archived page told the knowledge graph. Every state a
+# reader can act on is NAMED — a bookmark whose fetch was refused has no page,
+# and the answer says so rather than handing back an empty list that reads as
+# "nothing found".
+RSE=$(curl -s $B/api/research/$RSID/entities -H "Authorization: Bearer $OP")
+assert "research: a bookmark with no archived page says so" "$RSE" '"reason":"not-archived"'
+assert "research: …with an empty entity list beside it" "$RSE" '"entities":[]'
+assert "research: a viewer may not ask what a page said either" \
+  "$(curl -s $B/api/research/$RSID/entities -H "Authorization: Bearer $VERA")" 'Forbidden: research:use'
+assert "research: another team's bookmark is a 404 here too" \
+  "$(curl -s $B/api/research/00000000-0000-0000-0000-000000000000/entities -H "Authorization: Bearer $OP")" \
+  'no such bookmark'
+# The drawing's read. An entity nobody may see and one that does not exist are
+# ONE answer, so the graph is not an existence oracle on an entity id.
+assert "research: the neighbourhood of an entity that is not there is a 404" \
+  "$(curl -s "$B/api/kg/entities/00000000-0000-0000-0000-000000000000/graph?hops=2" -H "Authorization: Bearer $OP")" \
+  '"error":"not found"'
+assert "research: …and a stranger gets 401 before anything is looked up" \
+  "$(curl -s "$B/api/kg/entities/00000000-0000-0000-0000-000000000000/graph")" 'Authentication required'
 
 # Forgetting a bookmark is not retracting the page.
 assert "research: a bookmark can be forgotten" \
@@ -4165,6 +4197,31 @@ assert "trjob: and a stranger gets 401" \
   "$(curl -s -X POST "$B/api/translate/job" -H 'Content-Type: application/json' \
       -d '{"text":"hi","target_lang":"ja"}')" 'Authentication required'
 rm -f /tmp/tmx-trlong.json /tmp/tmx-trhuge.json
+
+echo '== body shape: a JSON body that is not an object is never a 500 =='
+# EVERY write route in the table, read from server/routes.rkt rather than listed
+# here, so a route added later is swept the day it lands. Each is sent a string,
+# an array, a number and null as its JSON body; a 4xx or an ordinary answer is
+# fine, a 500 is not (a deliberate 503, like /api/agent with no model, is
+# fine). Before server/body.rkt this was 252 faults over 63 routes,
+# public ones among them (/api/login, /api/bootstrap, /api/beta/signup).
+#
+# It sits ABOVE the redeem block on purpose: that block exhausts the redemption
+# throttle, after which /api/activate and /api/password-reset/confirm answer 429
+# before reading a body at all, and this would pass for them by never reaching
+# them. It changes state on the way (an empty branding or feature document is a
+# valid write), which is why it is this late; nothing after it reads that state.
+BS_DIR=$(mktemp -d)
+racket -e '(require "server/routes.rkt") (for ([r ROUTES] #:unless (member (rt-method r) (list "GET" "HEAD" "OPTIONS"))) (printf "~a ~a\n" (rt-method r) (rt-path r)))' > "$BS_DIR/routes.txt"
+BS_OUT=$(python3 -I test/body-shape-sweep.py "$B" "$OP" "$BS_DIR/routes.txt"); BS_RC=$?
+echo "$BS_OUT"
+# The count first, or a route list that came back empty would sweep nothing and pass.
+BS_N=$(printf '%s' "$BS_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["routes"])' 2>/dev/null || echo 0)
+if [ "${BS_N:-0}" -ge 150 ]; then echo "  ok   body shape: the sweep covered $BS_N write routes"
+else echo "  FAIL body shape: the sweep covered only ${BS_N:-0} write routes"; fail=1; fi
+assert "body shape: no write route answers a non-object body with a 500" "$BS_OUT" '"faults": []'
+[ $BS_RC -eq 0 ] || { echo "  FAIL body shape: the sweep exited $BS_RC"; fail=1; }
+rm -rf "$BS_DIR"
 
 echo "== redeem: a mailed token's redemption is throttled (SEC-13) =="
 # THIS BLOCK IS LAST, for the reason the reset-request throttle above is last: it

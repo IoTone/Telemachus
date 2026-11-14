@@ -23,6 +23,7 @@
          "../domain/help/helpindex.rkt"
          "../domain/help/helpsearch.rkt"
          "../domain/help/answer.rkt"
+         (only-in "../domain/ai/citations.rkt" CITATION-INVENTORY-MIN)
          "../domain/authz/authz.rkt"
          (only-in "../domain/quota/quota.rkt" quota-used))
 
@@ -632,14 +633,8 @@
     (check-true (> (quota-used conn "team" tid "ai.help.total" "total") before))
     (close-db! conn))))
 
-(test-case "23. help-cited-paths reads what a model really writes"
-  (check-equal? (help-cited-paths "see [docs/a.md]") '("docs/a.md"))
-  (check-equal? (help-cited-paths "[docs/a.md] and [docs/b.md], then [docs/a.md] again")
-                '("docs/a.md" "docs/b.md") "de-duplicated, in the order cited")
-  (check-equal? (help-cited-paths "spaced [ docs/a.md ]") '("docs/a.md") "trimmed")
-  (check-equal? (help-cited-paths "nothing here") '())
-  (check-equal? (help-cited-paths "a [markdown](link) is not a citation") '("markdown")
-                "stated rather than cured: a bracketed word is indistinguishable from a path here, which is why an invented one is DROPPED by resolution rather than trusted"))
+;; Case 23 (reading the `[…]` markers) moved to test/citations-tests.rkt with
+;; the rule it tests (RG‑10).
 
 (test-case "24. an empty question is refused by name"
   (with-help-env (lambda ()
@@ -692,7 +687,7 @@
   ;; with one or two passages, naming both is exactly what citing looks like.
   (with-help-env (lambda ()
     (define-values (conn p tid root) (seed-corpus!))
-    (check-equal? HELP-INVENTORY-MIN 3)
+    (check-equal? CITATION-INVENTORY-MIN 3)
     (define rep (ask conn p "rotating a key and rewrapping sealed columns"
                      #:k 2
                      #:reply (lambda (prompt)

@@ -181,7 +181,7 @@
   (check-true (and body #t) "wkFigs is still a function")
   ;; one tooltip per figure, not one for the column: the three numbers answer
   ;; different questions and the lease expiry is the one worth finding
-  (check-true (string-contains? body "title=\"${esc(t(key))}\"")
+  (check-true (string-contains? body "title=\"${esc(tRaw(key))}\"")
               "a figure is rendered with a tooltip of its own, not one for the column")
   (check-equal? (length (regexp-match* #px"fig[(]w[.]" body)) 3
                 "done, failed and lease-expired are three figures, each with its own key")
@@ -269,7 +269,7 @@
   ;; the console is entirely in the catalogs, and two of doSearch's three
   ;; messages were English literals for a year — a Japanese operator was told
   ;; "no results" in English. A new one must not go in beside them.
-  (check-true (string-contains? save "t(allow?'featallowdone':'featoffdone')")
+  (check-true (string-contains? save "tRaw(allow?'featallowdone':'featoffdone')")
               "the toast comes from the catalogs, not a literal")
   ;; and the read is not a fourth sequential round trip on the slowest tab.
   ;;
@@ -531,7 +531,7 @@
   (define panel (fn-body "noteEdgeList"))
   (check-true (string-contains? panel "if(!org && !back.length) return '';")
               "no panel at all for a Markdown note nothing points at")
-  (check-true (string-contains? panel "${org?col(t('orglinks'), out):''}")
+  (check-true (string-contains? panel "${org?col(tRaw('orglinks'), out):''}")
               "…and no outgoing column where the syntax does not apply"))
 
 (test-case "an org note is not offered a tags field, and its write omits the key"
@@ -563,7 +563,7 @@
   (check-true (string-contains? (fn-body "readTags") "el ? el.value"))
   ;; ORG-12's stated COST, made visible rather than left to a refusal: #245's
   ;; auto-tagger cannot write an org note's tags, so the button says so
-  (check-true (string-contains? tabs "n.format==='org'?t('autotagorg')"))
+  (check-true (string-contains? tabs "n.format==='org'?tRaw('autotagorg')"))
   (check-true (string-contains? tabs "||n.format==='org')?' disabled'"))
   (for ([k '("orgtagshint" "autotagorg")])
     (check-true (string-contains? ui-strings (string-append "\"ui." k "\"")))))
@@ -891,7 +891,7 @@
   ;; `qvpath` lives on the queue ROW, which `05-fleet.js` draws — the affordance
   ;; has to be where the jobs are listed, on both screens that list them.
   (define qsrc (string-append qviz "\n" (file->string (build-path console-dir "05-fleet.js"))))
-  (define keys (remove-duplicates (map cadr (regexp-match* #px"\\bt\\('(qv[a-z0-9_]+)'\\)" qsrc #:match-select values))))
+  (define keys (remove-duplicates (map cadr (regexp-match* #px"\\bt(?:Raw)?\\('(qv[a-z0-9_]+)'\\)" qsrc #:match-select values))))
   (check-true (> (length keys) 20) "it really is reading its labels from the catalog")
   (define en (file->string (build-path console-dir "../ui-strings.json")))
   (for ([k (in-list keys)])
@@ -1608,7 +1608,7 @@
                              (console-code "07-render.js")))
   (define en (file->string (build-path console-dir "../ui-strings.json")))
   (for ([k (in-list '("allpaths" "foldercut" "nohereobjects" "dockeyhint" "docmovehint"))])
-    (check-true (and (regexp-match? (regexp (string-append "t\\('" k "'\\)")) src) #t)
+    (check-true (and (regexp-match? (regexp (string-append "t(Raw)?\\('" k "'\\)")) src) #t)
                 (format "t('~a') is asked for" k))
     (check-true (and (regexp-match? (regexp (string-append "\"ui\\." k "\"")) en) #t)
                 (format "ui.~a is in static/ui-strings.json" k))))
@@ -1700,7 +1700,7 @@
   (define src (file->string (build-path console-dir "03-tabs.js")))
   (define keys
     (remove-duplicates
-     (map cadr (regexp-match* #px"\\bt\\('(tags[a-z]*|tagclear|autotag[a-z]*)'\\)" src #:match-select values))))
+     (map cadr (regexp-match* #px"\\bt(?:Raw)?\\('(tags[a-z]*|tagclear|autotag[a-z]*)'\\)" src #:match-select values))))
   (check-true (>= (length keys) 9) "all nine of them come from the catalog")
   (define en (file->string (build-path console-dir "../ui-strings.json")))
   (for ([k (in-list keys)])
@@ -1832,6 +1832,68 @@
   (check-true (and (regexp-match? #rx"console/21-notegraph.js" shell) #t)
               "the file is loaded, or none of it runs"))
 
+;; ---- #191 slice 3: the Research tab -------------------------------------------
+
+(test-case "the research picture is the note graph's layout, not a second one, and nothing ticks"
+  ;; ORG-13 and RG-9 made the determinism argument ONCE, for one seeded,
+  ;; fixed-tick layout. A second layout in this file would be a second place
+  ;; that argument had to stay true, so it is asked for by name and never
+  ;; defined here.
+  (define r (console-code "22-research.js"))
+  (check-true (and (regexp-match? #px"graphLayout\\(nodes, edges\\)" r) #t) "it asks the shared layout")
+  (check-false (regexp-match? #px"function graphLayout" r) "…and does not define its own")
+  (check-false (regexp-match? #px"function graphRng" r))
+  (check-false (regexp-match? #rx"Math.random" r))
+  (check-false (regexp-match? #rx"requestAnimationFrame" r) "QVIZ-6: nothing animates")
+  (check-false (regexp-match? #rx"setInterval" r) "…and nothing polls, or a left-open tab holds a session")
+  (check-false (regexp-match? #rx"setTimeout" r))
+  ;; the layout is defined in a file that LOADS FIRST, or `graphLayout` is a
+  ;; ReferenceError the first time anybody opens a picture
+  (check-true (string<? "21-notegraph.js" "22-research.js")))
+
+(test-case "the Research tab is shown only to somebody who may use it"
+  (define body (fn-body "visibleTabs"))
+  (check-true (and body (regexp-match? #px"canPerm\\('research:use'\\)\\) tabs\\.splice" body) #t)
+              "gated on the permission every one of its requests is checked against")
+  (check-true (and (regexp-match? #px"research:researchView" (console-code "07-render.js")) #t)
+              "and the tab has a view, or it paints Chat"))
+
+(test-case "a bookmark is created once however often it is pressed"
+  ;; #174's shape: the flag is the guard and the pending state, nothing awaits
+  ;; between the check and the set, and the `finally` releases it — a create
+  ;; FETCHES the page, so it is slow enough for a second press to land.
+  (define body (fn-body "rsCreate"))
+  (check-true (and body #t))
+  (check-true (string-contains? body "if(S.rsSending) return;"))
+  (define guard (caar (regexp-match-positions #rx"if[(]S.rsSending[)] return;" body)))
+  (define set (caar (regexp-match-positions #rx"S.rsSending = true" body)))
+  (check-false (regexp-match? #rx"await" (substring body guard set))
+               "no await between the check and the set")
+  (check-true (and (regexp-match? #px"finally \\{\\s*S\\.rsSending = false" body) #t)))
+
+(test-case "a hops change redraws the picture, not the tab"
+  ;; NPG-10's rule a fourth time: the create form's URL is a plain <input>, and
+  ;; `renderTab()` would throw away a URL somebody was typing.
+  (for ([f '("rsSetHops" "rsGraph" "rsGraphSwap")])
+    (define body (fn-body f))
+    (check-true (and body #t) f)
+    (check-false (regexp-match? #rx"renderTab" body) (format "~a must not re-render the tab" f))))
+
+(test-case "every ui.rs* string the Research tab shows is in the catalogs, both ways"
+  (define src (file->string (build-path console-dir "22-research.js")))
+  (define keys
+    (remove-duplicates
+     (map cadr (regexp-match* #px"'(rs_[a-z]+)'" src #:match-select values))))
+  (check-true (>= (length keys) 25))
+  (define en (file->string (build-path console-dir "../ui-strings.json")))
+  (for ([k (in-list keys)])
+    (check-true (and (regexp-match? (regexp (string-append "\"ui\\." (regexp-quote k) "\"")) en) #t)
+                (format "ui.~a is missing from static/ui-strings.json" k)))
+  (define shipped
+    (map cadr (regexp-match* #px"\"ui[.](rs_[a-z]+)\"" en #:match-select values)))
+  (check-equal? (remove* keys shipped) '()
+                "a ui.rs_* string nothing asks for means a label was typed in place"))
+
 ;; ---- #233: the Translate tab enqueues and follows ---------------------------
 
 (test-case "the translation is a JOB now, and the form is never held open"
@@ -1924,7 +1986,7 @@
   (define src (string-append (console-code "07-render.js") "\n" (console-code "01-base.js")))
   (define keys
     (remove-duplicates
-     (map cadr (regexp-match* #px"t\\('(tr[a-z0-9_]+)'\\)" src #:match-select values))))
+     (map cadr (regexp-match* #px"t(?:Raw)?\\('(tr[a-z0-9_]+)'\\)" src #:match-select values))))
   (check-true (> (length keys) 4) "the tab draws several of them")
   (define en (file->string (build-path console-dir "../ui-strings.json")))
   (for ([k (in-list keys)])
@@ -1940,97 +2002,25 @@
   (check-equal? (remove* (append keys elsewhere) shipped) '()
                 "a ui.tr* string nothing asks for means a label was typed in place, or a screen was removed"))
 
-(test-case "a catalog string is escaped where it becomes markup"
-  ;; #282 items 3 and 7. `t()` answers whatever the catalog holds — a translation
-  ;; is written by a person, and one containing `<` or `&` was parsed as MARKUP
-  ;; in every place the console interpolated it into a template literal. 475 of
-  ;; those sites existed.
-  ;;
-  ;; THE RULE IS ESCAPE AT THE SINK, NEVER INSIDE `t()`. A value that is later
-  ;; assigned to `textContent`, put in a `confirm()` or read by a screen reader is
-  ;; plain text: escaping it there would put `&amp;` in front of a reader instead.
-  ;; So the needle is an interpolation whose expression reaches `t(`, not every
-  ;; `t(` call — `btn.textContent = t('send')` is correct exactly as it stands.
-  ;; ONE RULE, NOT THREE SHAPES. A first version looked for a bare `${t(` and read
-  ;; clean while ten sites interpolated a catalog string through a ternary or a
-  ;; concatenation. A second version looked for `?`/`:`/`+` before `t(` and
-  ;; over-reported, because `esc(t(…))` and an escaping helper both match that
-  ;; spelling and are correct.
-  ;;
-  ;; So the rule is about the EXPRESSION, not the character before the call: an
-  ;; interpolation is unsafe when it calls `t(` and contains no escape at all.
-  ;; `esc(t(…))`, `col(t(…), …)` and the other helpers below escape their argument
-  ;; at the sink, which is exactly where the rule says it belongs.
-  (define escape-helpers
-    '("esc(" "col(" "btn(" "hRow(" "hBadge(" "qvSpark(" "pick(" "seg(" "tog("
-      "helpBody(" "visLabel(" "wfBadge(" "artifactCard(" "jobWaitBadge(" "reviewCard("
-      "stat(" "sel(" "visSelect(" "wfJson(" "bodyRender(" "brandContrast(" "iv(" "bxAsset("))
-  (define t-call #px"(?<![A-Za-z0-9_$.])t\\(")
-  (define (unsafe? expr)
-    (and (regexp-match? t-call expr)
-         (not (for/or ([h (in-list escape-helpers)]) (string-contains? expr h)))))
-  (define (sites src)
-    (for/sum ([m (in-list (regexp-match* #px"\\$\\{[^}]*\\}" src))])
-      (if (unsafe? m) 1 0)))
-  ;; `for*`, not `for`: a parallel clause cannot see the one before it, and this
-  ;; loop counts in the same breath as it reads the file (line 74's rule).
-  (define offenders
-    (for*/list ([f (in-list script-files)]
-                [n (in-value (sites (console-code f)))]
-                #:when (positive? n))
-      (format "~a: ~a site(s)" f n)))
-  ;; The scan reads the whole expression, so `t(key)`, `t(org ? 'a' : 'b')` and
-  ;; `'…' + t('x')` are all the same sink and all seen.
-  (check-equal? offenders '()
-                (string-append "escape at the sink: ${esc(t('key'))}. A value bound for "
-                               "textContent or confirm() is plain text — leave that one alone"))
-
-  ;; THE FLOOR. A scan that found nothing would pass above; a scan whose sources
-  ;; went missing would too, because `console-code` reads a directory it is told
-  ;; by name and an empty list of offenders is what a missing file looks like.
-  (define escaped
-    (for/sum ([f (in-list script-files)])
-      (length (regexp-match* #px"\\$\\{esc\\(t\\(" (console-code f)))))
-  (check-true (>= escaped 450)
-              (format "only ~a escaped sink(s) found — the scan is not looking at the console" escaped)))
-
-(test-case "a catalog string carrying markup reaches the DOM as TEXT"
-  ;; The scan above says every sink is `esc(t(…))`. This says the escaping those
-  ;; calls rely on actually neutralises markup.
-  ;;
-  ;; THE CHARACTER MAP IS READ OFF THE SHIPPED `esc`, not written out again
-  ;; here: a copy would agree with any change to the real one, which is the
-  ;; vacuity this pair exists to avoid (the fourth appearance of that shape in
-  ;; these notes). Drop `<` from the map and the loop below fails by name.
-  ;;
-  ;; WHAT THIS DOES NOT DO: run a browser, so it cannot say the payload lands as
-  ;; a text node. That is one `step()` of `test/e2e/demo-validate.mjs` — "a
-  ;; catalog string is text, wherever the console interpolates it" — which calls
-  ;; the shipped `pagerHTML` with this payload in the catalog and counts
-  ;; `img` elements. Racket cannot execute the console; a source file can only
-  ;; pin the structure that makes the browser half true.
-  (define esc-line
-    (for/first ([l (in-list (string-split (console-code "01-base.js") "\n"))]
-                #:when (string-contains? l "const esc ="))
-      l))
-  (check-true (and esc-line #t) "esc is still defined in 01-base.js")
-  (define char-map
-    (for/list ([m (in-list (regexp-match* #px"'([^']{1,7})':'([^']{2,12})'" esc-line
-                                          #:match-select cdr))])
-      (cons (car m) (cadr m))))
-  (for ([c (in-list '("&" "<" ">" "\""))])
-    (check-true (and (assoc c char-map) #t)
-                (format "esc must escape ~s — a catalog string reaches markup through it" c)))
-  ;; ONE PASS, because that is what the shipped function does: a fold that escaped
-  ;; `&` first and then `<` would turn `&lt;` into `&amp;lt;` and prove nothing.
-  (define payload "Daily report <img onerror=x src=y> & the rest")
-  (define escaped-payload
-    (regexp-replace* #rx"[&<>\"]" payload (lambda (c) (cdr (assoc c char-map)))))
-  (check-false (regexp-match? #rx"<img" escaped-payload)
-               "…")
-  (check-false (string-contains? escaped-payload "<") "no `<` survives, so nothing can open a tag")
-  (check-false (string-contains? escaped-payload ">") "no `>` survives either")
-  (check-true (string-contains? escaped-payload "&lt;img onerror=x src=y&gt;")
-              "the payload is still READABLE — escaped, not stripped")
-  (check-true (string-contains? escaped-payload "&amp; the rest")
-              "…and the ampersand is escaped once, not twice"))
+(test-case "a translated string is escaped once, by `t` itself (#282 item 3)"
+  ;; A catalog string is a TRANSLATION somebody got approved, and it used to
+  ;; reach innerHTML as written. The behaviour is asserted in the browser gate
+  ;; (demo-validate.mjs, "a translation cannot be markup"), which renders every
+  ;; tab with marked strings; this pins the three source shapes that would undo
+  ;; it without failing anything until a string next contained an ampersand.
+  (define base (console-code "01-base.js"))
+  (check-true (and (regexp-match? #px"const t = k => esc[(]tRaw[(]k[)][)];" base) #t)
+              "`t` answers escaped text")
+  (check-true (and (regexp-match? #px"const tRaw = k => S[.]cat\\['ui[.]'[+]k\\] [|][|] k;" base) #t)
+              "`tRaw` is the catalog text, for a place that takes plain text")
+  (for ([f (in-list (sort (for/list ([p (in-list (directory-list console-dir))]
+                                     #:when (regexp-match? #px"[.]js$" (path->string p)))
+                            (path->string p))
+                          string<?))])
+    (define code (console-code f))
+    (check-false (regexp-match? #px"(?<![A-Za-z0-9_$.])esc[(]t[(]" code)
+                 (format "~a wraps t() in esc(): that is escaping twice" f))
+    (check-false (regexp-match? #px"(?<![A-Za-z0-9_$.])(toast|confirm|alert|prompt)[(]t[(]" code)
+                 (format "~a hands t() to a dialog or a toast, which shows text: use tRaw()" f))
+    (check-false (regexp-match? #px"textContent\\s*=\\s*t[(]" code)
+                 (format "~a assigns t() to textContent: use tRaw()" f))))

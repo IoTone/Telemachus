@@ -29,11 +29,11 @@
                   embed-configured?)
          (only-in "../ai/roles.rkt" model-role-executor)
          (only-in "../orgs/orgs.rkt" tenant-quota-record!)
-         (only-in "helpsearch.rkt" help-passages help-available? HELP-K HELP-MAX))
+         (only-in "helpsearch.rkt" help-passages help-available? HELP-K HELP-MAX)
+         (only-in "../ai/citations.rkt" floor-admits? verify-citations CITATION-REASONS))
 
 (provide help-answer current-help-chat current-help-embed-one
-         HELP-SCORE-FLOOR HELP-ANSWER-REASONS HELP-SYSTEM HELP-INVENTORY-MIN
-         help-cited-paths)
+         HELP-SCORE-FLOOR HELP-ANSWER-REASONS HELP-SYSTEM)
 
 ;; ---- the two seams -----------------------------------------------------------
 
@@ -85,8 +85,11 @@
 ;; VEC‑39's). `unconfigured`/`empty`/`locale-empty` come from `help-available?`;
 ;; `no-model` is the chat half of the same question; `nothing-relevant` is the
 ;; floor; `uncited` is an answer the model gave that named no passage.
-(define HELP-ANSWER-REASONS '("unconfigured" "empty" "locale-empty" "no-model"
-                              "nothing-relevant" "uncited" "unfocused"))
+;; `uncited` and `unfocused` are the citation rule's own (RG‑10) and come from
+;; there; the rest say there was nothing to answer FROM, which is help's.
+(define HELP-ANSWER-REASONS (append '("unconfigured" "empty" "locale-empty" "no-model"
+                                      "nothing-relevant")
+                                    CITATION-REASONS))
 
 ;; HELP‑22 — AN ANSWER THAT CITES EVERY PASSAGE IT WAS SHOWN HAS CITED NOTHING,
 ;; AND THIS RULE EXISTS BECAUSE A REAL MODEL DID IT.
@@ -112,7 +115,7 @@
 ;; refusing a question somebody really asks. Three passages is the minimum for
 ;; the rule to mean anything — with one or two, citing all of them is what a
 ;; good answer looks like.
-(define HELP-INVENTORY-MIN 3)
+;; The inventory's minimum is the citation rule's (`CITATION-INVENTORY-MIN`, RG‑10).
 
 ;; ---- the prompt --------------------------------------------------------------
 ;;
@@ -202,14 +205,7 @@
 ;; offered, or it is dropped — and HELP-22's inventory rule sits on top of the
 ;; resolved PATHS, so it is unaffected by how they were named.
 
-;; Every `[…]` the answer carries, in the order it carries them, de-duplicated.
-;; Exported FOR the test: this is the half of HELP‑16 that has to be exercised
-;; against strings a model really produces (a trailing full stop inside the
-;; bracket, a path with no `docs/` prefix, the same path twice).
-(define (help-cited-paths text)
-  (remove-duplicates
-   (for/list ([m (in-list (regexp-match* #px"\\[([^\\]\\[]+)\\]" text #:match-select cadr))])
-     (string-trim m))))
+;; Reading the `[…]` markers is the citation rule's (`cited-markers`, RG‑10).
 
 ;; ---- the answer --------------------------------------------------------------
 ;;
@@ -258,7 +254,7 @@
      ;; failing path free.
      (meter! conn p qtokens)
      (cond
-       [(or (null? ps) (< top floor))
+       [(not (and (pair? ps) (floor-admits? top floor)))
         (hash-set* (refusal "nothing-relevant" (hash-ref rep 'locale))
                    'scanned (hash-ref rep 'scanned)
                    'score top)]
@@ -276,30 +272,12 @@
                                        #:system HELP-SYSTEM
                                        #:executor (utility-of conn p)))
         (meter! conn p tokens)
-        ;; HELP‑16's second layer: a cited path is kept only if the retrieval
-        ;; offered it. A model that names a plausible file it was never shown is
-        ;; the failure this feature cannot be allowed to have.
+        ;; HELP‑16 and HELP‑22, through the rule's one home (RG‑10): a cited
+        ;; path is kept only if the retrieval offered it — by its number in the
+        ;; prompt or by the path — and citing all of them is an inventory.
         (define offered (for/list ([x (in-list ps)]) (hash-ref x 'path)))
-        (define named (help-cited-paths reply))
-        ;; A citation is a NUMBER (1-based, into the passages as they were
-        ;; numbered in the prompt) or the path itself. `resolve-citation`
-        ;; answers the path it names, or #f — which is what makes an
-        ;; out-of-range number `invented` on exactly the same footing as a path
-        ;; nobody was shown.
-        (define (resolve-citation c)
-          (define n (string->number c))
-          (cond [(and (exact-integer? n) (>= n 1) (<= n (length offered)))
-                 (list-ref offered (sub1 n))]
-                [(member c offered) c]
-                [else #f]))
-        (define resolved (remove-duplicates
-                          (filter values (for/list ([c (in-list named)]) (resolve-citation c)))))
-        (define invented (for/list ([c (in-list named)] #:unless (resolve-citation c)) c))
-        ;; HELP‑22: citing all of them is an inventory, not a citation.
-        (define inventory?
-          (and (>= (length offered) HELP-INVENTORY-MIN)
-               (= (length (remove-duplicates resolved)) (length (remove-duplicates offered)))))
-        (define kept (if inventory? '() resolved))
+        (define verdict (verify-citations reply offered))
+        (define kept (hash-ref verdict 'kept))
         (hasheq 'answer reply
                 'citations (for/list ([c (in-list kept)])
                              (define hit (for/first ([x (in-list ps)]
@@ -316,7 +294,7 @@
                                      'start (hash-ref hit 'start)
                                      'end (hash-ref hit 'end)
                                      'score (hash-ref hit 'score)))
-                'invented_citations invented
+                'invented_citations (hash-ref verdict 'invented)
                 'passages ps
                 'locale (hash-ref rep 'locale)
                 'model (embed-model)
@@ -328,9 +306,7 @@
                 ;; to do, and a caller that wants to render it differently needs
                 ;; to be able to tell. QUOTA‑3's rule — the key is absent when
                 ;; there is nothing to say.
-                'reason (cond [inventory? "unfocused"]
-                              [(null? kept) "uncited"]
-                              [else #f]))])]))
+                'reason (hash-ref verdict 'reason))])]))
 
 ;; KG‑7/LOC‑5: bulk work goes to the team's `utility` executor when one is set,
 ;; which is how a GPU box takes the answering without this module knowing it

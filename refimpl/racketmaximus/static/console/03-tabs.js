@@ -5,17 +5,17 @@ async function chatView(){
   // console string that never reached the catalogs, so a Japanese operator read
   // the word that matters least in the language they had not chosen.
   const badge = S.model?.configured ? `<span class="badge ok">${esc(S.model.model)}</span>`
-    : `<span class="badge" style="color:var(--warn)" title="${esc(t('simulatedwhy'))}">${esc(S.model?.model||'local')} · ${esc(t('simulated'))}</span>`;
-  return `<h2>${esc(t('chat'))} <span class="muted" style="font-size:14px">${esc(t('model'))}: ${badge}</span></h2>
+    : `<span class="badge" style="color:var(--warn)" title="${t('simulatedwhy')}">${esc(S.model?.model||'local')} · ${t('simulated')}</span>`;
+  return `<h2>${t('chat')} <span class="muted" style="font-size:14px">${t('model')}: ${badge}</span></h2>
     <div class="card">
-      <label>${esc(t('prompt'))}</label>
+      <label>${t('prompt')}</label>
       <textarea id="cp" class="grow" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doChat))}"
         data-h-input="${H((el)=>{growTA(el);cpCount();})}">Hello team</textarea>
       <div id="cpcount" class="muted" style="font-size:12px"></div>
       <div class="row" style="align-items:center;gap:8px">
-        <button class="btn" id="cpsend" data-h-click="${H((el,ev)=>doChat())}">${esc(t('send'))}</button>
-        <button class="btn ghost" id="cpstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('chatAbort'))}">${esc(t('stop'))}</button>
-        <span class="muted" style="font-size:12px">${esc(t('sendhint'))}</span>
+        <button class="btn" id="cpsend" data-h-click="${H((el,ev)=>doChat())}">${t('send')}</button>
+        <button class="btn ghost" id="cpstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('chatAbort'))}">${t('stop')}</button>
+        <span class="muted" style="font-size:12px">${t('sendhint')}</span>
       </div>
     </div><div id="chatlog"></div>`;
 }
@@ -55,12 +55,12 @@ async function doChat(){
       // it for a model's answer — the server flags it, the console never guesses.
       if(ev.done){ meta.textContent = `${ev.tokens_used} tokens · ${esc(ev.model)} · remaining ${ev.remaining_tokens}`;
         if(ev.simulated) meta.insertAdjacentHTML('beforeend',
-          ` · <span style="color:var(--warn)" title="${esc(t('simulatedwhy'))}">\u26a0 ${esc(t('simulated'))}</span>`); }
+          ` · <span style="color:var(--warn)" title="${t('simulatedwhy')}">\u26a0 ${t('simulated')}</span>`); }
     } }
   } catch(e){ if(e.name!=='AbortError') throw e;
     // Stopped on purpose: keep what arrived and say so, rather than discarding
     // an answer the reader may already have read half of.
-    if(meta) meta.textContent=(meta.textContent==='…'?'':meta.textContent+' · ')+t('stopped');
+    if(meta) meta.textContent=(meta.textContent==='…'?'':meta.textContent+' · ')+tRaw('stopped');
   } finally { S.chatAbort=null; sendBusy('cpsend','cpstop',false); }
 }
 
@@ -69,15 +69,15 @@ async function doChat(){
 // own. `S.model` is shared, so a tab change does not pay for it twice.
 async function agentView(){
   if(!S.model){ const m=await api('/api/ai/model'); S.model=m.json; }
-  return `<h2>${esc(t('agent'))} <span class="muted" style="font-size:14px">— the AI uses tools to act on your platform</span></h2>
-    <div class="card"><label>${esc(t('prompt'))}</label>
+  return `<h2>${t('agent')} <span class="muted" style="font-size:14px">— the AI uses tools to act on your platform</span></h2>
+    <div class="card"><label>${t('prompt')}</label>
       <textarea id="ap" class="grow" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doAgent))}"
         data-h-input="${H((el)=>{growTA(el);apCount();})}">Create a private note titled "Q3 goals" with body "ship v1, hire two, launch". Then list my notes.</textarea>
       <div id="apcount" class="muted" style="font-size:12px"></div>
       <div class="row" style="align-items:center;gap:8px">
-        <button class="btn" id="apsend" data-h-click="${H((el,ev)=>doAgent())}">${esc(t('send'))}</button>
-        <button class="btn ghost" id="apstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('agentAbort'))}">${esc(t('stop'))}</button>
-        <span class="muted" style="font-size:12px">${esc(t('sendhint'))}</span>
+        <button class="btn" id="apsend" data-h-click="${H((el,ev)=>doAgent())}">${t('send')}</button>
+        <button class="btn ghost" id="apstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('agentAbort'))}">${t('stop')}</button>
+        <span class="muted" style="font-size:12px">${t('sendhint')}</span>
       </div></div><div id="agentlog"></div>`;
 }
 async function doAgent(){
@@ -113,14 +113,14 @@ async function doAgent(){
   } catch(e){ if(e.name!=='AbortError') throw e;
     // A stopped agent run has already spent what it spent: the steps it took
     // stay on screen, because they are what the person needs to see.
-    steps.insertAdjacentHTML('beforeend', `<div class="muted" style="margin:3px 0">${esc(t('stopped'))}</div>`);
+    steps.insertAdjacentHTML('beforeend', `<div class="muted" style="margin:3px 0">${t('stopped')}</div>`);
   } finally { S.agentAbort=null; sendBusy('apsend','apstop',false); }
 }
 // an artifact-shaped tool result (slice 64): the thing a tool produced, as a card
 // that opens it, rather than its payload as text
 function artifactCard(a){
-  const open = a.object_id ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>kgOpenDoc((a.object_id)))}">${esc(t('details'))}</button>`
-             : (a.url ? `<a class="btn sm ghost" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(t('open'))}</a>` : '');
+  const open = a.object_id ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>kgOpenDoc((a.object_id)))}">${t('details')}</button>`
+             : (a.url ? `<a class="btn sm ghost" href="${esc(a.url)}" target="_blank" rel="noopener">${t('open')}</a>` : '');
   return `<div class="card" style="margin:4px 0 8px 20px;padding:8px 10px;display:flex;gap:10px;align-items:center">
     <span class="badge">${esc(a.kind)}</span>
     <div style="flex:1;min-width:0"><b class="mono" style="font-size:13px">${esc(a.title)}</b>
@@ -204,20 +204,20 @@ async function notesView(){
   const card = viewing
     ? noteViewCard(viewing, edges)
     : editing
-    ? `<div class="card"><h3>${esc(t('editnote'))} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
-      <label for="nt">${esc(t('title'))}</label><input id="nt" value="${esc(d.title)}">
-      <label for="nb">${esc(t('body'))}</label>${editorHTML('note', {id:'nb', formats:NOTE_FORMATS})}
+    ? `<div class="card"><h3>${t('editnote')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
+      <label for="nt">${t('title')}</label><input id="nt" value="${esc(d.title)}">
+      <label for="nb">${t('body')}</label>${editorHTML('note', {id:'nb', formats:NOTE_FORMATS})}
       ${tagsField(noteDraftTags(d, editing))}
-      <label for="nv">${esc(t('visibility'))}</label>${visSelect(d.vis)}
-      <button class="btn" data-h-click="${H((el,ev)=>doSaveNote())}">${esc(t('save'))}</button>
-      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>noteEditCancel())}">${esc(t('cancel'))}</button>
+      <label for="nv">${t('visibility')}</label>${visSelect(d.vis)}
+      <button class="btn" data-h-click="${H((el,ev)=>doSaveNote())}">${t('save')}</button>
+      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>noteEditCancel())}">${t('cancel')}</button>
       ${noteTools('note','nt')}</div>`
-    : `<div class="card"><h3>${esc(t('newnote'))}</h3>
-      <label for="nt">${esc(t('title'))}</label><input id="nt" value="${esc(d.title)}">
-      <label for="nb">${esc(t('body'))}</label>${editorHTML('note', {id:'nb', value:d.body == null ? '' : d.body, formats:NOTE_FORMATS})}
+    : `<div class="card"><h3>${t('newnote')}</h3>
+      <label for="nt">${t('title')}</label><input id="nt" value="${esc(d.title)}">
+      <label for="nb">${t('body')}</label>${editorHTML('note', {id:'nb', value:d.body == null ? '' : d.body, formats:NOTE_FORMATS})}
       ${tagsField(noteDraftTags(d, null))}
-      <label for="nv">${esc(t('visibility'))}</label>${visSelect(d.vis)}
-      <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${esc(t('create'))}</button>
+      <label for="nv">${t('visibility')}</label>${visSelect(d.vis)}
+      <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${t('create')}</button>
       ${noteTools('note','nt')}</div>`;
   // the swap needs the member options without re-reading /api/members, so the
   // full render is what keeps them current — `S.qKinds`' rule exactly
@@ -230,8 +230,8 @@ async function notesView(){
     ? noteGraphCard(G, (G.nodes||[]).filter(n=>n.focus).map(n=>n.title)[0] || '')
     : `<div class="row" style="margin-top:10px"><div style="flex:0 0 auto">
         <button class="btn sm ghost" data-h-click="${H(()=>graphOpen(S.noteShow||null))}"
-          title="${esc(t('ngraphhint'))}">${esc(t('ngraphshow'))}</button></div></div>`;
-  return `<h2>${esc(t('notes'))}</h2>${card}${graph}${orgImportStrip()}${filter}${list}`;
+          title="${t('ngraphhint')}">${t('ngraphshow')}</button></div></div>`;
+  return `<h2>${t('notes')}</h2>${card}${graph}${orgImportStrip()}${filter}${list}`;
 }
 
 // THE LIST AND ITS PAGER, as a function of the response — so `nGo` can rebuild
@@ -242,21 +242,21 @@ function notesListHTML(J, opts){
   const notes = J.notes||[];
   S.noteTotal = J.total||0;
   const list=notes.map(n=>`<div class="note">
-      <h4>${esc(n.title)||esc(t('untitled'))} <span class="badge" title="${esc(visLabel(n.visibility))}">${esc(visShort(n.visibility))}</span> ${n.owner_user_id===S.me.user_id?`<span class="badge ok">${esc(t('mine'))}</span>`:''}</h4>
+      <h4>${esc(n.title)||t('untitled')} <span class="badge" title="${esc(visLabel(n.visibility))}">${esc(visShort(n.visibility))}</span> ${n.owner_user_id===S.me.user_id?`<span class="badge ok">${t('mine')}</span>`:''}</h4>
       <div class="md">${bodyRender(n.body, n.format)}</div>
       ${noteFormatBadge(n)}${noteTagChips(n)}
       <div class="row" style="margin-top:8px">
         ${canShareNote(n) ? `<div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${esc(t('share'))}</button></div>` : ''}
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteShow((n.id)))}">${esc(t('view'))}</button></div>
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags),(n.format)))}">${esc(t('edit'))}</button></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>` : ''}
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteShow((n.id)))}">${t('view')}</button></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags),(n.format)))}">${t('edit')}</button></div>
         <div><button class="btn sm ghost"${(S.autoTagging===n.id||n.format==='org')?' disabled':''}
           data-h-click="${H((el,ev)=>doAutoTag((n.id)))}"
-          title="${esc(n.format==='org'?t('autotagorg'):t('autotaghint'))}">${S.autoTagging===n.id?esc(t('autotagging')):esc(t('autotag'))}</button></div>
-        <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${esc(t('del'))}</button></div>
+          title="${esc(n.format==='org'?tRaw('autotagorg'):tRaw('autotaghint'))}">${S.autoTagging===n.id?t('autotagging'):t('autotag')}</button></div>
+        <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${t('del')}</button></div>
       </div></div>`).join('')
-    || `<div class="card"><p class="muted" style="margin:0 0 10px">${esc(t('nonotes'))}</p>
-        <button class="btn sm" data-h-click="${H(()=>{ const el=document.getElementById('nt'); if(el){ el.focus(); el.scrollIntoView({block:'center'}); } })}">${esc(t('newnote'))}</button></div>`;
+    || `<div class="card"><p class="muted" style="margin:0 0 10px">${t('nonotes')}</p>
+        <button class="btn sm" data-h-click="${H(()=>{ const el=document.getElementById('nt'); if(el){ el.focus(); el.scrollIntoView({block:'center'}); } })}">${t('newnote')}</button></div>`;
   return `<div id="nlist">${list}${pagerHTML({ total: J.total||0, offset: J.offset||0,
                                                size: NPAGE, shown: notes.length, go: nGo })}</div>`;
 }
@@ -315,7 +315,7 @@ function noteDraftRead(){
 // BADGE takes the part before it and a SELECT shows the whole thing. A locale
 // that does not use the dash gets the whole string in the badge, which is only
 // ugly.
-function visLabel(v){ return t('vis_' + v); }
+function visLabel(v){ return tRaw('vis_' + v); }
 function visShort(v){ return String(visLabel(v)).split(' \u2014 ')[0]; }
 function visSelect(cur){
   return `<select id="nv">${['team','private','shared'].map(x =>
@@ -334,9 +334,9 @@ function tagFilterStrip(tags){
   const chip = x => `<button class="btn sm ${on.indexOf(x.tag)>=0?'':'ghost'}"
       data-h-click="${H(()=>noteTagToggle(x.tag))}">${esc(x.tag)} <span class="muted">${x.notes}</span></button>`;
   const clear = on.length
-    ? `<button class="btn sm ghost" data-h-click="${H(()=>noteTagClear())}">${esc(t('tagclear'))}</button>` : '';
+    ? `<button class="btn sm ghost" data-h-click="${H(()=>noteTagClear())}">${t('tagclear')}</button>` : '';
   return `<div class="card" style="padding:10px 14px"><div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-    <span class="muted" style="font-size:12px;margin-right:4px">${esc(t('tags'))}</span>
+    <span class="muted" style="font-size:12px;margin-right:4px">${t('tags')}</span>
     ${tags.map(chip).join('')}${clear}</div></div>`;
 }
 // ORG-1's vocabulary, and it is the SERVER's: `NOTE-FORMATS` in notes.rkt is
@@ -349,7 +349,7 @@ const NOTE_FORMATS = ['markdown', 'org'];
 // (PULL-11e, RED-20) is that a field is worth drawing when it tells a reader
 // something they could not assume.
 function noteFormatBadge(n){
-  return n.format === 'org' ? `<div style="margin-top:8px"><span class="badge">${esc(t('fmtorg'))}</span></div>` : '';
+  return n.format === 'org' ? `<div style="margin-top:8px"><span class="badge">${t('fmtorg')}</span></div>` : '';
 }
 // THE SHARE CONTROL IS DRAWN ONLY WHERE IT CAN WORK. `POST /api/notes/:id/share`
 // admits the owner, `notes:manage` and an operator, and the row used to offer a
@@ -394,13 +394,13 @@ function readTags(){
 // is the whole argument for the body winning.
 function tagsFieldInner(tags){
   if(edFormat('note') === 'org'){
-    return `<label>${esc(t('tags'))}</label>
-      <div class="muted" style="font-size:12px;margin:-2px 0 10px">${esc(t('orgtagshint'))}</div>
+    return `<label>${t('tags')}</label>
+      <div class="muted" style="font-size:12px;margin:-2px 0 10px">${t('orgtagshint')}</div>
       ${(tags&&tags.length)?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin:-4px 0 10px">${
         tags.map(x=>`<span class="badge">${esc(x)}</span>`).join('')}</div>`:''}`;
   }
-  return `<label>${esc(t('tags'))}</label><input id="ntags" value="${esc((tags||[]).join(', '))}" placeholder="${esc(t('tagsph'))}">
-      <div class="muted" style="font-size:12px;margin:-6px 0 8px">${esc(t('tagshint'))}</div>`;
+  return `<label>${t('tags')}</label><input id="ntags" value="${esc((tags||[]).join(', '))}" placeholder="${t('tagsph')}">
+      <div class="muted" style="font-size:12px;margin:-6px 0 8px">${t('tagshint')}</div>`;
 }
 // WRAPPED IN AN ID, so the format switch can swap it in place. `edSetFormat` is a
 // partial update by design (slice 1: a render pass discards a typed title), which
@@ -445,10 +445,10 @@ function noteTools(key, titleId){
   return `<div class="row" style="margin-top:10px;gap:8px">
     <div style="flex:0 0 auto"><button class="btn sm ghost" id="edexp_${key}"
       data-h-click="${H(()=>edExport(key, (document.getElementById(titleId)||{}).value||'note'))}"
-      title="${esc(t(org?'edexportorghint':'edexporthint'))}">${esc(t(org?'edexportorg':'edexport'))}</button></div>
+      title="${esc(tRaw(org?'edexportorghint':'edexporthint'))}">${t(org?'edexportorg':'edexport')}</button></div>
     <div style="flex:0 0 auto"><button class="btn sm ghost"
       data-h-click="${H(()=>edToRepo(key, titleId))}"
-      title="${esc(t('edtorepohint'))}">${esc(t('edtorepo'))}</button></div></div>`;
+      title="${t('edtorepohint')}">${t('edtorepo')}</button></div></div>`;
 }
 // READ-ONLY, AND THE TIMESTAMPS ARE NOT PARSED. `notes.created_at` and
 // `updated_at` are TEXT `CURRENT_TIMESTAMP`, whose format differs by dialect —
@@ -495,37 +495,37 @@ function noteEdgeList(edges, format){
   const reason = r => t(r==='ambiguous'?'orgambiguous':'orgmissing');
   const out = (edges.links||[]).map(l => l.broken
     ? `<li><span class="org-link broken">${esc(l.label||l.target)}</span>
-        <span class="muted" style="font-size:12px">${esc(t('orgbroken'))} — ${esc(reason(l.reason))}: <span class="mono">${esc(l.target)}</span></span></li>`
+        <span class="muted" style="font-size:12px">${t('orgbroken')} — ${esc(reason(l.reason))}: <span class="mono">${esc(l.target)}</span></span></li>`
     : `<li><button class="btn sm ghost" data-h-click="${H(()=>noteShow(l.note_id))}">${esc(l.title||l.target)}</button>
         ${l.label&&l.label!==l.title?`<span class="muted" style="font-size:12px">${esc(l.label)}</span>`:''}</li>`).join('');
   const inbound = back.map(b =>
-    `<li><button class="btn sm ghost" data-h-click="${H(()=>noteShow(b.note_id))}">${esc(b.title)||esc(t('untitled'))}</button></li>`).join('');
+    `<li><button class="btn sm ghost" data-h-click="${H(()=>noteShow(b.note_id))}">${esc(b.title)||t('untitled')}</button></li>`).join('');
   const col = (label, body) => `<div style="flex:1"><label>${esc(label)}</label>
       ${body?`<ul class="org-edges">${body}</ul>`:`<p class="muted">—</p>`}</div>`;
   return `<div class="row" style="margin-top:12px;gap:16px;align-items:flex-start">
-    ${org?col(t('orglinks'), out):''}${col(t('orgbacklinks'), inbound)}</div>`;
+    ${org?col(tRaw('orglinks'), out):''}${col(tRaw('orgbacklinks'), inbound)}</div>`;
 }
 function noteViewCard(n, edges){
   const mine = n.owner_user_id === S.me.user_id;
   return `<div class="card" id="notecard">
-    <h3 style="margin-top:0">${esc(n.title)||esc(t('untitled'))}
-      <span class="badge" title="${esc(visLabel(n.visibility))}">${esc(visShort(n.visibility))}</span>${mine?` <span class="badge ok">${esc(t('mine'))}</span>`:''}</h3>
+    <h3 style="margin-top:0">${esc(n.title)||t('untitled')}
+      <span class="badge" title="${esc(visLabel(n.visibility))}">${esc(visShort(n.visibility))}</span>${mine?` <span class="badge ok">${t('mine')}</span>`:''}</h3>
     <div class="md">${bodyRender(n.body, n.format, linkResolution(edges))}</div>
     ${noteEdgeList(edges, n.format)}
     <div class="muted" style="font-size:12px;margin-top:10px">
-      ${esc(t('created'))}: ${esc(n.created_at)} UTC · ${esc(t('updated'))}: ${esc(n.updated_at)} UTC
+      ${t('created')}: ${esc(n.created_at)} UTC · ${t('updated')}: ${esc(n.updated_at)} UTC
       · <span class="mono">${esc(n.id)}</span></div>
     <div class="row" style="margin-top:10px;gap:8px">
       <div style="flex:0 0 auto"><button class="btn sm"
-        data-h-click="${H(()=>noteEdit(n.id, n.body, n.title, n.visibility, n.tags, n.format))}">${esc(t('edit'))}</button></div>
+        data-h-click="${H(()=>noteEdit(n.id, n.body, n.title, n.visibility, n.tags, n.format))}">${t('edit')}</button></div>
       <div style="flex:0 0 auto"><button class="btn sm ghost"
         data-h-click="${H(()=>graphOpen(n.id))}"
-        title="${esc(t('ngraphhint'))}">${esc(t('ngraph'))}</button></div>
+        title="${t('ngraphhint')}">${t('ngraph')}</button></div>
       <div style="flex:0 0 auto"><button class="btn sm ghost"
         data-h-click="${H(()=>noteDownloadOrg(n.id))}"
-        title="${esc(t('orgdownloadhint'))}">${esc(t('orgdownload'))}</button></div>
+        title="${t('orgdownloadhint')}">${t('orgdownload')}</button></div>
       <div style="flex:0 0 auto"><button class="btn sm ghost"
-        data-h-click="${H(()=>noteViewClose())}">${esc(t('close'))}</button></div>
+        data-h-click="${H(()=>noteViewClose())}">${t('close')}</button></div>
     </div></div>`;
 }
 // ORG-11 — DOWNLOADING THE SAVED NOTE, which is a different thing from the
@@ -542,7 +542,7 @@ function noteViewCard(n, edges){
 async function noteDownloadOrg(id){
   const r = await fetch('/api/notes/' + encodeURIComponent(id) + '?as=org',
                         { headers: { Authorization: 'Bearer ' + S.token } });
-  if(!r.ok){ toast(t('error')||'error'); return; }
+  if(!r.ok){ toast(tRaw('error')||'error'); return; }
   const text = await r.text();
   const cd = r.headers.get('content-disposition') || '';
   const m = /filename="([^"]+)"/.exec(cd);
@@ -552,7 +552,7 @@ async function noteDownloadOrg(id){
     a.href = url; a.download = m ? m[1] : 'note.org';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
-  } catch (e) { toast(t('edexportfail')); }
+  } catch (e) { toast(tRaw('edexportfail')); }
 }
 // …and the other direction. The route's body IS the file, so this posts the text
 // with no JSON wrapper — which is also why it reads the file with `.text()`
@@ -565,15 +565,15 @@ async function doImportOrg(el){
   const text = await f.text();
   const r = await api('/api/notes/import?visibility=team',
                       { method: 'POST', raw: text, contentType: 'text/plain; charset=utf-8' });
-  if(r.ok){ toast(t('orgimported') + ' ' + (r.json.title || ''), true); renderTab(); }
+  if(r.ok){ toast(tRaw('orgimported') + ' ' + (r.json.title || ''), true); renderTab(); }
   else toast((r.json && r.json.error) || 'error');
 }
 function orgImportStrip(){
   return `<div class="row" style="margin-top:10px;gap:8px;align-items:center">
     <div style="flex:0 0 auto"><label class="btn sm ghost" style="margin:0;cursor:pointer">
-      ${esc(t('orgimport'))}<input type="file" accept=".org,text/plain" style="display:none"
+      ${t('orgimport')}<input type="file" accept=".org,text/plain" style="display:none"
         data-h-change="${H((el)=>doImportOrg(el))}"></label></div>
-    <div class="muted" style="font-size:12px">${esc(t('orgimporthint'))}</div></div>`;
+    <div class="muted" style="font-size:12px">${t('orgimporthint')}</div></div>`;
 }
 function noteShow(id){ S.noteShow=id; S.noteEdit=null; edReset('note','', 'nb', 'markdown'); renderTab(); }
 function noteViewClose(){ S.noteShow=null; renderTab(); }
@@ -597,12 +597,12 @@ function noteEdit(id, body, title, vis, tags, format){
 function noteEditCancel(){ S.noteEdit=null; noteFormReset(); edReset('note', '', 'nb', 'markdown'); renderTab(); }
 async function doSaveNote(){
   const r=await api('/api/notes/'+S.noteEdit,{method:'PUT', body:noteWriteBody()});
-  if(r.ok){ S.noteEdit=null; noteFormReset(); edReset('note','', 'nb'); toast(t('saved'),true); renderTab(); }
-  else toast((r.json&&r.json.error)||t('error'));
+  if(r.ok){ S.noteEdit=null; noteFormReset(); edReset('note','', 'nb'); toast(tRaw('saved'),true); renderTab(); }
+  else toast((r.json&&r.json.error)||tRaw('error'));
 }
 async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',body:noteWriteBody()});
-  if(r.ok){ noteFormReset(); edReset('note','', 'nb'); toast(t('created'),true); renderTab(); }
-  else toast((r.json&&r.json.error)||t('error')); }
+  if(r.ok){ noteFormReset(); edReset('note','', 'nb'); toast(tRaw('created'),true); renderTab(); }
+  else toast((r.json&&r.json.error)||tRaw('error')); }
 // ONE send, #174's shape: the flag IS the guard and the pending state, there is
 // no `await` between the check and the set, and it is cleared in a `finally` or
 // one network error leaves the button dead for the rest of the session. A model
@@ -618,26 +618,26 @@ async function doAutoTag(id){
     const added = r.json.added||[], dropped = r.json.dropped||[];
     // "it proposed nothing" and "it proposed things I could not use" are
     // different answers and the toast says which
-    if(added.length) toast(t('autotagged')+' '+added.join(', '), true);
-    else if(dropped.length) toast(t('autotagnone')+' ('+dropped.length+')');
-    else toast(t('autotagnone'));
+    if(added.length) toast(tRaw('autotagged')+' '+added.join(', '), true);
+    else if(dropped.length) toast(tRaw('autotagnone')+' ('+dropped.length+')');
+    else toast(tRaw('autotagnone'));
     renderTab();
   } finally { S.autoTagging = null; }
 }
 async function doShare(id){ const uid=document.getElementById('sh_'+id).value;
   const r=await api('/api/notes/'+id+'/share',{method:'POST',body:{user_id:uid,permission:'notes:read'}});
-  toast(r.ok?t('shared'):((r.json&&r.json.error)||t('error')), r.ok); }
+  toast(r.ok?tRaw('shared'):((r.json&&r.json.error)||tRaw('error')), r.ok); }
 async function doDelNote(id){
   // It asked for nothing before this: one press deleted a note with no undo.
   // Every other destructive control here confirms (`doRemoveMember`, the workers
   // card), and a note is somebody's writing.
-  if(!confirm(t('notedelconfirm'))) return;
+  if(!confirm(tRaw('notedelconfirm'))) return;
   const r=await api('/api/notes/'+id,{method:'DELETE'});
   if(r.ok){
     if(S.noteEdit===id){ S.noteEdit=null; noteFormReset(); edReset('note','', 'nb'); }
     if(S.noteShow===id) S.noteShow=null;
-    toast(t('deleted'),true); renderTab();
-  } else toast((r.json&&r.json.error)||t('error'));
+    toast(tRaw('deleted'),true); renderTab();
+  } else toast((r.json&&r.json.error)||tRaw('error'));
 }
 
 async function teamView(){
@@ -652,7 +652,7 @@ async function teamView(){
            ROLES.map(x=>`<option value="${x}"${x===m.role?' selected':''}>${esc(x)}</option>`).join('')}</select>`
       : `<span class="badge">${esc(m.role)}</span>`;
     const act = (manage && !own)
-      ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doRemoveMember(m.user_id, m.username))}">${esc(t('remove'))}</button>`
+      ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doRemoveMember(m.user_id, m.username))}">${t('remove')}</button>`
       : '';
     return `<tr><td>${esc(m.username)}</td><td>${roleCell}</td><td class="mono muted">${esc(m.user_id.slice(0,8))}…</td><td>${act}</td></tr>`;
   }).join('');
@@ -660,15 +660,15 @@ async function teamView(){
   const tokens = tks.ok ? tks.json.tokens : [];
   const aud = manage ? await api('/api/audit') : {ok:false};
   const audits = aud.ok ? aud.json.audit : [];
-  const tokRows = tokens.map(x=>`<tr><td>${esc(x.name||'—')}</td><td class="mono muted">${esc(x.prefix)}…</td><td class="mono muted">${(x.scopes||[]).map(esc).join(' ')}</td><td>${x.status==='active'?'<span class="badge ok">active</span>':'<span class="badge">'+esc(x.status)+'</span>'}</td><td>${x.status==='active'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doRevokeToken((x.id)))}">${esc(t('revoke'))}</button>`:''}</td></tr>`).join('');
+  const tokRows = tokens.map(x=>`<tr><td>${esc(x.name||'—')}</td><td class="mono muted">${esc(x.prefix)}…</td><td class="mono muted">${(x.scopes||[]).map(esc).join(' ')}</td><td>${x.status==='active'?'<span class="badge ok">active</span>':'<span class="badge">'+esc(x.status)+'</span>'}</td><td>${x.status==='active'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doRevokeToken((x.id)))}">${t('revoke')}</button>`:''}</td></tr>`).join('');
   const newTokBox = S.newToken ? `<div class="card" style="border-color:var(--ok);margin:0 0 10px"><b>New token — copy now, shown once:</b><br><span class="mono" style="word-break:break-all">${esc(S.newToken)}</span></div>` : '';
-  const tokCard = manage ? `<div class="card" style="margin-top:14px"><h3>${esc(t('apitokens'))}</h3>${newTokBox}
-      <div class="row" style="align-items:end;margin-bottom:8px"><div><label>${esc(t('name')||'name')}</label><input id="tkn"></div>
+  const tokCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('apitokens')}</h3>${newTokBox}
+      <div class="row" style="align-items:end;margin-bottom:8px"><div><label>${t('name')||'name'}</label><input id="tkn"></div>
       <div><label>scopes</label><input id="tks" value="*:read"></div>
-      <div><button class="btn sm" data-h-click="${H((el,ev)=>doCreateToken())}">${esc(t('createtoken'))}</button></div></div>
+      <div><button class="btn sm" data-h-click="${H((el,ev)=>doCreateToken())}">${t('createtoken')}</button></div></div>
       <table><thead><tr><th>name</th><th>prefix</th><th>scopes</th><th>status</th><th></th></tr></thead><tbody>${tokRows}</tbody></table></div>` : '';
   const audRows = audits.slice(0,20).map(a=>`<tr><td class="mono muted">${esc((a.at||'').replace('T',' ').slice(0,19))}</td><td>${esc(a.action)}</td><td class="mono muted">${esc((a.actor_id||'').slice(0,8))}</td><td class="mono muted">${a.resource_type?esc(a.resource_type)+' '+esc((a.resource_id||'').slice(0,8)):''}</td></tr>`).join('');
-  const audCard = manage ? `<div class="card" style="margin-top:14px"><h3>${esc(t('audit'))} <span class="muted" style="font-size:13px">— recent activity</span></h3>
+  const audCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('audit')} <span class="muted" style="font-size:13px">— recent activity</span></h3>
       <table><thead><tr><th>time</th><th>action</th><th>actor</th><th>resource</th></tr></thead><tbody>${audRows}</tbody></table></div>` : '';
   // #177: THREE statuses, not two. A feature is on; or this team turned it off;
   // or a layer ABOVE this team did, which a team cannot undo — the attempt is a
@@ -680,25 +680,25 @@ async function teamView(){
   const featRows = (S.featRows||[]).map(x=>{
     const f=x.feature, on=x.enabled, by=x.disabled_by||'';
     const above = !on && by && by!=='team';
-    const status = on ? `<span class="badge ok">${esc(t('featon'))}</span>`
-                      : `<span class="badge">${esc(t('featoff'))}</span>`;
-    const act = above ? `<span class="muted" style="font-size:12px">${esc(t('featlocked'))}</span>`
-      : `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleFeature((f),(!on)))}">${on?esc(t('disable')):esc(t('enable'))}</button>`;
+    const status = on ? `<span class="badge ok">${t('featon')}</span>`
+                      : `<span class="badge">${t('featoff')}</span>`;
+    const act = above ? `<span class="muted" style="font-size:12px">${t('featlocked')}</span>`
+      : `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleFeature((f),(!on)))}">${on?t('disable'):t('enable')}</button>`;
     return `<tr><td class="mono">${esc(f)}</td><td>${status}</td><td class="mono muted">${esc(by)}</td><td>${act}</td></tr>`;
   }).join('');
-  const featCard = manage ? `<div class="card" style="margin-top:14px"><h3>${esc(t('features'))} <span class="muted" style="font-size:13px">— activate / deactivate</span></h3>
-      <table><thead><tr><th>feature</th><th>status</th><th>${esc(t('featdecided'))}</th><th></th></tr></thead><tbody>${featRows}</tbody></table></div>` : '';
-  return `<h2>${esc(t('team'))}</h2>
-    <div class="card"><table><thead><tr><th>${esc(t('user'))}</th><th>${esc(t('role'))}</th><th>id</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="card" style="margin-top:14px"><h3>${esc(t('addmember'))}</h3>
-      <div class="row"><div><label>${esc(t('user'))}</label><input id="mu"></div><div><label>${esc(t('pass'))}</label><input id="mp" type="password"></div>
-      <div><label>${esc(t('role'))}</label><select id="mr"><option>member</option><option>admin</option><option>viewer</option></select></div></div>
-      <button class="btn" data-h-click="${H((el,ev)=>doAddMember())}">${esc(t('addmember'))}</button>
+  const featCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('features')} <span class="muted" style="font-size:13px">— activate / deactivate</span></h3>
+      <table><thead><tr><th>feature</th><th>status</th><th>${t('featdecided')}</th><th></th></tr></thead><tbody>${featRows}</tbody></table></div>` : '';
+  return `<h2>${t('team')}</h2>
+    <div class="card"><table><thead><tr><th>${t('user')}</th><th>${t('role')}</th><th>id</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="card" style="margin-top:14px"><h3>${t('addmember')}</h3>
+      <div class="row"><div><label>${t('user')}</label><input id="mu"></div><div><label>${t('pass')}</label><input id="mp" type="password"></div>
+      <div><label>${t('role')}</label><select id="mr"><option>member</option><option>admin</option><option>viewer</option></select></div></div>
+      <button class="btn" data-h-click="${H((el,ev)=>doAddMember())}">${t('addmember')}</button>
     </div>
-    <div class="card" style="margin-top:14px"><h3>${esc(t('chpw'))}</h3>
-      <label>${esc(t('curpw'))}</label><input id="pc" type="password">
-      <label>${esc(t('newpw'))}</label><input id="pn" type="password">
-      <button class="btn" data-h-click="${H((el,ev)=>doChangePw())}">${esc(t('updpw'))}</button>
+    <div class="card" style="margin-top:14px"><h3>${t('chpw')}</h3>
+      <label>${t('curpw')}</label><input id="pc" type="password">
+      <label>${t('newpw')}</label><input id="pn" type="password">
+      <button class="btn" data-h-click="${H((el,ev)=>doChangePw())}">${t('updpw')}</button>
     </div>${featCard}${tokCard}${audCard}`;
 }
 async function doToggleFeature(name,on){
@@ -719,17 +719,17 @@ async function doChangePw(){
   // issue #54: the server revokes every session the old password could have minted,
   // including this one, so the token in hand is already dead — sign out rather than
   // let the next request fail with a bare 401.
-  if(r.ok){ toast(t('pwsignedout'),true); logout(); }
+  if(r.ok){ toast(tRaw('pwsignedout'),true); logout(); }
   else toast(r.json.error||'error');
 }
 async function doSetMemberRole(uid, role){
   const r=await api('/api/members/'+uid,{method:'PATCH',body:{role}});
-  if(r.ok){ toast(t('rolechanged'),true); renderTab(); } else toast(r.json.error||'error');
+  if(r.ok){ toast(tRaw('rolechanged'),true); renderTab(); } else toast(r.json.error||'error');
 }
 async function doRemoveMember(uid, name){
-  if(!confirm(t('removeconfirm').replace('{name}', name))) return;
+  if(!confirm(tRaw('removeconfirm').replace('{name}', name))) return;
   const r=await api('/api/members/'+uid,{method:'DELETE'});
-  if(r.ok){ toast(t('memberremoved'),true); renderTab(); } else toast(r.json.error||'error');
+  if(r.ok){ toast(tRaw('memberremoved'),true); renderTab(); } else toast(r.json.error||'error');
 }
 async function doAddMember(){ const r=await api('/api/members',{method:'POST',body:{username:val('mu'),password:val('mp'),role:val('mr')}});
   if(r.ok){ toast('added',true); renderTab(); } else toast(r.json.error||'error'); }
@@ -742,18 +742,18 @@ function canManage(){ if(!S.me) return false; if(S.me.is_operator) return true;
 // is exactly how it was read.
 function quotaHeldCard(held){
   if(!held) return '';
-  const fill = (k)=>esc(t(k)).replace('{dimension}', esc(held.dimension||''))
+  const fill = (k)=>t(k).replace('{dimension}', esc(held.dimension||''))
                         .replace('{used}', esc(String(held.used)))
                         .replace('{limit}', esc(String(held.limit)));
   const body = held.scope==='org' ? fill('quotaheldorg') : fill('quotaheldteam');
   // resets_at is epoch SECONDS and absent for a sliding window, so the sentence
   // is only added when the server actually named a boundary
-  const when = held.resets_at ? ' '+esc(t('quotaresets')).replace('{when}',
+  const when = held.resets_at ? ' '+t('quotaresets').replace('{when}',
                  esc(new Date(held.resets_at*1000).toLocaleString())) : '';
   // an org-tier limit is not the team operator's to raise, so do not promise it
-  const who = esc((S.me && S.me.is_operator && held.scope!=='org') ? t('quotaraiseop') : t('quotaraiseask'));
+  const who = (S.me && S.me.is_operator && held.scope!=='org') ? t('quotaraiseop') : t('quotaraiseask');
   return `<div class="card" style="border-color:var(--warn,#c9a227);margin-bottom:14px">
-      <h3>⏸ ${esc(t('quotaheldtitle'))}</h3><p style="margin:0">${body}${when} ${who}</p></div>`;
+      <h3>⏸ ${t('quotaheldtitle')}</h3><p style="margin:0">${body}${when} ${who}</p></div>`;
 }
 async function usageView(){
   const r=await api('/api/usage'); const q=r.ok?r.json.quota:[];
@@ -770,14 +770,14 @@ async function usageView(){
   const manage=canManage();
   const rows=q.map(d=>`<tr><td class="mono">${esc(d.dimension)}</td><td>${d.used}</td><td>${d.limit}</td><td>${d.remaining}</td>
       <td class="muted">${d.resets_at?esc(new Date(d.resets_at*1000).toLocaleString()):'—'}</td></tr>`).join('');
-  const opForm = S.me.is_operator ? `<div class="card" style="margin-top:14px"><h3>${esc(t('setquota'))}</h3>
-      <div class="row"><div><label>${esc(t('dimension'))}</label><select id="qd"><option>ai.tokens.total</option><option>ai.requests</option><option>ai.concurrency</option></select></div>
-      <div><label>${esc(t('limit'))}</label><input id="ql" value="50"></div></div>
-      <button class="btn" data-h-click="${H((el,ev)=>doSetQuota())}">${esc(t('setquota'))}</button></div>` : '';
+  const opForm = S.me.is_operator ? `<div class="card" style="margin-top:14px"><h3>${t('setquota')}</h3>
+      <div class="row"><div><label>${t('dimension')}</label><select id="qd"><option>ai.tokens.total</option><option>ai.requests</option><option>ai.concurrency</option></select></div>
+      <div><label>${t('limit')}</label><input id="ql" value="50"></div></div>
+      <button class="btn" data-h-click="${H((el,ev)=>doSetQuota())}">${t('setquota')}</button></div>` : '';
   const toolRows=tools.map(x=>`<tr><td class="mono">${esc(x.name)}</td><td class="mono muted">${esc(x.permission)}</td>
       <td>${x.source==='built-in'?'<span class="badge">built-in</span>':`<span class="badge ok">🔌 ${esc(x.source)}</span>`}</td>
       <td>${x.enabled?'<span class="badge ok">on</span>':'<span class="badge">off</span>'}</td>
-      <td>${manage?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleTool((x.name),(!x.enabled)))}">${x.enabled?esc(t('disable')):esc(t('enable'))}</button>`:''}</td></tr>`).join('');
+      <td>${manage?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleTool((x.name),(!x.enabled)))}">${x.enabled?t('disable'):t('enable')}</button>`:''}</td></tr>`).join('');
   // issue #43: a plugin with a page gets a link. Opening it needs a ticket — the
   // page is authenticated and a browser navigation carries no bearer — so the
   // link mints one and opens the URL the server hands back.
@@ -785,12 +785,12 @@ async function usageView(){
     p.bundle ? `<a href="#" data-h-click="${H((el,ev)=>{pluginOpen(p.id);return false})}">${esc(p.name)}</a> v${esc(p.version)}`
              : esc(p.name)+' v'+esc(p.version)).join(', ')}</p>` : '';
   const oopLine = oops.length ? `<p class="muted" style="margin:0 0 8px">🛡️ sandboxed: ${oops.map(p=>esc(p.name)+' <span class="mono">['+(p.scopes||[]).map(esc).join(', ')+']</span>').join(' · ')}</p>` : '';
-  return `<h2>${esc(t('usage'))}</h2>
+  return `<h2>${t('usage')}</h2>
     ${quotaHeldCard(held)}
-    <div class="card"><table><thead><tr><th>${esc(t('dimension'))}</th><th>used</th><th>limit</th><th>remaining</th><th>${esc(t('resets'))}</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}
-    <div class="card" style="margin-top:14px"><h3>${esc(t('tools'))} <span class="muted" style="font-size:13px">— agent capabilities</span></h3>
+    <div class="card"><table><thead><tr><th>${t('dimension')}</th><th>used</th><th>limit</th><th>remaining</th><th>${t('resets')}</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}
+    <div class="card" style="margin-top:14px"><h3>${t('tools')} <span class="muted" style="font-size:13px">— agent capabilities</span></h3>
       ${plugLine}${oopLine}
-      <table><thead><tr><th>${esc(t('tool'))}</th><th>permission</th><th>source</th><th>status</th><th></th></tr></thead><tbody>${toolRows}</tbody></table></div>
+      <table><thead><tr><th>${t('tool')}</th><th>permission</th><th>source</th><th>status</th><th></th></tr></thead><tbody>${toolRows}</tbody></table></div>
     ${myNotifyCard()}`;
 }
 async function doSetQuota(){ const r=await api('/api/quota',{method:'POST',body:{dimension:val('qd'),limit:parseInt(val('ql'),10),window:'day'}});
