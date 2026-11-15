@@ -242,8 +242,16 @@
                                  #px"create\\s+(?:unique\\s+)?index\\s+(?:if\\s+not\\s+exists\\s+)?[a-z0-9_\"\\.]+\\s+on\\s+([a-z0-9_\"\\.]+)"
                                  #px"create\\s+(?:unique\\s+)?index\\s+(?:if\\s+not\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
                                  #px"create\\s+trigger\\s+[a-z0-9_\"\\.]+\\s+.*?\\bon\\s+([a-z0-9_\"\\.]+)"
+                                 ;; A VIEW IS A READ OVER SOMEBODY ELSE'S TABLE, so it is the
+                                 ;; same widening as an index on one: `CREATE VIEW v_all AS
+                                 ;; SELECT * FROM users` was accepted because nothing named it.
+                                 #px"create\\s+(?:or\\s+replace\\s+)?(?:materialized\\s+)?view\\s+(?:if\\s+not\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
                                  #px"alter\\s+table\\s+([a-z0-9_\"\\.]+)"
-                                 #px"drop\\s+table\\s+(?:if\\s+exists\\s+)?([a-z0-9_\"\\.]+)"))]
+                                 #px"drop\\s+table\\s+(?:if\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
+                                 ;; an INDEX is an object the plugin owns too, and dropping or
+                                 ;; renaming one it did not create is the same overreach
+                                 #px"drop\\s+index\\s+(?:if\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
+                                 #px"alter\\s+index\\s+(?:if\\s+exists\\s+)?([a-z0-9_\"\\.]+)"))]
               [m (in-list (regexp-match* rx s #:match-select cadr))])
     (regexp-replace* #rx"\"" m "")))
 

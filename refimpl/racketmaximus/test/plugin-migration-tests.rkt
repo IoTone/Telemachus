@@ -82,6 +82,23 @@
     (check-true (string? (bad? "evil" (list (list "m" sql))))
                 (format "must be refused: ~a" sql))))
 
+(test-case "a VIEW over somebody's table is refused, and so is dropping their index"
+  ;; A view is a read over a table the plugin does not own, which is the same
+  ;; widening as an index on one — the check listed CREATE TABLE/INDEX/TRIGGER,
+  ;; ALTER and DROP TABLE and nothing else, so this was a live gap.
+  (for ([sql (in-list (list "CREATE VIEW v_all AS SELECT id FROM users"
+                            "CREATE OR REPLACE VIEW v_all AS SELECT id FROM users"
+                            "CREATE MATERIALIZED VIEW v_m AS SELECT 1"
+                            "DROP INDEX ONLY_PLATFORM_KEEPS_THIS"
+                            "ALTER INDEX api_tokens_hash RENAME TO x_evil_i"))])
+    (check-true (string? (bad? "evil" (list (list "m" sql))))
+                (format "must be refused: ~a" sql)))
+  ;; and the plugin's own view and index still pass
+  (check-not-false (check-migrations! "demo"
+                    (list (list "ok" "CREATE VIEW x_demo_v AS SELECT id FROM x_demo_q"))))
+  (check-not-false (check-migrations! "demo"
+                    (list (list "ok" "DROP INDEX x_demo_i")))))
+
 (test-case "a schema-qualified name cannot sidestep the prefix"
   ;; `public.users` would match no prefix check written on the bare name
   (define e (bad? "evil" (list (list "grab" "CREATE TABLE public.x_evil_t (id TEXT)"))))

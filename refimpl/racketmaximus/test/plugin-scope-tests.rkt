@@ -12,6 +12,7 @@
 ;;   raco test test/plugin-scope-tests.rkt
 
 (require rackunit
+         racket/file            ; file->string: the runtime half is a source read, see below
          (only-in "../domain/agent/plugins.rkt" check-route! PLUGIN-ROUTE-SCOPES))
 
 (define (handler conn p args) 'ok)
@@ -33,6 +34,21 @@
 
 (test-case "a public route cannot be resource-scoped"
   (check-exn exn:fail? (lambda () (check-route! "demo" (list "GET" "/x" "files:read" public-handler "doc" 'public 'resource)))))
+
+;; THE RUNTIME HALF, which the loader tests above cannot reach. `check-route!` decides
+;; what a route MAY declare; the wrapper in server/main.rkt decides what happens at
+;; dispatch, and reverting its one conditional would leave every resource-scoped route
+;; pre-checked by role again — exactly the DSH-1 refusal this feature removes — with the
+;; whole suite still green. A smoke case needs a shipped plugin that declares 'resource
+;; and none does, so the assertion is on the line itself. It is a source read, like
+;; password-floor-tests.rkt's check that no endpoint computes a floor of its own: the
+;; claim is "this branch is guarded", and a branch is not callable from a test.
+(test-case "the wrapper pre-checks by role ONLY for a role-scoped route"
+  (define src (file->string "../server/main.rkt"))
+  (check-true (regexp-match?
+               #px"\\(when \\(and perm \\(eq\\? scope 'role\\)\\) \\(require-perm db-conn p perm\\)\\)"
+               src)
+              "the permission pre-check must be conditional on the route's own scope"))
 
 (test-case "an unknown scope is refused and the vocabulary is named"
   (check-exn (lambda (e) (and (regexp-match? #rx"role resource" (exn-message e)) #t))
