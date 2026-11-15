@@ -98,6 +98,14 @@
 
 (define (org-create-rows! conn actor oslug name plan
                           owner-username owner-pw owner-name team-name team-slug)
+  ;; THE OWNER'S PASSWORD IS HELD TO THE OWNER FLOOR, BEFORE ANY ROW EXISTS. The account
+  ;; this creates holds `*:*` through the team, so 12 applies; `create-user!` can only ask
+  ;; the baseline here because the membership does not exist yet, and the HTTP endpoint's
+  ;; own pre-check does not cover `POST /api/admin/seed-tenants`, which calls this directly.
+  ;; Asking first also means a refusal leaves no org, no team and no user behind.
+  ;; A company created with NO owner password (the invited-owner path) is untouched: the
+  ;; floor is about a password, and `create-user!` leaves the column NULL.
+  (when owner-pw (require-password-for-role! conn "owner" owner-pw owner-username))
   (define oid (create-org! conn #:name name #:slug oslug #:plan plan))
   (apply-org-plan! conn oid plan)
   (define tid (create-team! conn #:name team-name #:slug team-slug #:org oid))

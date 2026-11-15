@@ -65,7 +65,8 @@
          ;; `password-floor-for-role` about a role a caller is about to assign (the
          ;; two forms an add-member needs, before there is a membership to ask
          ;; about), and `require-password!` is what every write calls.
-         password-floor password-floor-for-role require-password! CREDENTIAL-CHANGING-PERMS
+         password-floor password-floor-for-role require-password! require-password-for-role!
+         CREDENTIAL-CHANGING-PERMS
          member-role team-owner-count set-member-role! deactivate-member!
          revoke-user-sessions!
          issue-recovery-codes! recovery-codes-remaining RECOVERY-CODE-COUNT
@@ -308,18 +309,34 @@
 ;; THE FLOOR FOR AN ACCOUNT: the operator flag first, because an operator's
 ;; permissions are not rows — `can?` answers for them separately, and the
 ;; bootstrap account belongs to no team at the moment its password is set.
+;;
+;; BOTH TIERS COUNT. An account can change other people's credentials through a TEAM
+;; role (`members:manage`) or through its ORG role (`org_admin` and `org_owner` both
+;; hold it, permissions.rkt), and reading only the team memberships held an org admin's
+;; own password to 8 — the exact class this floor exists to close, missed on the tier
+;; that was added later. `org_role_key` lives on the user row, not in `memberships`.
 (define (password-floor conn user-id)
-  (define operator? (equal? 1 (query-maybe-value conn "SELECT is_operator FROM users WHERE id = ?" user-id)))
+  (define r (query-maybe-row conn "SELECT is_operator, org_role_key FROM users WHERE id = ?" user-id))
+  (define operator? (and r (equal? 1 (vector-ref r 0))))
+  (define org-role (and r (let ([v (vector-ref r 1)]) (and (not (sql-null? v)) v))))
   (define perms
     (if operator?
         '()
-        (append* (for/list ([tid (in-list (query-list conn
-                                                      "SELECT team_id FROM memberships WHERE user_id = ? AND status = 'active'"
-                                                      user-id))])
-                   (user-permissions conn user-id tid)))))
+        (append (role-key-perms conn org-role)
+                (append* (for/list ([tid (in-list (query-list conn
+                                                              "SELECT team_id FROM memberships WHERE user_id = ? AND status = 'active'"
+                                                              user-id))])
+                           (user-permissions conn user-id tid))))))
   (if (or operator? (credential-changing-perms? perms))
       MIN-PRIVILEGED-PASSWORD-LENGTH
       MIN-PASSWORD-LENGTH))
+
+;; What a BUILT-IN role key grants, team tier or org tier: both are rows in the same
+;; `roles` table with `team_id` NULL, which is why one lookup serves `password-floor`
+;; and `password-floor-for-role`.
+(define (role-key-perms conn role-key)
+  (define rid (and role-key (query-maybe-value conn "SELECT id FROM roles WHERE key = ? AND team_id IS NULL" role-key)))
+  (if rid (query-list conn "SELECT permission FROM role_permissions WHERE role_id = ?" rid) '()))
 
 ;; THE FLOOR FOR A ROLE a caller is about to assign. An add-member knows the role
 ;; it is granting and the account has no membership yet, so this is the only way
@@ -329,9 +346,9 @@
 ;; prefer. An unknown key answers the baseline — the write refuses the role
 ;; itself, and a floor is not the place to report that.
 (define (password-floor-for-role conn role-key)
-  (define rid (query-maybe-value conn "SELECT id FROM roles WHERE key = ? AND team_id IS NULL" role-key))
-  (define perms (if rid (query-list conn "SELECT permission FROM role_permissions WHERE role_id = ?" rid) '()))
-  (if (credential-changing-perms? perms) MIN-PRIVILEGED-PASSWORD-LENGTH MIN-PASSWORD-LENGTH))
+  (if (credential-changing-perms? (role-key-perms conn role-key))
+      MIN-PRIVILEGED-PASSWORD-LENGTH
+      MIN-PASSWORD-LENGTH))
 
 ;; ONE RULE, ASKED BY EVERY WRITE. `set-password!` calls this, so a path that
 ;; forgets to validate still cannot store a password the platform would refuse,
@@ -348,6 +365,17 @@
 (define (require-password! conn user-id pw)
   (define problem (password-problem pw (password-floor conn user-id)))
   (when problem (raise-password-problem problem))
+  pw)
+
+;; The same floor for a path that knows the ROLE it is about to grant and has no account
+;; yet. `org-create-rows!` needs it: the owner it creates holds `*:*` through the team, but
+;; `create-user!` can only ask the baseline there (the account has no membership when the
+;; password is written), so without this a company could be created with an owner password
+;; the same account could not later set. Asked BEFORE the org row exists, so a refusal leaves
+;; nothing half-created behind.
+(define (require-password-for-role! conn role-key pw [who #f])
+  (define problem (password-problem pw (password-floor-for-role conn role-key)))
+  (when problem (raise-password-problem (if who (format "~a: ~a" who problem) problem)))
   pw)
 
 ;; ---- password / 2FA login ---------------------------------------------------

@@ -29,6 +29,8 @@
          "../domain/authz/authz.rkt"
          "../domain/authz/passwords.rkt"
          "../domain/authz/mailed-tokens.rkt"
+         "../domain/orgs/orgs.rkt"
+         "../domain/samples/tenants.rkt"
          "../domain/saas/onboarding.rkt"
          "../domain/accounts/reset.rkt")
 
@@ -167,7 +169,46 @@
   (check-false (mailed-token-holder c tok #:purpose "reset") "…and after the claim the link is gone"))
 
 ;; ---------------------------------------------------------------------------
-;; 9. the number is ONE home, not four
+;; 9. the ORG tier counts too, and the domain create asks before it writes
+(test-case "password-floor: an ORG role is a credential-changing one, and only that role"
+  (define c (fresh))
+  (define-values (owner-uid tid) (bootstrap! c #:username "owner" #:password "owner-password-1"))
+  ;; an org admin who is only a `member` of the team: `members:manage` comes from the ORG
+  ;; role, which lives on the user row rather than in a membership
+  (define uid (create-user! c #:username "oa" #:password "12345678" #:org-role "org_admin"))
+  (add-member! c #:user uid #:team tid #:role "member")
+  (check-equal? (password-floor c uid) MIN-PRIVILEGED-PASSWORD-LENGTH)
+  (check-exn exn:fail:user? (lambda () (set-password! c uid "12345678")))
+  (check-true (void? (set-password! c uid "123456789012")))
+  ;; an org_reader holds no credential-changing permission
+  (define r (create-user! c #:username "or" #:password "12345678" #:org-role "org_reader"))
+  (add-member! c #:user r #:team tid #:role "member")
+  (check-equal? (password-floor c r) MIN-PASSWORD-LENGTH))
+
+(test-case "org-create-rows!: the owner's password is held to 12, and a refusal writes nothing"
+  (define c (fresh))
+  (check-exn exn:fail:user?
+             (lambda () (org-create! c #f #:name "Acme" #:slug "acme" #:plan "starter"
+                                     #:owner-username "admin@acme.test" #:owner-password "acme-admin1")))
+  (check-false (query-maybe-value c "SELECT id FROM orgs WHERE slug = ?" "acme") "no org row")
+  (check-false (query-maybe-value c "SELECT id FROM users WHERE username = ?" "admin@acme.test") "no user row")
+  (check-true (and (hash? (org-create! c #f #:name "Acme" #:slug "acme" #:plan "starter"
+                                      #:owner-username "admin@acme.test"
+                                      #:owner-password "acme-admin-2026")) #t)))
+
+(test-case "seed-tenants!: the demo owners' passwords pass the floor they are held to"
+  (define c (fresh))
+  ;; the seeder audits as the caller, so it needs a principal — the superadmin the
+  ;; endpoint requires
+  (define-values (uid tid) (bootstrap! c #:username "owner" #:password "owner-password-1"))
+  (define seeded (seed-tenants! c (user-principal c uid tid)))
+  (check-equal? (length seeded) 2)
+  ;; the new owner can be re-passworded at the floor its own role sets, which is the
+  ;; property the 10-character demo password broke
+  (check-true (void? (set-password! c (hash-ref (hash-ref (car seeded) 'owner) 'user_id) "123456789012"))))
+
+;; ---------------------------------------------------------------------------
+;; 10. the number is ONE home, not four
 (test-case "no endpoint decides a password's length for itself any more"
   ;; The defect this closes was the same NUMBER written where it was needed, so
   ;; the check is that the old shape is gone from the surfaces: an inline
