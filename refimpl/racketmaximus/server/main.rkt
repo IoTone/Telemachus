@@ -367,6 +367,7 @@
    'worker-claim ep-worker-claim 'worker-state ep-worker-state 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail 'worker-release ep-worker-release
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
+   'admin-user-token ep-admin-user-token
    'search ep-search 'audit ep-audit 'model-requests ep-model-requests
    'webhooks-list ep-webhooks-list 'webhooks-create ep-webhooks-create
    'webhook-get ep-webhook-get 'webhook-patch ep-webhook-patch 'webhook-delete ep-webhook-delete

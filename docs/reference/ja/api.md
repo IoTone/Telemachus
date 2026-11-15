@@ -92,6 +92,7 @@ A machine-readable form of this same table is [openapi.json](openapi.json) (Open
 | POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | role | — | 組織レベルのクォータを設定；チームはその下に配置されます |
 | GET | `/api/orgs/:ref` | superadmin | `instance:manage` | role | — | 1つの会社、そのチームとクォータ。 |
 | PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | role | — | 会社の名前を変更する、プランを変更する（そのプランの上限を再適用します）、および／またはホスト名を設定する（{domain}、null でクリア）：そのホストで配信されるコンソールは、サインイン前から会社のブランディングをまといます（TEN-2d）。 |
+| POST | `/api/admin/users/:id/tokens` | bearer | `instance:manage` | role | — | サービスアカウント用のマシントークンを発行します：{name?, scopes?, ttl?}。ttl は秒数か "never" です。監視プローブ、ハーベスト、バックアップはサインインしないうえ、`POST /api/tokens` は呼び出した本人のために発行するので、これがなければ、そのようなアカウントが長寿命のトークンを持つ唯一の方法は、自分自身が `settings:manage` を持つことでした。監査には、発行した運用者と、そのトークンが代弁するアカウントの両方が記録されます。運用者アカウントは拒否されます。運用者はサインインして `POST /api/tokens` を使います。 |
 | POST | `/api/admin/users/:id/password` | bearer | `instance:manage` | role | — | サインインできず、メールも受け取れないユーザーのパスワードを設定します：{new_password} — 確認済みのアドレスがない場合や、送信手段が設定されていないインスタンスの場合です。そのユーザーのセッションは失効します。メールが使える環境では POST /api/password-reset がセルフサービスの経路であり、運用者を必要としません。 |
 | POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | role | — | 既知の開発用パスワードで Acme と Globex を投入する — デモ用の固定データのみ。 |
 | GET | `/api/org` | org-admin | `org:read` | role | — | 呼び出し元の会社 |

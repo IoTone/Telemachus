@@ -1271,6 +1271,10 @@
       "text": "Setting…",
       "hash": "97d836e747ce7741bd4e6fbe5bfa9a364000a5b8"
     },
+    "doc.route.post.api.admin.users.id.tokens": {
+      "text": "Issue a machine token for a service account: {name?, scopes?, ttl?}, where ttl is seconds or \"never\". A monitoring probe, a harvest or a backup never signs in, and `POST /api/tokens` mints for the CALLER, so without this the only way such an account could hold a long-lived token was to hold `settings:manage` itself. The audit names the operator who issued it and the account it speaks for. An operator account is refused: an operator signs in and uses `POST /api/tokens`.",
+      "hash": "72f955221724d11ad7809fe7cdfbb7cfc4de9902"
+    },
     "doc.route.delete.api.schedules.id": {
       "text": "Delete a job schedule. Jobs it already fired are ordinary jobs and are untouched.",
       "hash": "f7bcf0ef722242b9a788ac5352d030d6ee1f76c4"
@@ -1927,6 +1931,10 @@
       "text": "queued for workers",
       "hash": "e1123cdf2dd36125a8fa154f155699892d47698c"
     },
+    "doc.route.post.api.org.members.id.invite": {
+      "text": "Send a company invitation again, for a member who has not accepted yet. The company plane's mirror of the team route, and it exists because an org administrator is usually not a member of the team the person was invited to. A member of another company answers 404.",
+      "hash": "d6cdbd316b9cdaa0316014b7c64cf1ccb7839b37"
+    },
     "ui.cap_manage": {
       "text": "manage",
       "hash": "3f282fcba8933e03a65a6dc92a27de8396961e2f"
@@ -2066,6 +2074,10 @@
     "ui.upload": {
       "text": "Upload",
       "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
+    },
+    "doc.route.get.api.org.members": {
+      "text": "The people in the caller's company, for the org administrator who manages them: one row each with their org role, their team roles, and whether an address is proven or still pending. The address itself is never in this reply, and neither flag is a recovery path: a person with no proven address cannot receive a recovery link, and this is how an administrator sees that.",
+      "hash": "1cc32ab6502bb98294c647974603e99ab9cf5e76"
     },
     "beta.thanks": {
       "text": "Thanks — your request is in review.",
@@ -4922,14 +4934,6 @@
     "doc.tool.doc_redact.step": {
       "text": "The workflow step id, for provenance",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
-    },
-    "doc.route.get.api.org.members": {
-      "text": "The people in the caller's company, for the org administrator who manages them: one row each with their org role, their team roles, and whether an address is proven or still pending. The address itself is never in this reply, and neither flag is a recovery path: a person with no proven address cannot receive a recovery link, and this is how an administrator sees that.",
-      "hash": "1cc32ab6502bb98294c647974603e99ab9cf5e76"
-    },
-    "doc.route.post.api.org.members.id.invite": {
-      "text": "Send a company invitation again, for a member who has not accepted yet. The company plane's mirror of the team route, and it exists because an org administrator is usually not a member of the team the person was invited to. A member of another company answers 404.",
-      "hash": "d6cdbd316b9cdaa0316014b7c64cf1ccb7839b37"
     }
   }
 }

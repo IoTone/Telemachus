@@ -1988,6 +1988,45 @@ assert "…and NOT the audit export, which hands over the log" \
 # the compatibility half: the operator keeps every route they had
 assert "an operator still reads the fleet" "$(curl -s $B/api/admin/workers -H "Authorization: Bearer $OP")" '"executors":'
 assert "…and still exports the audit log"  "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $OP")" '"action":'
+
+# A SERVICE ACCOUNT'S OWN TOKEN. `POST /api/tokens` mints for the CALLER, so the only
+# way a probe, a harvest or a backup could hold a long-lived token was to hold
+# `settings:manage` itself and sign in — which is a widening nobody wants, and the
+# reason dev1's probe was handed a SESSION token that the eight-hour absolute clock
+# killed twice a day. An operator issues it instead, and the audit names both sides.
+echo
+echo "== an operator issues a machine token for a service account ===================="
+SVC=$(curl -s -X POST $B/api/admin/users/$BOBID/tokens -H "Authorization: Bearer $OP" \
+  -d '{"name":"probe","scopes":["instance:read"],"ttl":"never"}')
+SVCTOK=$(printf '%s' "$SVC" | grep -oP '"token":\s*"\K[^"]+')
+assert "the operator issues one"            "$SVC" '"user_id":"'"$BOBID"'"'
+assert "…and it is a never-expiring token"  "$SVC" '"expires_at":null'
+# THE TOKEN NARROWS AND NEVER WIDENS: its scopes cap what the ACCOUNT may do, so a
+# member's token cannot read instance status however it is scoped. That is the rule
+# worth asserting here, because the opposite would make this route a way to grant a
+# permission the account does not hold.
+assert "…and it speaks for that account" \
+  "$(curl -s $B/api/whoami -H "Authorization: Bearer $SVCTOK")" '"user_id":"'"$BOBID"'"'
+assert "…and its scopes do not widen the account" \
+  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $SVCTOK")" 'Forbidden: instance:read'
+assert "…and it cannot administer" \
+  "$(curl -s -X POST $B/api/admin/users/$CAROL_ID/password -H "Authorization: Bearer $SVCTOK" -d '{"new_password":"hijacked1"}')" 'Forbidden: instance:manage'
+# the audit names the ACCOUNT the token speaks for, not only the operator who acted
+# the export carries `meta` VERBATIM as the string it was stored as, so the quotes
+# inside it are escaped in the JSONL
+assert "…and the audit names the account it speaks for" \
+  "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $OP")" 'subject\":\"bob\"'
+# a member cannot mint for anybody, including itself through this route
+assert "a member cannot issue one" \
+  "$(curl -s -X POST $B/api/admin/users/$BOBID/tokens -H "Authorization: Bearer $BOB" -d '{"ttl":"never"}')" 'Forbidden: instance:manage'
+# an operator account is refused: this route is for a service account, and minting an
+# operator token through it would clone operator credentials somewhere the operator
+# list does not show
+OP_SELF=$(curl -s $B/api/whoami -H "Authorization: Bearer $OP" | grep -oP '"user_id":\s*"\K[^"]+')
+assert "an operator account is refused" \
+  "$(curl -s -X POST $B/api/admin/users/$OP_SELF/tokens -H "Authorization: Bearer $OP" -d '{"ttl":"never"}')" 'not for an operator'
+assert "…and an unknown user is a 404" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/admin/users/nobody/tokens -H "Authorization: Bearer $OP" -d '{"ttl":"never"}')" '404'
 assert "a plain member reaches none of it" "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:read'
 
 echo "== the external anchor (#66) =="
