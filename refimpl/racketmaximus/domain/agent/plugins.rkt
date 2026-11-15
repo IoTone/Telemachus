@@ -304,6 +304,19 @@
           (define id (hash-ref m 'id sub))
           (when (hash-has-key? *dirs* id)
             (error 'plugins "a plugin with id ~a is already loaded from ~a" id (hash-ref *dirs* id)))
+          ;; A PLUGIN ID MAY NOT BE A PREFIX OF ANOTHER LOADED ID. `plugin-table-prefix`
+          ;; is `x_<id>_` and the sealed-column registry tests it with `string-prefix?`,
+          ;; so `rcnt` and `rcnt_vault` could each declare the other's tables — and the
+          ;; ledger's upsert lets the later declaration win, which would make a key
+          ;; rotation die on the GCM tag with no plaintext exposed but the rotation
+          ;; blocked. Refusing the pair at load is the one place both ids are known.
+          (for ([other (in-list (unbox *loaded*))])
+            (define oid (hash-ref other 'id))
+            (when (or (string-prefix? id oid) (string-prefix? oid id))
+              (error 'plugins
+                     (string-append "plugin id ~a and ~a: one is a prefix of the other, so the table "
+                                    "prefix x_<id>_ would let one declare the other's tables")
+                     id oid)))
           (define entry (build-path pdir (hash-ref m 'entry "main.rkt")))
           ;; A plugin may (provide tools) and/or (provide init!). init! runs with full
           ;; SDK access so a plugin can register anything (tools, an onboarding
