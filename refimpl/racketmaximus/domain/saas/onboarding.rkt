@@ -16,6 +16,7 @@
          "../authz/authz.rkt"       ; create-user!/create-team!/add-member!/seed-builtin-roles!/set-password!/issue-token!/first-team-for/audit!
          "../authz/mailed-tokens.rkt" ; mint-mailed-token!/claim-mailed-token! — the ONE rule for a token we mail
          (only-in "../mail/addresses.rkt" address-verify-by-redemption!)
+         (only-in "../mail/transport.rkt" transport-configured?)
          "../quota/quota.rkt")      ; set-limit!
 
 (provide provision! activate! suspend! resume! team-suspended?
@@ -102,6 +103,18 @@
   (cond
     [(not holder) #f]
     [else
+     ;; ONLY AN `invited` ACCOUNT CAN ACCEPT. The `status` column is what suspension
+     ;; writes, and this line used to set it back to 'active' unconditionally — so a
+     ;; still-valid link revived a suspended account (non-payment, an incident, a
+     ;; contract's end), and nothing else in the tree re-checks `users.status` on a
+     ;; live session. The reset path already refuses a suspended account; this is the
+     ;; same rule, and it is asked BEFORE the claim so a refusal does not spend the
+     ;; link.
+     (define status (query-maybe-value conn "SELECT status FROM users WHERE id = ?" holder))
+     (when (equal? status "suspended")
+       (raise-user-error 'activate
+                         (string-append "this account is suspended, so the invitation cannot be accepted. "
+                                        "An operator has to resume it first")))
      (require-password! conn holder pw)
      (define uid (claim-mailed-token! conn raw #:purpose "activate"))
      (cond
@@ -116,7 +129,14 @@
         ;; token minted for this user has just been spent, one line above. A person
         ;; with nothing pending is left alone, which is every activation on an
         ;; instance with no mail.
-        (address-verify-by-redemption! conn uid)
+        ;;
+        ;; ONLY WHEN THE INSTANCE ACTUALLY SENT IT. With no transport the link comes
+        ;; back to the INVITER, who redeems it for the person they invited — so
+        ;; redemption proves nothing about the mailbox, and promoting the address
+        ;; would let `user-by-verified-address` mail that address's password reset to
+        ;; somebody who never proved it.
+        (when (transport-configured? conn)
+          (address-verify-by-redemption! conn uid))
         (define tid (first-team-for conn uid))
         (define tok
           (and (not (has-second-factor? conn uid))

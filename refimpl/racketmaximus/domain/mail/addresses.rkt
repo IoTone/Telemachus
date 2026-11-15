@@ -79,14 +79,34 @@
 ;; the local part is not, in theory — in practice no mail system anybody deploys
 ;; distinguishes them, and treating `Alice@` as a different person from `alice@`
 ;; would make the reset silently find nothing for the commonest possible typo.
+;; ONE ROW, BY CONSTRUCTION. A verified address is unique (see
+;; `address-held-by-other?`), but a row written before that rule existed can still make
+;; two accounts answer, and `query-maybe-value` RAISES on two rows — which turned the
+;; PUBLIC password reset into a durable 500 for that address, for both people, with no
+;; operator-facing symptom. The query takes one row in a fixed order instead, so a
+;; legacy duplicate recovers the oldest account and never a stack trace.
 (define (user-by-verified-address conn address)
   (define a (string-downcase (string-trim (format "~a" address))))
   (and (not (string=? a ""))
        (let ([v (query-maybe-value conn
                   (string-append "SELECT id FROM users WHERE LOWER(email) = ? "
-                                 "AND email_verified_epoch IS NOT NULL AND status = 'active'")
+                                 "AND email_verified_epoch IS NOT NULL AND status = 'active' "
+                                 "ORDER BY created_at, id LIMIT 1")
                   a)])
          (and v (not (sql-null? v)) (format "~a" v)))))
+
+;; AN ADDRESS SOMEBODY HAS PROVED IS NOT ANOTHER PERSON'S TO CLAIM. Two accounts holding
+;; one verified address means the reset can only ever serve one of them, and the second
+;; can never recover — which is the state this check exists to keep out. It is asked at
+;; both writes: the claim, and the promotion an invitation redemption performs.
+(define (address-held-by-other? conn user-id address)
+  (define a (string-downcase (string-trim (format "~a" address))))
+  (and (not (string=? a ""))
+       (pair? (query-rows conn
+                          (string-append "SELECT id FROM users WHERE LOWER(email) = ? "
+                                         "AND email_verified_epoch IS NOT NULL AND id <> ? LIMIT 1")
+                          a user-id))
+       #t))
 
 ;; What a profile card renders: the verified address if there is one, the pending
 ;; one if a verification is outstanding, and when each happened. The TOKEN is
@@ -118,6 +138,8 @@
   (define a (and (string? address) (string-trim address)))
   (define p (mail-address-problem a))
   (when p (raise-user-error 'email (format "~a: ~a" (printable address) p)))
+  (when (address-held-by-other? conn user-id a)
+    (raise-user-error 'email "that address is already verified on another account"))
   (define tok (random-token))
   ;; One outstanding verification per user, so a re-request REPLACES — an older
   ;; link stops working, which is what the person who pressed "send it again"
@@ -157,6 +179,14 @@
     [(not r) #f]
     [else
      (define addr (vector-ref r 0))
+     ;; If another account has since verified this address, the promotion is skipped
+     ;; rather than creating a second holder: the invitation still works, the address
+     ;; simply stays unverified (and the person can claim it again once the other
+     ;; account is gone). Without this the check in `address-claim!` is only a
+     ;; promise about the ordinary path.
+     (cond
+      [(address-held-by-other? conn user-id addr) #f]
+      [else
      (query-exec conn
        (string-append "UPDATE users SET email = ?, email_verified_epoch = ?, "
                       "updated_at = CURRENT_TIMESTAMP WHERE id = ?")
@@ -166,7 +196,7 @@
      (audit! conn #:action "user.email.verified" #:actor-type "user" #:actor-id user-id
              #:resource-type "user" #:resource-id user-id
              #:meta "{\"via\":\"redemption\"}")
-     addr]))
+     addr])]))
 
 ;; THE EXPIRY IS DELIBERATELY NOT CHECKED ABOVE, and the reason is which clock
 ;; governs. `VERIFY-TTL` is a day and bounds a CONFIRMATION link somebody asked
