@@ -294,7 +294,11 @@
   (define-values (uid o l)
     (invite-member! c #:team tid #:role "member" #:address "bob@example.test" #:inviter aid))
   (check-false (resend-invitation! c uid #:inviter aid #:team-id "some-other-team") "another team's id finds nothing")
-  (check-true (and (resend-invitation! c uid #:inviter aid #:team-id tid) #t) "its own team still does")
+  (check-true (and (pair? (call-with-values
+                           (lambda () (resend-invitation! c uid #:inviter aid #:team-id tid))
+                           list))
+                   #t)
+              "its own team still does")
   (close-db! c))
 
 (test-case "resending an unknown member answers #f rather than raising"

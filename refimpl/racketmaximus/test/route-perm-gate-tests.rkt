@@ -268,10 +268,10 @@
 ;; reference. A one-directional allowlist rots into a list of excuses.
 (define UNREACHABLE-BY-DESIGN
   (hash
-   ;; Documented as granted-and-inert. RBAC-5b: custom team roles are not in v1,
-   ;; and the permission's own description says so, which is the condition for
-   ;; leaving it in the catalog at all.
-   "roles:manage"    "RBAC-5b: custom team roles are not in v1; its description says so"
+   ;; `roles:manage` LEFT THIS LIST in 0.13.0: a member role change that touches
+   ;; `owner`, in either direction, requires it — the one permission the catalog says an
+   ;; `admin` does not have (permissions.rkt), which `set-member-role!` used to let them
+   ;; use anyway. RBAC-5b still holds for custom team roles, which remain not in v1.
    "roles:read"      "the role catalog is public to any authenticated caller; nothing gates it"
    ;; Features that have no implementation at all. The permission exists so the
    ;; role data does not have to change when they are built.
