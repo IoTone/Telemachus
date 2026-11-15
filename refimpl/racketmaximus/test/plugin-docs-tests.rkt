@@ -124,3 +124,18 @@
   (check-true (void? (plugin-out-required "example-tools" (hasheq 'out "/tmp/whatever"))))
   ;; no plugin at all needs no --out, which is every existing invocation
   (check-true (void? (plugin-out-required #f (hasheq)))))
+
+;; The refusal is about the DESTINATION, not only about naming one. Naming the
+;; instance's own directory satisfied the first check and wrote a plugin's pages over
+;; the committed set, which `check` then reports as missing pages for everybody.
+(test-case "--out naming the instance's own reference is refused too, however it is spelled"
+  (check-exn exn:fail:user?
+             (lambda () (plugin-out-required "example-tools"
+                                             (hasheq 'out (path->string (default-out))))))
+  ;; the same directory by another name
+  (check-exn exn:fail:user?
+             (lambda () (plugin-out-required "example-tools"
+                                             (hasheq 'out (path->string (build-path (default-out) "."))))))
+  ;; a directory BESIDE it is what the command is for
+  (check-true (void? (plugin-out-required "example-tools"
+                                          (hasheq 'out (path->string (build-path (default-out) ".." "plugin-reference")))))))

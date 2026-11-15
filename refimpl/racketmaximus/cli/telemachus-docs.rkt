@@ -85,7 +85,7 @@
          ;; decisions the command makes, and neither is reachable through the
          ;; committed pages (there are none for a plugin). `locales-dir` is
          ;; exported because the page set is rendered through it.
-         render-all plugin-out-required locales-dir)
+         render-all plugin-out-required locales-dir default-out)
 
 ;; a route's scope is a symbol in the platform's table and a string in the
 ;; plugin model built below; one spelling for the renderers
@@ -597,11 +597,13 @@
        [plugin
         (string-append
          "## Routes\n\n"
-         (table '("Method"  "Path"  "Auth"  "Permission"  "Description")
+         (table '("Method"  "Path"  "Auth"  "Permission"  "Checked"  "Description")
                 (for/list ([r (in-list pr)])
                   (list (hash-ref r 'method) (code (hash-ref r 'path))
                         (hash-ref r 'auth)
                         (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
+                        (let ([p (hash-ref r 'permission)])
+                          (if (string? p) (scope-name (hash-ref r 'scope 'role)) "—"))
                         (L (route-id r) (hash-ref r 'description)))))
          "\n")]
        [else
@@ -609,18 +611,23 @@
          "## Plugin routes\n\n"
          "Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. "
          "**Auth** is the route's own declaration. `bearer` — the default, and every route "
-         "before G13 — needs a session or API token, and the permission, when named, is "
-         "checked before the plugin's handler runs. `public` needs no credential at all: "
+         "before G13 — needs a session or API token. Its permission, when named, is checked "
+         "by the platform before the handler runs unless the route declares the `resource` "
+         "scope, in which case the plugin's handler decides who may use the one object the "
+         "route names and must refuse on its own — `Checked` says which of the two it is. "
+         "`public` needs no credential at all: "
          "the handler gets no principal, so it has no team context and no `can?`, and it "
          "must read no team data unless the route carries something that identifies the "
          "team itself. A public route is still subject to the platform's request limits, "
          "and it is declared in the plugin's route table — never inferred from a path. "
          "Matched after the core routes above.\n\n"
-         (table '("Method" "Path" "Plugin" "Auth" "Permission" "Description")
+         (table '("Method" "Path" "Plugin" "Auth" "Permission" "Checked" "Description")
                 (for/list ([r (in-list pr)])
                   (list (hash-ref r 'method) (code (hash-ref r 'path)) (code (hash-ref r 'plugin))
                         (hash-ref r 'auth)
                         (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
+                        (let ([p (hash-ref r 'permission)])
+                          (if (string? p) (scope-name (hash-ref r 'scope 'role)) "—"))
                         (L (route-id r) (hash-ref r 'description)))))
          "\n")]))))
 
@@ -1096,12 +1103,25 @@
   (write-string (json-string (describe)) (current-output-port)))
 
 (define (plugin-out-required plugin opts)
-  (when (and plugin (not (hash-ref opts 'out #f)))
-    (raise-user-error 'telemachus-docs
-                      (string-append "--plugin ~a needs --out <dir>: docs/reference is the "
-                                     "instance's own reference and is gated for drift, so a "
-                                     "plugin's pages are written beside it, never over it")
-                      plugin)))
+  (when plugin
+    (define out (hash-ref opts 'out #f))
+    (unless out
+      (raise-user-error 'telemachus-docs
+                        (string-append "--plugin ~a needs --out <dir>: docs/reference is the "
+                                       "instance's own reference and is gated for drift, so a "
+                                       "plugin's pages are written beside it, never over it")
+                        plugin))
+    ;; THE REFUSAL IS ABOUT THE DESTINATION, not only about naming one. `--out docs/reference`
+    ;; satisfied the check above and wrote a plugin's pages over the instance's committed set,
+    ;; which `check` then reports as missing pages for everybody — the header says "never over
+    ;; it", so the command refuses the one directory that means "over it".
+    (when (equal? (path->directory-path (simplify-path (path->complete-path (string->path out))))
+                  (path->directory-path (simplify-path (path->complete-path (default-out)))))
+      (raise-user-error 'telemachus-docs
+                        (string-append "--out ~a is the instance's own reference: it is generated "
+                                       "from the platform's tables and gated for drift, so "
+                                       "--plugin~a is written beside it, never over it")
+                        out plugin))))
 
 (define (cmd-render opts)
   (define plugin (hash-ref opts 'plugin #f))

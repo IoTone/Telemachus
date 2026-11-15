@@ -181,13 +181,22 @@ echo "== 3. the API works end to end, through the published port =="
 # the gateway — a genuine stranger — and the gate is live. It is asserted BEFORE
 # the real bootstrap because a successful bootstrap is first-run-only: one
 # admitted call consumes it and every later assertion 401s.
+#
+# THE PASSWORD IS 12 CHARACTERS because the operator is: the one password floor
+# (`password-problem`) holds the account that can reset everybody else's
+# credential to 12, and bootstrap's own password goes through `create-user!`
+# like any other. At 9 the bootstrap is refused with a 400 and no token, so the
+# assertion below failed with an empty TOK and nothing on screen saying why.
 assert "bootstrap refuses an unauthenticated stranger" \
-  "$(curl -s -X POST $B/api/bootstrap -d '{"username":"nope","password":"pw-pw-pw1"}')" \
+  "$(curl -s -X POST $B/api/bootstrap -d '{"username":"nope","password":"pw-pw-pw1-12"}')" \
   'this host only'
-TOK=$(curl -s -X POST $B/api/bootstrap -H 'X-Telemachus-Bootstrap: container-smoke-bootstrap' \
-        -d '{"username":"ops","password":"pw-pw-pw1"}' \
-      | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))')
+BOOT_BODY=$(curl -s -X POST $B/api/bootstrap -H 'X-Telemachus-Bootstrap: container-smoke-bootstrap' \
+              -d '{"username":"ops","password":"pw-pw-pw1-12"}')
+TOK=$(printf '%s' "$BOOT_BODY" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))' 2>/dev/null)
 assert "bootstrap mints a token"  "$TOK" 'tk_'
+# A failed bootstrap is a 400 or a 403 whose body names the reason. Printing it
+# turns "got: (nothing)" into the actual refusal.
+[ -n "$TOK" ] || echo "       the server said: ${BOOT_BODY:0:400}"
 G(){ curl -s "$B$1" -H "Authorization: Bearer $TOK"; }
 # whoami answers with ids, permissions and the session policy — NOT a username.
 # Assert on the thing that proves the token is the operator's.
