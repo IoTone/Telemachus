@@ -362,10 +362,16 @@
          (err "username already exists on this instance" 409)]
         [else
          ;; the ROLE decides the floor, as it does on the team plane: the account
-         ;; does not exist yet, so there is no membership to ask about
+         ;; does not exist yet, so there is no membership to ask about. BOTH roles
+         ;; count: this one request can grant a team role and an ORG role, and
+         ;; `org_owner`/`org_admin` hold `members:manage` — the exact permission the
+         ;; 12 floor exists for. Asking only about the team role let a company owner
+         ;; be created with a password the same account could not then set.
          (define pw (let ([pw (hash-ref b 'password #f)]) (and pw (format "~a" pw))))
          (when pw
-           (define pw-problem (password-problem pw (password-floor-for-role db-conn role)))
+           (define floor (max (password-floor-for-role db-conn role)
+                              (if org-role (password-floor-for-role db-conn org-role) 0)))
+           (define pw-problem (password-problem pw floor))
            (when pw-problem (err pw-problem 400)))
          (define r (org-attach-member! db-conn p (caller-org p)
                                        #:username (format "~a" u)
@@ -393,7 +399,8 @@
         [else
          (define res (call-with-values
                       (lambda ()
-                        (resend-invitation! db-conn uid #:inviter (principal-user-id p)))
+                        (resend-invitation! db-conn uid #:inviter (principal-user-id p)
+                                            #:org-id (caller-org p)))
                       list))
          (cond
            [(equal? res '(#f)) (err "no such member" 404)]

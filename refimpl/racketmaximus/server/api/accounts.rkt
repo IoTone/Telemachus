@@ -133,10 +133,21 @@
     (json-response (hasheq 'timezones (available-zones))))))
 
 ;; ---- membership stewardship (issue #54) ----------------------------------------
+;; A ROLE CHANGE THAT TOUCHES `owner` IS A `roles:manage` ACT. The catalog says an
+;; `admin` manages without `roles:manage` (permissions.rkt), and `set-member-role!` takes
+;; no caller, so an admin could promote themselves to owner and reach `*:*` — the one
+;; permission the catalog says they do not have. `roles:manage` is held by `owner` only,
+;; which is also what makes it reachable instead of inert.
+(define (require-owner-change-allowed! p uid new-role)
+  (define current (member-role db-conn (principal-team-id p) uid))
+  (when (or (equal? new-role "owner") (equal? current "owner"))
+    (require-perm db-conn p "roles:manage")))
+
 (define (ep-member-role req uid)
   (with-auth req (lambda (p)
     (require-perm db-conn p "members:manage")
     (define role (fmt (read-json-body req) 'role))
+    (require-owner-change-allowed! p uid role)
     (define out (set-member-role! db-conn (principal-team-id p) uid role))
     (cond
       [(eq? out 'no-such-member) (err "no such member" 404)]
@@ -252,7 +263,8 @@
      (define res (call-with-values
                   (lambda ()
                     (resend-invitation! db-conn (format "~a" id)
-                                        #:inviter (principal-user-id p)))
+                                        #:inviter (principal-user-id p)
+                                        #:team-id (principal-team-id p)))
                   list))
      (cond
        [(equal? res '(#f)) (err "no such member" 404)]
@@ -279,6 +291,8 @@
      (define username (hash-ref body 'username #f))
      (define email (hash-ref body 'email #f))
      (define role (hash-ref body 'role "member"))
+     ;; adding somebody AS AN OWNER is the same act as promoting them to one
+     (when (equal? role "owner") (require-perm db-conn p "roles:manage"))
      (cond
        ;; AN `email` ASKS FOR AN INVITATION; its absence is today's behaviour,
        ;; byte for byte. Every fixture, smoke block and demo in this tree creates

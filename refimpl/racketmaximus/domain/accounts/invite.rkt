@@ -158,13 +158,40 @@
 ;; password reset — and a reset has its own route, its own throttle, its own
 ;; shorter horizon and an enumeration-safe answer. Offering it here under a
 ;; members permission would be a second way to do it with none of those.
+;; `#:team-id` IS THE CALLER'S TEAM AND IT IS NOT OPTIONAL IN PRACTICE. A user id is
+;; not a secret on this platform (an audit actor id, an annotation owner, every org
+;; admin's own member list), and the membership lookup below had no team predicate at
+;; all: an admin of ANY team could name an `invited` account in another team, receive a
+;; live activation token because a no-transport instance hands it back, redeem it, and
+;; become that person — including an invited org_admin. The org plane already scopes its
+;; resend this way (server/api/orgs.rkt, user-org vs caller-org); this is the same rule.
+;; It also removes the multi-row raise when an invitee has two active memberships.
+;; ONE OF `#:team-id` OR `#:org-id` IS REQUIRED, and neither is a formality: with no
+;; scope the answer is #f, so a caller that forgets one cannot reach another tenant's
+;; invitation. The team plane passes its own team; the company plane passes its own org,
+;; because an org administrator is usually not a member of the team the person was
+;; invited to (server/api/orgs.rkt).
 (define (resend-invitation! conn uid #:inviter inviter-user-id
+                            #:team-id [caller-team-id #f]
+                            #:org-id [caller-org-id #f]
                             #:inviter-name [inviter-name #f] #:team-name [team-name #f])
-  (define row (query-maybe-row conn
-                (string-append "SELECT u.status, m.team_id FROM users u "
-                               "LEFT JOIN memberships m ON m.user_id = u.id AND m.status = 'active' "
-                               "WHERE u.id = ?")
-                uid))
+  (define row
+    (cond
+      [caller-team-id
+       (query-maybe-row conn
+                        (string-append "SELECT u.status, m.team_id FROM users u "
+                                       "JOIN memberships m ON m.user_id = u.id AND m.status = 'active' "
+                                       " AND m.team_id = ? "
+                                       "WHERE u.id = ?")
+                        caller-team-id uid)]
+      [caller-org-id
+       (query-maybe-row conn
+                        (string-append "SELECT u.status, m.team_id FROM users u "
+                                       "JOIN memberships m ON m.user_id = u.id AND m.status = 'active' "
+                                       "JOIN teams t ON t.id = m.team_id AND t.org_id = ? "
+                                       "WHERE u.id = ?")
+                        caller-org-id uid)]
+      [else #f]))
   (cond
     [(not row) #f]
     [(not (equal? (format "~a" (vector-ref row 0)) "invited")) 'not-invited]

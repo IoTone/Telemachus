@@ -258,7 +258,7 @@
     (invite-member! c #:team tid #:role "member" #:address "bob@example.test" #:inviter aid))
   (define first-tok (token-from-message c))
   (clear-deliveries! c)
-  (define-values (o2 l2) (resend-invitation! c uid #:inviter aid))
+  (define-values (o2 l2) (resend-invitation! c uid #:inviter aid #:team-id tid))
   (check-equal? o2 'queued)
   (define second-tok (token-from-message c))
   (check-true (string? second-tok))
@@ -281,14 +281,27 @@
   (void (call-with-values
          (lambda () (activate! c #:token (token-from-message c) #:password "bobs-password")) list))
   (check-equal? (status-of c uid) "active")
-  (check-equal? (resend-invitation! c uid #:inviter aid) 'not-invited)
+  (check-equal? (resend-invitation! c uid #:inviter aid #:team-id tid) 'not-invited)
+  (close-db! c))
+
+(test-case "INVITE-6: a resend names the caller's OWN team, so another team's invitee is not found"
+  ;; A user id is not a secret here, and the resend used to look the account up by id
+  ;; alone: an admin of any team could name an `invited` account in another team and,
+  ;; on an instance with no mail transport, be handed its live activation token.
+  (define c (fresh))
+  (configure! c)
+  (define-values (aid tid) (seed! c))
+  (define-values (uid o l)
+    (invite-member! c #:team tid #:role "member" #:address "bob@example.test" #:inviter aid))
+  (check-false (resend-invitation! c uid #:inviter aid #:team-id "some-other-team") "another team's id finds nothing")
+  (check-true (and (resend-invitation! c uid #:inviter aid #:team-id tid) #t) "its own team still does")
   (close-db! c))
 
 (test-case "resending an unknown member answers #f rather than raising"
   (define c (fresh))
   (configure! c)
   (define-values (aid tid) (seed! c))
-  (check-false (resend-invitation! c "no-such-user" #:inviter aid))
+  (check-false (resend-invitation! c "no-such-user" #:inviter aid #:team-id tid))
   (close-db! c))
 
 (test-case "both events are audited, and name the team"
@@ -301,7 +314,7 @@
   (define-values (uid o l)
     (invite-member! c #:team tid #:role "member" #:address "bob@example.test" #:inviter aid))
   (clear-deliveries! c)
-  (void (call-with-values (lambda () (resend-invitation! c uid #:inviter aid)) list))
+  (void (call-with-values (lambda () (resend-invitation! c uid #:inviter aid #:team-id tid)) list))
   (define acts (audit-actions c))
   (check-true (and (member "member.invited" acts) #t))
   (check-true (and (member "member.invite.resent" acts) #t))
