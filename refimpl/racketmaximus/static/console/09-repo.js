@@ -44,7 +44,7 @@ async function repoView(){
         <button class="btn sm ghost" data-h-click="${H((el,ev)=>repoLink((o.id)))}">${t('link')}</button>
         <button class="btn sm ghost" data-h-click="${H((el,ev)=>repoOpenDetail((o.id)))}">${t('details')}</button>
       </td></tr>`).join('');
-  const limit = (usage.limit===null||usage.limit===undefined) ? t('nolimit') : humanBytes(usage.limit);
+  const limit = (usage.limit===null||usage.limit===undefined) ? tRaw('nolimit') : humanBytes(usage.limit);
   return `<h2>${t('repository')}
       <span class="muted" style="font-size:14px">${esc(usage.objects||0)} ${t('objects')} · ${esc(humanBytes(usage.used||0))} / ${esc(limit)} · ${t('store')}: ${esc(usage.store||'?')}</span></h2>
     <div class="card">
@@ -116,11 +116,11 @@ aws --endpoint-url ${esc(ep)} s3 cp report.pdf s3://${esc(bucket)}/reports/</pre
 }
 async function s3Create(){
   const r=await api('/api/s3/credentials',{method:'POST',body:{name:val('s3name')}});
-  if(r.ok){ S.s3New=r.json; toast(t('s3created'),true); renderTab(); } else toast(r.json.error||'error');
+  if(r.ok){ S.s3New=r.json; toast(tRaw('s3created'),true); renderTab(); } else toast(r.json.error||'error');
 }
 async function s3Revoke(id){
   const r=await api('/api/s3/credentials/'+encodeURIComponent(id),{method:'DELETE'});
-  if(r.ok){ S.s3New=null; toast(t('revoked'),true); renderTab(); } else toast(r.json.error||'error');
+  if(r.ok){ S.s3New=null; toast(tRaw('revoked'),true); renderTab(); } else toast(r.json.error||'error');
 }
 
 // default the key to the filename, so the common case needs no typing
@@ -173,7 +173,7 @@ async function repoUpload(){
               // screen. The e2e gate is what reported it, two screens later.
               S.repoPrefix = key.indexOf('/')>=0 ? key.slice(0, key.lastIndexOf('/')+1) : '';
               S.repoShared = false;
-              toast(overwrite ? t('newversion') : t('uploaded'), true); renderTab(); }
+              toast(overwrite ? tRaw('newversion') : tRaw('uploaded'), true); renderTab(); }
   else toast(j.error||('upload failed ('+res.status+')'));
 }
 
@@ -212,7 +212,7 @@ async function repoLink(id){
 }
 function repoCopyLink(){
   const el=document.getElementById('rlink'); if(!el) return;
-  navigator.clipboard.writeText(el.textContent).then(()=>toast(t('copied'),true),
+  navigator.clipboard.writeText(el.textContent).then(()=>toast(tRaw('copied'),true),
                                                      ()=>toast('copy failed'));
 }
 
@@ -241,7 +241,7 @@ async function repoOpenDetail(id){
   // one row per principal: who, what they may do, until when — and revoke (DSH step 3)
   const grows=grants.length
     ? grants.map(x=>`<tr><td>${x.principal_type==='team'?'<span class="badge">'+t('teamsec')+'</span> ':''}${esc(x.name||x.username||x.principal_id)}</td>
-        <td class="mono muted">${esc(t('cap_'+(x.capability||'view')))}${x.expired?' <span class="badge bad">'+t('expired')+'</span>':(x.expires_at?' · '+t('until')+' '+esc(x.expires_at.slice(0,10)):'')}</td>
+        <td class="mono muted">${esc(tRaw('cap_'+(x.capability||'view')))}${x.expired?' <span class="badge bad">'+t('expired')+'</span>':(x.expires_at?' · '+t('until')+' '+esc(x.expires_at.slice(0,10)):'')}</td>
         <td><button class="btn sm bad" data-h-click="${H((el,ev)=>repoUnshare((id),(x.principal_type),(x.principal_id)))}">${t('revoke')}</button></td></tr>`).join('')
     : `<tr><td colspan="3" class="muted">${t('noshares')}</td></tr>`;
   // a person on this team, or a team in this org (DSH-6) — never anyone outside it
@@ -330,23 +330,23 @@ async function repoDownloadVersion(id, versionId, key){
 async function repoSetVis(id){
   const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/visibility',
                     {method:'POST',body:{visibility:val('rdvis')}});
-  if(r.ok){ toast(t('visupdated'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
+  if(r.ok){ toast(tRaw('visupdated'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
 }
 async function repoShare(id){
-  const who=val('rdshare'); if(!who) return toast(t('noothers'));
+  const who=val('rdshare'); if(!who) return toast(tRaw('noothers'));
   const [principal_type, principal_id]=who.split(':');
   const body={principal_type, principal_id, capability:val('rdcap')||'view'};
   const exp=val('rdexp'); if(exp) body.expires_at=exp+'T23:59:59Z';     // "until this day", inclusive
   const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/share',{method:'POST',body});
-  if(r.ok){ toast(t('shared'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
+  if(r.ok){ toast(tRaw('shared'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
 }
 async function repoUnshare(id,ptype,pid){
   const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/unshare',{method:'POST',body:{principal_type:ptype||'user',principal_id:pid}});
-  if(r.ok){ toast(t('revoked'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
+  if(r.ok){ toast(tRaw('revoked'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
 }
 async function repoDelete(id){
   const r=await api('/api/repo-obj/'+encodeURIComponent(id),{method:'DELETE'});
-  if(r.ok){ document.getElementById('rdetail').innerHTML=''; toast(t('deleted'),true); renderTab(); }
+  if(r.ok){ document.getElementById('rdetail').innerHTML=''; toast(tRaw('deleted'),true); renderTab(); }
   else toast(r.json.error||'error');
 }
 

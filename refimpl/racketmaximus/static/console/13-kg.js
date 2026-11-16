@@ -32,7 +32,7 @@ function kgSearch(){ S.kg.q=val('kgq'); S.kg.type=val('kgtype'); S.kg.sel=null; 
 async function kgOpen(id){ S.kg.sel=id; const el=document.getElementById('kgdetail'); if(el) el.innerHTML=await kgDetailHtml(id); }
 async function kgExtract(){
   const r=await api('/api/kg/extract',{method:'POST'});
-  if(r.ok){ toast(t('kg_queued'),true); go('workflows'); S.wfRun=r.json.id; S.wfPoll++; renderTab(); } else toast(r.json.error||'error');
+  if(r.ok){ toast(tRaw('kg_queued'),true); go('workflows'); S.wfRun=r.json.id; S.wfPoll++; renderTab(); } else toast(r.json.error||'error');
 }
 function kgOpenDoc(id){ go('repository'); setTimeout(()=>repoOpenDetail(id),400); }
 async function kgDetailHtml(id){
@@ -68,7 +68,7 @@ async function searchView(){
     <div class="card">
       <div class="searchbar">
         <input id="sq" data-h-keydown="${H((el,ev)=>sendKey(ev,doSearch))}" placeholder="${t('searchph')}">
-        <button class="btn" title="${esc(t('search'))}" aria-label="${esc(t('search'))}"
+        <button class="btn" title="${t('search')}" aria-label="${t('search')}"
           data-h-click="${H((el,ev)=>doSearch())}">\u{1F50D}</button>
       </div>
       <div id="sres"></div></div>`;
@@ -78,7 +78,7 @@ async function searchView(){
 // and was told "no results" in English.
 async function doSearch(){
   const q=val('sq'); const el=document.getElementById('sres');
-  if(q.length<2){ el.innerHTML=`<p class="muted">${esc(t('searchmin'))}</p>`; return; }
+  if(q.length<2){ el.innerHTML=`<p class="muted">${t('searchmin')}</p>`; return; }
   const r=await api('/api/search?q='+encodeURIComponent(q));
   const res=r.ok?r.json.results:[];
   el.innerHTML = res.length
@@ -87,7 +87,7 @@ async function doSearch(){
         <td class="${x.type==='file'?'mono':''}">${esc(x.title||'')}${(x.key&&x.key!==x.title)?`<div class="muted mono" style="font-size:12px">${esc(x.key)}</div>`:''}</td>
         <td class="muted">${esc(x.snippet||'')}</td>
         <td>${x.type==='file'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>repoDownload((x.id),(x.title||'')))}">${t('download')}</button>`:''}</td></tr>`).join('')+`</tbody></table>`
-    : `<p class="muted">${esc(t('noresults'))}</p>`;
+    : `<p class="muted">${t('noresults')}</p>`;
 }
 // `render` awaits at several points (two rounds of fetches, then the tab's own).
 // Anything that changes S while one is in flight — logout nulling S.me is the

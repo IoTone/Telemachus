@@ -2318,6 +2318,59 @@ try {
   }
   pageErrors.length = errMark;   // the refusals above were the point of the test
 
+  // ── a translation cannot be markup (#282 item 3) ────────────────────────────
+  // A catalog string is somebody's translation, approved in the Localize tab and
+  // exported to disk, and `t()` used to hand it to innerHTML as written. This is
+  // a question about what the console COMPUTES, so it is asked at runtime (§3c's
+  // rule): every string is given a tag and an entity, every tab the operator
+  // can see is rendered, and two things must hold on each —
+  //   * nothing from a string became an ELEMENT, and
+  //   * nothing shows an entity as text, which is what escaping TWICE looks like
+  //     (`esc(t(…))`, or `t(…)` handed to a helper that escapes its own label).
+  // It covers each tab as it first renders plus the shell and the sign-in view;
+  // a card that only opens on a click is not reached, and that is stated.
+  step('a translation cannot be markup');
+  const poison = await page.evaluate(async () => {
+    const saved = S.cat, savedTab = S.tab, out = [];
+    const bad = {};
+    for (const k in saved) bad[k] = saved[k] + ' <i class="tmx-poison">&amp;</i>';
+    const look = (where, root) => {
+      const injected = root.querySelectorAll('.tmx-poison').length;
+      // a sample of each, so a failure names the string rather than the tab
+      const twice = /&lt;i class|&amp;amp;|&quot;tmx-poison/, samples = [];
+      let doubled = 0;
+      const note = (kind, txt) => { doubled++; const i = txt.search(twice);
+        if (samples.length < 4) samples.push(kind + ': ' + txt.slice(Math.max(0, i - 40), i + 12)); };
+      const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = walk.nextNode(); n; n = walk.nextNode())
+        if (twice.test(n.nodeValue)) note('text', n.nodeValue);
+      for (const el of root.querySelectorAll('*'))
+        for (const a of el.attributes)
+          if (twice.test(a.value)) note(el.tagName.toLowerCase() + '@' + a.name, a.value);
+      const reached = root.textContent.includes('<i class="tmx-poison">');
+      out.push({ where, injected, doubled, reached, samples });
+    };
+    S.cat = bad;
+    try {
+      for (const tab of visibleTabs()) {
+        S.tab = tab; await renderTab();
+        look(tab, document.getElementById('main'));
+      }
+      const d = document.createElement('div');
+      d.innerHTML = appShell(); look('shell', d);
+      d.innerHTML = authView(); look('sign-in', d);
+    } finally { S.cat = saved; S.tab = savedTab; await renderTab(); }
+    return out;
+  });
+  const bad1 = poison.filter(x => x.injected), bad2 = poison.filter(x => x.doubled);
+  ok('the check reached every view (the marked strings are on screen as text)',
+    poison.length > 8 && poison.every(x => x.reached),
+    JSON.stringify(poison.filter(x => !x.reached).map(x => x.where)));
+  ok('no translated string becomes an element, on any tab',
+    bad1.length === 0, JSON.stringify(bad1));
+  ok('…and none is escaped twice',
+    bad2.length === 0, JSON.stringify(bad2));
+
   step('sign out and sign back in');
   await page.evaluate(() => window.logout());
   ok('signed out to the sign-in screen',

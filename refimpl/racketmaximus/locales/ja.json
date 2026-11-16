@@ -4772,6 +4772,14 @@
       "text": "空欄のままにすると保存済みのものを維持します",
       "hash": "92ccaa633f110fa42b383ec2a73611be074b8f07"
     },
+    "ui.mlpwplain": {
+      "text": "暗号化されずに保存",
+      "hash": "0663fd45dfe3e171ecb9e85f749469207575ae5e"
+    },
+    "ui.mlpwplainhint": {
+      "text": "このインスタンスには TMACH_SECRET_KEY が設定されていないか、鍵を設定する前にパスワードが保存されたため、リレーのパスワードはデータベースに平文で保存されています。鍵を設定して再起動し、telemachus-secrets rewrap を実行してください。",
+      "hash": "780e70d15c84b46c1882bc7518ebbf4e51a00444"
+    },
     "ui.mlport": {
       "text": "ポート",
       "hash": "fe035157cda20b361ce30613e29b5d6f1a46b5fc"

@@ -47,17 +47,17 @@ function helpPaint(){
   const st = S.help || { q: '', rep: null, asking: false };
   box.hidden = false;
   box.innerHTML = `<div class="pal-box">
-    <h3 style="margin:0 0 8px;padding:14px 16px 0">${esc(t('helptitle'))}</h3>
+    <h3 style="margin:0 0 8px;padding:14px 16px 0">${t('helptitle')}</h3>
     <div style="padding:0 16px 12px">
-      <textarea id="helpq" rows="2" placeholder="${esc(t('helpph'))}"
+      <textarea id="helpq" rows="2" placeholder="${t('helpph')}"
         data-h-input="${Hk((el) => { S.help.q = el.value; })}"
         data-h-keydown="${Hk((el, ev) => sendKey(ev, doHelpAsk))}"
         >${esc(st.q)}</textarea>
       <button class="btn sm" ${st.asking ? 'disabled' : ''}
-        data-h-click="${Hk(() => doHelpAsk())}">${esc(st.asking ? t('helpasking') : t('helpsend'))}</button>
+        data-h-click="${Hk(() => doHelpAsk())}">${esc(st.asking ? tRaw('helpasking') : tRaw('helpsend'))}</button>
     </div>
     <div id="helpout" style="padding:0 16px 12px;max-height:48vh;overflow:auto">${helpBody(st.rep)}</div>
-    <div class="pal-foot muted">${esc(t('helpclose'))}</div></div>`;
+    <div class="pal-foot muted">${t('helpclose')}</div></div>`;
 }
 
 // WHAT A REFUSAL LOOKS LIKE IS THE HALF THAT MATTERS, so each closed reason has
@@ -78,7 +78,7 @@ function helpBody(rep){
   if (!rep) return '';
   const reason = rep.reason || null;
   const note = reason && HELP_REASON_KEY[reason]
-    ? `<div class="bx-warn">${esc(t(HELP_REASON_KEY[reason]))}</div>` : '';
+    ? `<div class="bx-warn">${esc(tRaw(HELP_REASON_KEY[reason]))}</div>` : '';
   // The ANSWER is Markdown-ish prose, so it goes through the editor's renderer
   // rather than a second one — ED-4's escape-first rule is what makes it safe,
   // and a second renderer here would be the drift this console already paid for.
@@ -87,7 +87,7 @@ function helpBody(rep){
   // The passage NUMBER rides on each citation, so the `[2]` the answer carries
   // in its prose resolves to a line the reader can see (HELP-23).
   const cites = (rep.citations || []).length
-    ? `<div class="help-sec">${esc(t('helpsources'))}</div><ul class="help-cites">${
+    ? `<div class="help-sec">${t('helpsources')}</div><ul class="help-cites">${
         rep.citations.map(c => `<li>${c.index ? `<span class="muted">[${c.index}]</span> ` : ''}<span class="mono">${esc(c.path)}</span>${
           c.heading ? ' — ' + esc(c.heading) : ''}</li>`).join('')}</ul>` : '';
   // THE PASSAGES ARE SHOWN WHENEVER THERE ARE NO CITATIONS TO SHOW, which is a
@@ -103,7 +103,7 @@ function helpBody(rep){
   // whenever the citations are empty: `content_search: false`'s posture, report
   // what did not run and keep what did.
   const passages = (!(rep.citations || []).length && (rep.passages || []).length)
-    ? `<div class="help-sec">${esc(t('helpread'))}</div>${
+    ? `<div class="help-sec">${t('helpread')}</div>${
         rep.passages.map((p, i) => `<div class="help-p"><div class="mono muted">[${i + 1}] ${esc(p.path)}${
           p.heading ? ' — ' + esc(p.heading) : ''}</div><div>${
           esc(p.text.slice(0, 400))}…</div></div>`).join('')}` : '';
@@ -136,7 +136,7 @@ async function doHelpAsk(){
     // the toast every other call in this console uses.
     const r = await api('/api/help', { method: 'POST', body: { question: q } });
     if (r.ok) S.help.rep = r.json;
-    else { S.help.rep = null; toast((r.json && r.json.error) || t('helpfailed')); }
+    else { S.help.rep = null; toast((r.json && r.json.error) || tRaw('helpfailed')); }
   } catch (e) {
     toast(String((e && e.message) || e));
   } finally {

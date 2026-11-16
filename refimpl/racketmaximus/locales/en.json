@@ -1343,6 +1343,10 @@
       "text": "Background",
       "hash": "64dd60fe1a049fe6db3eb1369dec2e42bf428e21"
     },
+    "ui.mlpwplain": {
+      "text": "stored unencrypted",
+      "hash": "0663fd45dfe3e171ecb9e85f749469207575ae5e"
+    },
     "ui.jobunclaimedshort": {
       "text": "unclaimed",
       "hash": "4f24d75496e51eddcda170d8fa47b49f5034a85d"
@@ -3738,6 +3742,10 @@
     "doc.route.get.api.jobs.id": {
       "text": "One job with its result or error, and `waiting` if the platform is holding it (see GET /api/jobs).",
       "hash": "2e572acb3d944828286221241530d36698f6ee9d"
+    },
+    "ui.mlpwplainhint": {
+      "text": "This instance has no TMACH_SECRET_KEY, or the password was saved before one was set, so the relay password is in the database in the clear. Set the key, restart, and run telemachus-secrets rewrap.",
+      "hash": "780e70d15c84b46c1882bc7518ebbf4e51a00444"
     },
     "ui.sessionsec": {
       "text": "Session security",
