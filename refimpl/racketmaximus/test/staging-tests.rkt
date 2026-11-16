@@ -168,7 +168,7 @@
   (define-values (conn p tid) (seed!))
   (define uid (staging-begin! conn p "a.bin" "application/octet-stream"))
   (define other (create-team! conn #:name "Other" #:slug "other"))
-  (define bob (create-user! conn #:username "bob" #:password "pw"))
+  (define bob (create-user! conn #:username "bob" #:password "pw-fixture-1"))
   (add-member! conn #:team other #:user bob #:role "owner")
   (define pb (user-principal conn bob other))
   (check-false (staging-row conn pb uid) "another team's upload id is a miss")
@@ -183,7 +183,7 @@
   (define-values (conn p tid) (seed!))
   (define uid (staging-begin! conn p "private/memo.txt" "text/plain" #:visibility "private"))
   (part! conn (staging-row conn p uid) 1 "for alice only")
-  (define bob (create-user! conn #:username "bob" #:password "pw"))
+  (define bob (create-user! conn #:username "bob" #:password "pw-fixture-1"))
   (add-member! conn #:team tid #:user bob #:role "owner")
   (define pb (user-principal conn bob tid))
   (check-false (staging-row conn pb uid) "a teammate's lookup of somebody else's upload is a miss")
@@ -257,7 +257,7 @@
 
 (test-case "10. beginning one needs files:write"
   (define-values (conn p tid) (seed!))
-  (define viewer (create-user! conn #:username "vera" #:password "pw"))
+  (define viewer (create-user! conn #:username "vera" #:password "pw-fixture-1"))
   (add-member! conn #:team tid #:user viewer #:role "viewer")
   (define pv (user-principal conn viewer tid))
   (check-exn #px"files:write"

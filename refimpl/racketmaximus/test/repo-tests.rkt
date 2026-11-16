@@ -43,7 +43,7 @@
   (values (user-principal conn u team) team))
 
 (define (member-of conn team username #:role [role "member"])
-  (define u (create-user! conn #:username username #:password "pw"))
+  (define u (create-user! conn #:username username #:password "pw-fixture-1"))
   (add-member! conn #:user u #:team team #:role role)
   (values (user-principal conn u team) u))
 
@@ -185,7 +185,7 @@
   (define-values (acme acme-team) (owner-of conn #:org "Acme" #:slug "acme" #:user "acme-root"))
   (define globex-org (create-org! conn #:name "Globex" #:slug "globex"))
   (define globex-team (create-team! conn #:name "Ops" #:slug "ops" #:org globex-org))
-  (define gu (create-user! conn #:username "globex-root" #:password "pw"))
+  (define gu (create-user! conn #:username "globex-root" #:password "pw-fixture-1"))
   (add-member! conn #:user gu #:team globex-team #:role "owner")
   (define globex (user-principal conn gu globex-team))
 

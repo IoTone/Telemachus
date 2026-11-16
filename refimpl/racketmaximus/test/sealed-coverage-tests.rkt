@@ -99,7 +99,7 @@
 
 (test-case "3. a rotation: rows sealed under the old key open under the new one ALONE"
   (define c (fresh))
-  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "pw"))
+  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "pw-fixture-1"))
   (define PAYLOAD-NEEDLE "levee-7 inspection, section 4")
   (define jid #f)
   ;; -- written under key A, through the real write path for a job and by hand
@@ -149,7 +149,7 @@
   ;; ENC's rule, unchanged by the longer list: sealing content costs content
   ;; search, so `rewrap` must not seal it on an instance that did not ask.
   (define c (fresh))
-  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "pw"))
+  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "pw-fixture-1"))
   (with-env* (list (cons K KEY-A) (cons K-OLD "") (cons SWITCH ""))
     (lambda ()
       (define jid (enqueue-job! c #:team tid #:user uid #:kind "chat" #:payload (hasheq 'prompt "plain")))

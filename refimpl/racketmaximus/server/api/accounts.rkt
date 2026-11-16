@@ -24,7 +24,7 @@
          (only-in "../../config.rkt" app-version app-build)
          "../../domain/authz/authz.rkt"
          (only-in "../startup.rkt" strict-startup? well-known-secret-key?)
-         (only-in "../../domain/authz/passwords.rkt" kdf-name)
+         (only-in "../../domain/authz/passwords.rkt" kdf-name password-problem)
          (only-in "../../domain/beta/antispam.rkt" make-limiter limiter-allow?)
          "../../domain/accounts/reset.rkt"
          "../../domain/accounts/invite.rkt"
@@ -133,10 +133,21 @@
     (json-response (hasheq 'timezones (available-zones))))))
 
 ;; ---- membership stewardship (issue #54) ----------------------------------------
+;; A ROLE CHANGE THAT TOUCHES `owner` IS A `roles:manage` ACT. The catalog says an
+;; `admin` manages without `roles:manage` (permissions.rkt), and `set-member-role!` takes
+;; no caller, so an admin could promote themselves to owner and reach `*:*` — the one
+;; permission the catalog says they do not have. `roles:manage` is held by `owner` only,
+;; which is also what makes it reachable instead of inert.
+(define (require-owner-change-allowed! p uid new-role)
+  (define current (member-role db-conn (principal-team-id p) uid))
+  (when (or (equal? new-role "owner") (equal? current "owner"))
+    (require-perm db-conn p "roles:manage")))
+
 (define (ep-member-role req uid)
   (with-auth req (lambda (p)
     (require-perm db-conn p "members:manage")
     (define role (fmt (read-json-body req) 'role))
+    (require-owner-change-allowed! p uid role)
     (define out (set-member-role! db-conn (principal-team-id p) uid role))
     (cond
       [(eq? out 'no-such-member) (err "no such member" 404)]
@@ -166,8 +177,10 @@
     (require-perm db-conn p "instance:manage")
     (define new (hash-ref (read-json-body req) 'new_password #f))
     (cond
-      [(or (not (string? new)) (< (string-length new) 6)) (err "new_password required (min 6)" 400)]
       [(not (query-maybe-value db-conn "SELECT id FROM users WHERE id = ?" uid)) (err "no such user" 404)]
+      ;; the TARGET account's floor, not the operator's: resetting an operator's
+      ;; password to eight characters is the case this number is for
+      [(password-problem new (password-floor db-conn uid)) => (lambda (x) (err x 400))]
       [else
        (set-password! db-conn uid new)
        ;; issue #116: this is the documented way back in for somebody a hard lock
@@ -190,30 +203,22 @@
 (define (ep-members-list req)
   (with-auth req (lambda (p)
     (define rows (query-rows db-conn
-      (string-append "SELECT u.id, u.username, m.role_key FROM memberships m "
-                     "JOIN users u ON u.id = m.user_id "
+      (string-append "SELECT u.id, u.username, m.role_key, u.email_verified_epoch, "
+                     "       EXISTS (SELECT 1 FROM email_verifications v WHERE v.user_id = u.id) "
+                     "FROM memberships m JOIN users u ON u.id = m.user_id "
                      "WHERE m.team_id = ? AND m.status = 'active' ORDER BY u.username")
       (principal-team-id p)))
+    ;; The address is NOT in the reply — a list of a team is not a mailing list —
+    ;; but whether it is proven and whether one is waiting is, because an account
+    ;; with neither cannot receive a recovery link and the administrator staring
+    ;; at it needs to know that instead of guessing.
     (json-response (hasheq 'members (for/list ([r (in-list rows)])
                                       (hasheq 'user_id (vector-ref r 0)
                                               'username (vector-ref r 1)
-                                              'role (vector-ref r 2))))))))
+                                              'role (vector-ref r 2)
+                                              'email_verified (not (sql-null? (vector-ref r 3)))
+                                              'email_pending (db-true? (vector-ref r 4)))))))))
 
-;; The team's display name and the inviter's, for the message. An invitation that
-;; will not say who sent it or what it is for is one a careful person is right to
-;; throw away, which is the ONE place this subsystem relaxes "ids, never content"
-;; — see the composer.
-(define (team-display-name team-id)
-  (define v (query-maybe-value db-conn "SELECT name FROM teams WHERE id = ?" team-id))
-  (if (and v (not (sql-null? v))) (format "~a" v) "your team"))
-
-(define (person-display-name uid)
-  (define r (query-maybe-row db-conn "SELECT display_name, username FROM users WHERE id = ?" uid))
-  (cond
-    [(not r) "An administrator"]
-    [(and (not (sql-null? (vector-ref r 0))) (not (equal? (format "~a" (vector-ref r 0)) "")))
-     (format "~a" (vector-ref r 0))]
-    [else (format "~a" (vector-ref r 1))]))
 
 ;; THE INVITATION ANSWERS WITH NO TOKEN (INVITE-1). The username form hands the
 ;; CALLER a `*:*` session for somebody else's account, which is fine for a script
@@ -221,7 +226,7 @@
 ;; chooses their own password. The one exception is an instance that cannot send
 ;; mail, where the link comes back so it can be handed over — `provision!`'s
 ;; precedent, and the alternative is an invitation nobody can act on.
-(define (invite-branch req p body email username role)
+(define (invite-branch p email username role)
   (define team (principal-team-id p))
   (define addr (format "~a" email))
   (define uname (if (and username (not (equal? (format "~a" username) ""))) (format "~a" username) addr))
@@ -237,24 +242,14 @@
                   (lambda ()
                     (invite-member! db-conn #:team team #:role role #:address addr
                                     #:username username
-                                    #:inviter (principal-user-id p)
-                                    #:inviter-name (person-display-name (principal-user-id p))
-                                    #:team-name (team-display-name team)))
+                                    #:inviter (principal-user-id p)))
                   list))
      (define uid (car res))
      (define outcome (cadr res))
      (define link (caddr res))
-     (json-response
-      (hasheq 'user_id uid 'role role 'username uname 'status "invited"
-              'invited #t
-              'queued (eq? outcome 'queued)
-              ;; The note is what stops "no transport" reading as success — the
-              ;; verification endpoint's own posture.
-              'note (if (eq? outcome 'queued)
-                        "An invitation is on its way. The account cannot sign in until it is accepted."
-                        "This instance has no email transport configured, so nothing was sent. Hand this link over yourself; it is shown once.")
-              'activation_token (or link 'null))
-      #:code 201)]))
+     ;; The reply is the DOMAIN's (`invite-answer`), so the team plane and the
+     ;; company plane cannot come to describe the same invitation differently.
+     (json-response (invite-answer uid uname role #f outcome link) #:code 201)]))
 
 ;; Send it again (INVITE-6). Without it an expired invitation leaves somebody
 ;; unreachable except through an operator's password reset, and re-posting the
@@ -269,8 +264,7 @@
                   (lambda ()
                     (resend-invitation! db-conn (format "~a" id)
                                         #:inviter (principal-user-id p)
-                                        #:inviter-name (person-display-name (principal-user-id p))
-                                        #:team-name (team-display-name (principal-team-id p))))
+                                        #:team-id (principal-team-id p)))
                   list))
      (cond
        [(equal? res '(#f)) (err "no such member" 404)]
@@ -297,19 +291,16 @@
      (define username (hash-ref body 'username #f))
      (define email (hash-ref body 'email #f))
      (define role (hash-ref body 'role "member"))
+     ;; adding somebody AS AN OWNER is the same act as promoting them to one
+     (when (equal? role "owner") (require-perm db-conn p "roles:manage"))
      (cond
        ;; AN `email` ASKS FOR AN INVITATION; its absence is today's behaviour,
        ;; byte for byte. Every fixture, smoke block and demo in this tree creates
        ;; members by username and is answered with a token, and a flag day for
        ;; them buys nothing — so the two forms live side by side and the branch
        ;; is one field.
-       [email (invite-branch req p body email username role)]
+       [email (invite-branch p email username role)]
        [(not username) (err "username or email required" 400)]
-       ;; #282 item 2: a password a caller DOES send is held to the floor a change,
-       ;; a reset and a bootstrap use. An absent one is the token-only member.
-       [(and (hash-has-key? body 'password) (not (eq? (hash-ref body 'password) 'null))
-             (reset-password-problem (hash-ref body 'password)))
-        => (lambda (pr) (err pr 400))]
        ;; #123: this went straight to `create-user!`, so a username that exists
        ;; raised the UNIQUE violation and the dispatcher turned it into a 500
        ;; carrying the INSERT. `POST /api/org/members` has always checked first
@@ -319,7 +310,14 @@
        [(query-maybe-value db-conn "SELECT id FROM users WHERE username = ?" (format "~a" username))
         (err "username already exists on this instance" 409)]
        [else
-         (define uid (create-user! db-conn #:username username #:password (hash-ref body 'password #f)))
+         ;; the ROLE decides the floor here, because the account has no membership
+         ;; yet: an admin or owner being added is held to 12 even though
+         ;; `create-user!` can only see "a new account"
+         (define pw (hash-ref body 'password #f))
+         (when pw
+           (define pw-problem (password-problem pw (password-floor-for-role db-conn role)))
+           (when pw-problem (err pw-problem 400)))
+         (define uid (create-user! db-conn #:username username #:password pw))
          (add-member! db-conn #:user uid #:team (principal-team-id p) #:role role)
          (audit! db-conn #:action "member.add" #:actor-type "user" #:actor-id (principal-user-id p)
                 #:team-id (principal-team-id p) #:resource-type "user" #:resource-id uid)
@@ -530,7 +528,11 @@
     [(redeem-throttled? (client-ip-of req))
      (err "too many attempts from this address — wait a few minutes" 429)]
     [(not tok) (err "token required" 400)]
-    [(reset-password-problem (and (string? pw) pw)) => (lambda (p) (err p 400))]
+    ;; the BASELINE only, because this lookup has no account yet — the link is
+    ;; what identifies one. `reset-password!` applies the account's own floor
+    ;; (12 for an operator) BEFORE it spends the link, so a weak password here is
+    ;; refused twice rather than burning an hour-long reset.
+    [(password-problem (and (string? pw) pw)) => (lambda (p) (err p 400))]
     [else
      (define res (call-with-values
                   (lambda () (reset-password! db-conn #:token (format "~a" tok) #:password pw))
@@ -675,7 +677,10 @@
     (define new (hash-ref b 'new_password #f))
     (cond
       [(or (not cur) (not new)) (err "current_password and new_password required" 400)]
-      [(< (string-length new) 6) (err "new password too short (min 6)" 400)]
+      ;; the caller's OWN floor: 12 when this account can change somebody else's
+      ;; credential, 8 otherwise. `set-password!` applies the same rule, so this
+      ;; check buys a message rather than the enforcement.
+      [(password-problem new (password-floor db-conn (principal-user-id p))) => (lambda (x) (err x 400))]
       [(change-password! db-conn (principal-user-id p) cur new)
        ;; every session the old password could have minted goes, INCLUDING this
        ;; one: the caller signs in again. Issuing a fresh token here instead would

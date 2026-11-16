@@ -19,7 +19,11 @@ Run from `refimpl/racketmaximus` with `export PLTCOLLECTS="$(pwd)/pkgs:"`.
 - [ ] `raco test test/*-tests.rkt` — unit tests pass (see CONTRIBUTING for the list)
 - [ ] `bash test/server-smoke.sh` passes
 - [ ] Localization gate passes if surfaces changed:
-      `racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt --required en`
+      `racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt static/ui-strings.json ../../docs/reference/strings.json --required en,ja`
+- [ ] Generated reference is current if a route, tool, workflow or plugin listing changed:
+      `racket cli/telemachus-docs.rkt render && racket cli/telemachus-docs.rkt render --locale ja && racket cli/telemachus-docs.rkt check`
+- [ ] Config-reference gate passes if a `TMACH_*` variable was added or removed:
+      `bash scripts/check-config-reference.sh`
 - [ ] E2E tour passes if the UI changed: `bash test/e2e/run.sh`
 - [ ] New API endpoints enforce RBAC (`require-perm` / `can?`); new tools register a permission
 - [ ] New user-facing strings are localized (no bare literals in `surface/`)

@@ -2577,6 +2577,45 @@
       (exec* conn "ALTER TABLE jobs ADD COLUMN progress_done INTEGER")
       (exec* conn "ALTER TABLE jobs ADD COLUMN progress_total INTEGER"))))
 
+(define m-0076-plugin-seals
+  (migration "0076-plugin-seals"
+    (lambda (conn)
+      ;; SEAL-1: the ledger of columns a plugin seals under the platform key.
+      ;;
+      ;; The rotation CLI carries a hardcoded list, so a plugin that sealed a
+      ;; column had no way to be walked and the row became unopenable the day
+      ;; TMACH_SECRET_KEY_OLD was dropped. A plugin now declares `(provide
+      ;; secrets)` and the loader validates it; this table is the part that
+      ;; survives the plugin being UNINSTALLED, which is the case an in-memory
+      ;; registry cannot serve: its table is still in the database and its rows
+      ;; still need rotating.
+      ;;
+      ;; WRITTEN AT BOOT, NEVER DELETED. `last_seen_epoch` moves while a plugin
+      ;; still declares the column, so `status` can name a row whose plugin is
+      ;; gone instead of silently ignoring it.
+      ;;
+      ;; `context_template` is the authority's data, not a convenience: the
+      ;; platform spells an AAD `<column>:<id>`, and a plugin may have spelled
+      ;; it `<table>.<id>.<column>`. Recomposing the wrong one fails the GCM tag
+      ;; and `rewrap` stops on the first row, so the declaration carries the
+      ;; template the rows were written under.
+      ;;
+      ;; Plugin rows only (`plugin_id` NOT NULL): the platform's own 25 columns
+      ;; stay in the CLI's lists, where the coverage test compares them with the
+      ;; declarations.
+      (exec* conn (string-append
+                   "CREATE TABLE plugin_seals ("
+                   "  plugin_id TEXT NOT NULL,"
+                   "  tbl TEXT NOT NULL,"
+                   "  col TEXT NOT NULL,"
+                   "  id_columns TEXT NOT NULL,"
+                   "  context_template TEXT NOT NULL,"
+                   "  form TEXT NOT NULL DEFAULT 'text',"
+                   "  first_seen_epoch INTEGER NOT NULL,"
+                   "  last_seen_epoch INTEGER NOT NULL,"
+                   "  PRIMARY KEY (tbl, col))"))
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_plugin_seals_plugin ON plugin_seals (plugin_id)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2588,4 +2627,4 @@
                              m-0068-note-tags m-0069-email
                              m-0070-token-purpose m-0071-research-sources
                              m-0072-mail-verify-tls m-0073-note-format
-                             m-0074-note-links m-0075-job-progress))
+                             m-0074-note-links m-0075-job-progress m-0076-plugin-seals))

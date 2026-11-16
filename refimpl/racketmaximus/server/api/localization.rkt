@@ -13,6 +13,7 @@
 
 (require (only-in racket/path path-has-extension?)
          racket/list
+         web-server/http                   ; response/output + make-header
          web-kit
          (only-in "../../domain/authz/authz.rkt" audit! principal-team-id principal-user-id require-perm)
          (only-in "../../domain/i18n/policy.rkt" i18n-policy i18n-policy-set! resolve-locale)
@@ -20,7 +21,7 @@
          (only-in "../../domain/i18n/manager.rkt" l10n-coverage l10n-discard-machine! l10n-export l10n-import! l10n-list l10n-locales l10n-review! l10n-submit!)
          (only-in "../../domain/quota/quota.rkt" quota-check)
          (only-in "../../domain/sched/scheduler.rkt" enqueue-job!)
-         (only-in "../../domain/i18n/i18n.rkt" localizer-catalogs localizer-fallback t)
+         (only-in "../../domain/i18n/i18n.rkt" ui-catalog-etag ui-catalog-json)
          "../kit.rkt")
 
 ;; PUBLIC — and it has to be. The console's own strings live in the same catalogs
@@ -33,19 +34,52 @@
 ;; a second request: a locale that has 40% of its strings gets the other 60% in
 ;; English from the same reply. A miss on every catalog is simply absent, and the
 ;; console shows the key — visibly, not silently.
+;;
+;; MEMOISED AND REVALIDATED (#282 item 6). This is the instance's most-visited
+;; unauthenticated route — the console fetches it on every page load and the
+;; sign-in screen fetches it before anybody has a token — and it used to parse
+;; every catalog on disk and merge them per request. The merge and its freshness
+;; stamp live in `domain/i18n/i18n.rkt`, next to the loader they call, so they
+;; can be tested without a server (#123's rule, and the reason this handler is
+;; now only the HTTP half).
+;;
+;; NO RATE LIMITER HERE, deliberately: a 429 on this route strips every label
+;; from every screen, including the sign-in form an operator would use to fix it.
+;; The amplification SEC-13 recorded is answered by not doing the work twice,
+;; which is what a cache is; a cap would answer it by breaking the product.
+;;
+;; `max-age=300` is the number the static files already use, and it has one
+;; consequence worth stating: an operator who exports a catalog and reloads may
+;; see the previous strings for up to five minutes, because the browser will not
+;; revalidate before then. A reload after the restart the export message asks for
+;; is usually past it; the Export button is the case that would want `no-cache`,
+;; and that is its own decision rather than one to take here.
 (define (ep-i18n-catalog req)
   (define want (let ([q (query-param req "locale" "")])
                  (if (string=? q "") (accept-language req) q)))
   (define loc (resolve-locale db-conn (locales-dir) want))
-  (define L (localizer-for loc))
-  (define msgs
-    (for*/fold ([acc (hasheq)])
-               ([l (in-list (localizer-fallback L))]
-                [(k v) (in-hash (hash-ref (localizer-catalogs L) l (hash)))]
-                #:when (and (> (string-length k) 3) (string=? (substring k 0 3) "ui."))
-                #:unless (hash-has-key? acc (string->symbol k)))
-      (hash-set acc (string->symbol k) v)))
-  (json-response (hasheq 'locale loc 'messages msgs)))
+  (define body (ui-catalog-json (locales-dir) loc))
+  (define tag (ui-catalog-etag body))
+  (define headers
+    (list (make-header #"Cache-Control" #"public, max-age=300")
+          (make-header #"ETag" (string->bytes/utf-8 tag))
+          ;; VARY, because `?locale=` is the only part of this request that is in
+          ;; the URL. A caller that omits it is answered from a header or from
+          ;; the instance default, so a shared cache keyed on the URL alone would
+          ;; hand a Japanese body to an English reader.
+          (make-header #"Vary" #"Accept-Language, X-Telemachus-Locale")
+          (make-header #"X-Content-Type-Options" #"nosniff")))
+  (define inm (req-header req #"if-none-match"))
+  (cond
+    ;; 304: the caller already has exactly this body. No body is written, which
+    ;; is what makes it a 304 rather than a 200 that happens to be cheap.
+    [(and inm (string=? inm tag))
+     (response/output #:code 304 #:headers headers (lambda (out) (void)))]
+    [else
+     (response/output #:code 200
+                      #:mime-type #"application/json; charset=utf-8"
+                      #:headers headers
+                      (lambda (out) (write-bytes (string->bytes/utf-8 body) out)))]))
 
 ;; ---- instance localization (Admin > Localization) ------------------------------
 ;; Read rides on the PUBLIC /api/config; the write is `instance:manage`, exactly

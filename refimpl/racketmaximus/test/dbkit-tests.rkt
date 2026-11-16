@@ -7,7 +7,19 @@
 ;; raco test test/dbkit-tests.rkt
 
 (require rackunit db-kit            ; postgres-params, redact-db-url
-         db-kit/portable)  ; pg-rewrite
+         db-kit/portable)  ; pg-rewrite, db-true?
+
+;; A boolean EXPRESSION in a SELECT list is 1/0 on SQLite and #t/#f on PostgreSQL. Reading one with
+;; `(= 1 …)` therefore answers false on the deployment that runs Postgres, silently. This is the value
+;; reader that both member lists use, and the case that would have caught `email_pending` never being
+;; true on a Postgres box.
+(test-case "db-true?: a boolean expression reads the same on both dialects"
+  (check-true (db-true? 1))
+  (check-false (db-true? 0))
+  (check-true (db-true? #t))
+  (check-false (db-true? #f))
+  (check-false (db-true? "1"))      ; an unexpected type is not a true
+  (check-false (db-true? (void))))
 
 (test-case "pg-rewrite: ? -> $n, skipping quoted string literals"
   (check-equal? (pg-rewrite "SELECT * FROM t WHERE a = ? AND b = ?")

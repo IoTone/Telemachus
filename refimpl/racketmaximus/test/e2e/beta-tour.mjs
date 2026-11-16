@@ -33,7 +33,7 @@ try {
   await page.waitForSelector('#lu', { timeout: 10000 });
   await page.click('summary:has-text("First run")');
   await page.fill('#bu', 'alice');
-  await page.fill('#bp', 's3cret');
+  await page.fill('#bp', 's3cret-enough');
   await shot(page, '02-first-run', 'Setup: create the operator',
     'Staff reach the team behind the funnel via "Team sign-in". On a fresh instance the first run bootstraps the operator/owner (RBAC-5) — the person who will vet inbound prospects — and creates the internal team that owns the pipeline.');
   await page.evaluate(() => window.doBootstrap());
@@ -73,7 +73,7 @@ try {
   await page.click('a:has-text("Team sign-in")');
   await page.waitForSelector('#lu', { timeout: 10000 });
   await page.fill('#lu', 'alice');
-  await page.fill('#lp', 's3cret');
+  await page.fill('#lp', 's3cret-enough');
   await page.evaluate(() => window.doLogin());
   await page.waitForSelector('nav.tabs', { timeout: 15000 });
   let judged = false;

@@ -5,6 +5,9 @@
 
 (require rackunit
          racket/runtime-path
+         racket/file                    ; make-temporary-file, delete-directory/files
+         racket/string                  ; string-contains?
+         json                           ; write-json, for the catalog fixtures
          "../domain/i18n/icu.rkt"
          "../domain/i18n/catalog.rkt"
          "../domain/i18n/i18n.rkt"
@@ -78,3 +81,108 @@
   (define-values (tforms violations) (analyze-file bad-fixture))
   (check-equal? (length violations) 1)
   (check-equal? (hash-ref (car violations) 'text) "Unlocalized!"))
+
+;; ---- #282 item 6: the console's catalog, memoised and revalidated ------------
+;; `GET /api/i18n/catalog` is public and fetched on every page load, and it used
+;; to parse every catalog on disk per request. A memo is only safe WITH a
+;; freshness key — an operator who exports a catalog has to see it — so the two
+;; halves are one decision and are tested together. Both live in
+;; `domain/i18n/i18n.rkt`, not in the handler, so this needs no server: #123's
+;; rule, where a test that required `server/kit.rkt` passed everywhere and failed
+;; in CI's sqlite leg alone.
+(define (ui-cat-dir)
+  (make-temporary-file "tmach-ui-cat-~a" 'directory))
+
+(define (write-ui-catalog! dir locale pairs)
+  (call-with-output-file (build-path dir (string-append locale ".json"))
+    #:exists 'replace
+    (lambda (o)
+      (write-json (hasheq 'meta (hasheq 'locale locale)
+                          ;; SYMBOL keys: a jsexpr object is keyed by symbol, and
+                          ;; `write-json` refuses a string key outright
+                          'messages (for/hash ([p (in-list pairs)])
+                                      (values (string->symbol (car p))
+                                              (hasheq 'text (cadr p) 'hash "h"))))
+                  o))))
+
+(define (with-ui-cats pairs-en pairs-ja body)
+  (define dir (ui-cat-dir))
+  (dynamic-wind
+    void
+    (lambda ()
+      (write-ui-catalog! dir "en" pairs-en)
+      (write-ui-catalog! dir "ja" pairs-ja)
+      (body dir))
+    (lambda () (delete-directory/files dir))))
+
+(test-case "ui catalog: the chain is merged in one document, ui.* only"
+  (with-ui-cats
+   '(("ui.hello" "Hello") ("ui.only-en" "English only") ("notes.saved" "Note saved."))
+   '(("ui.hello" "こんにちは") ("ui.blank" ""))
+   (lambda (dir)
+     (define body (ui-catalog-json dir "ja"))
+     (check-true (string-contains? body "\"ui.hello\""))
+     (check-true (string-contains? body "こんにちは") "the ja hit")
+     (check-true (string-contains? body "English only") "…and the en fallback in the SAME reply")
+     (check-true (string-contains? body "\"locale\":\"ja\""))
+     (check-false (string-contains? body "notes.saved")
+                  "the console's document carries the ui. namespace, not the server's")
+     ;; an EMPTY target text falls through to English, and where English has no
+     ;; string either it is simply absent — the console shows the key, visibly
+     (check-false (string-contains? body "ui.blank"))
+     ;; THE BODY IS ASSEMBLED BY HAND so that its keys can be sorted, which makes
+     ;; "is it still JSON" a thing to assert rather than to assume: parse it back
+     ;; and read a value out.
+     (define parsed (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr body)))
+     (check-true (and (hash? parsed) #t) "the document parses as JSON")
+     (check-equal? (hash-ref (hash-ref parsed 'messages) 'ui.only-en) "English only")
+     ;; …and the keys are in SORTED order, which is what keeps the ETag stable
+     ;; across processes (a hasheq's iteration order is not)
+     (check-true (regexp-match? #px"\"ui\\.hello\":.*\"ui\\.only-en\":" body)))))
+
+(test-case "ui catalog: the same request is answered from the memo"
+  (with-ui-cats '(("ui.hello" "Hello")) '(("ui.hello" "こんにちは"))
+    (lambda (dir)
+      (define a (ui-catalog-json dir "ja"))
+      (define b (ui-catalog-json dir "ja"))
+      (check-equal? a b)
+      ;; `eq?`, not `equal?`: a rebuild allocates a NEW string, so identity is
+      ;; what says the memo answered rather than that two merges agreed. Without
+      ;; this the test passes against a version that parses every catalog twice.
+      (check-true (eq? a b) "the second request is answered from the memo")
+      (check-equal? (ui-catalog-etag a) (ui-catalog-etag (ui-catalog-json dir "ja")))
+      ;; a QUOTED strong validator: a bare digest is not an ETag any cache
+      ;; compares, and `GET /api/repo-obj/:id/content` sends the quoted form too
+      (check-true (and (regexp-match? #px"^\"[0-9a-f]{40}\"$" (ui-catalog-etag a)) #t)))))
+
+(test-case "ui catalog: an edited catalog invalidates both the body and its ETag"
+  ;; THE HALF A CACHE WITHOUT A FRESHNESS KEY WOULD BREAK. `POST /api/l10n/export`
+  ;; writes a catalog; without this the operator exports, reloads, and reads the
+  ;; strings they just replaced.
+  (with-ui-cats '(("ui.hello" "Hello")) '(("ui.hello" "こんにちは"))
+    (lambda (dir)
+      (define before (ui-catalog-json dir "ja"))
+      (define tag (ui-catalog-etag before))
+      (write-ui-catalog! dir "ja" '(("ui.hello" "こんにちは、世界")))
+      (define after (ui-catalog-json dir "ja"))
+      (check-false (equal? before after) "the export is visible on the next request")
+      (check-true (string-contains? after "こんにちは、世界"))
+      (check-false (string=? tag (ui-catalog-etag after))
+                   (string-append "a client holding the old ETag must be sent the new body,"
+                                  " not answered 304"))
+      ;; …and the OLD tag no longer matches the new document, which is exactly the
+      ;; comparison the handler makes against `If-None-Match`
+      (check-false (string=? tag (ui-catalog-etag (ui-catalog-json dir "ja")))))))
+
+(test-case "ui catalog: a second directory is a second key"
+  ;; The smoke and e2e suites point TMACH_LOCALES at a temp copy inside ONE
+  ;; process, so a memo keyed only on the locale would answer from the checkout's
+  ;; catalogs and the suite would pass against strings it never wrote.
+  (with-ui-cats '(("ui.hello" "Hello")) '(("ui.hello" "こんにちは"))
+    (lambda (dir-a)
+      (with-ui-cats '(("ui.hello" "Hello")) '(("ui.hello" "別の文字列"))
+        (lambda (dir-b)
+          (define a (ui-catalog-json dir-a "ja"))
+          (define b (ui-catalog-json dir-b "ja"))
+          (check-false (equal? a b))
+          (check-true (string-contains? b "別の文字列")))))))

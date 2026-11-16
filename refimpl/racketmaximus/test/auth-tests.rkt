@@ -60,8 +60,8 @@
                  (bytes->hex (pbkdf2-hmac-sha1 (string->bytes/utf-8 pw) salt 100000 20))))
 
 (test-case "an old SHA-1 hash still verifies, and is named for re-hashing"
-  (define old (legacy-sha1-hash "s3cret"))
-  (check-true (verify-password "s3cret" old))
+  (define old (legacy-sha1-hash "s3cret-enough"))
+  (check-true (verify-password "s3cret-enough" old))
   (check-false (verify-password "nope" old))
   (check-true (password-needs-rehash? old))
   ;; a SHA-256 row below today's count is behind too; one above it is left alone
@@ -71,17 +71,17 @@
 
 (test-case "signing in moves an old hash forward; a wrong password moves nothing"
   (define c (fresh))
-  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret"))
-  (define old (legacy-sha1-hash "s3cret"))
+  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret-enough"))
+  (define old (legacy-sha1-hash "s3cret-enough"))
   (query-exec c "UPDATE users SET password_hash = ? WHERE id = ?" old uid)
   (define (stored) (query-value c "SELECT password_hash FROM users WHERE id = ?" uid))
   (check-false (authenticate c "alice" "nope"))
   (check-equal? (stored) old)                                    ; untouched by a failure
-  (check-equal? (authenticate c "alice" "s3cret") uid)
+  (check-equal? (authenticate c "alice" "s3cret-enough") uid)
   (check-true (string-prefix? (stored) "pbkdf2_sha256$"))        ; moved forward
   (check-false (password-needs-rehash? (stored)))
   (define after (stored))
-  (check-equal? (authenticate c "alice" "s3cret") uid)           ; and still signs in
+  (check-equal? (authenticate c "alice" "s3cret-enough") uid)           ; and still signs in
   (check-equal? (stored) after)                                  ; once, not every time
   (check-false (authenticate c "alice" "nope")))
 
@@ -90,22 +90,22 @@
 
 (test-case "authenticate: password, then 2FA required"
   (define c (fresh))
-  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret"))
-  (check-equal? (authenticate c "alice" "s3cret") uid)
+  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret-enough"))
+  (check-equal? (authenticate c "alice" "s3cret-enough") uid)
   (check-false (authenticate c "alice" "nope"))
   (check-false (authenticate c "ghost" "x"))
   (check-equal? (first-team-for c uid) tid)
   ;; enable 2FA: password alone is no longer enough; a valid TOTP code is
   (define-values (secret _uri _codes) (enable-2fa! c uid))
-  (check-false (authenticate c "alice" "s3cret"))                    ; missing code
+  (check-false (authenticate c "alice" "s3cret-enough"))                    ; missing code
   (define code (totp (base32-decode secret) (current-seconds) 30 6))
-  (check-equal? (authenticate c "alice" "s3cret" #:code code) uid))
+  (check-equal? (authenticate c "alice" "s3cret-enough" #:code code) uid))
 
 ;; ---- recovery codes (issue #26) -----------------------------------------------
 
 (test-case "a recovery code signs in when the authenticator is gone, once"
   (define c (fresh))
-  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret"))
+  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret-enough"))
   (define-values (secret _uri codes) (enable-2fa! c uid))
   ;; enrolling hands out the way back in at the same time
   (check-equal? (length codes) RECOVERY-CODE-COUNT)
@@ -113,21 +113,21 @@
   (check-true (for/and ([x (in-list codes)]) (regexp-match? #px"^[a-z0-9]{5}-[a-z0-9]{5}$" x)))
   (check-equal? (length (remove-duplicates codes)) RECOVERY-CODE-COUNT "…and they are distinct")
   ;; a TOTP code still works, and does not spend anything
-  (check-equal? (authenticate c "alice" "s3cret" #:code (totp (base32-decode secret) (current-seconds) 30 6)) uid)
+  (check-equal? (authenticate c "alice" "s3cret-enough" #:code (totp (base32-decode secret) (current-seconds) 30 6)) uid)
   (check-equal? (recovery-codes-remaining c uid) RECOVERY-CODE-COUNT)
   ;; the authenticator is gone: a recovery code takes its place
   (define one (car codes))
-  (check-equal? (authenticate c "alice" "s3cret" #:code one) uid)
+  (check-equal? (authenticate c "alice" "s3cret-enough" #:code one) uid)
   (check-equal? (recovery-codes-remaining c uid) (sub1 RECOVERY-CODE-COUNT) "…and is spent")
   ;; single use: the same code does not work twice
-  (check-false (authenticate c "alice" "s3cret" #:code one))
+  (check-false (authenticate c "alice" "s3cret-enough" #:code one))
   ;; …while the others still do
-  (check-equal? (authenticate c "alice" "s3cret" #:code (cadr codes)) uid)
+  (check-equal? (authenticate c "alice" "s3cret-enough" #:code (cadr codes)) uid)
   ;; a code is typed off paper: case and dashes are forgiven, nothing else is
-  (check-equal? (authenticate c "alice" "s3cret" #:code (string-upcase (caddr codes))) uid)
-  (check-equal? (authenticate c "alice" "s3cret"
+  (check-equal? (authenticate c "alice" "s3cret-enough" #:code (string-upcase (caddr codes))) uid)
+  (check-equal? (authenticate c "alice" "s3cret-enough"
                               #:code (regexp-replace #rx"-" (cadddr codes) "")) uid)
-  (check-false (authenticate c "alice" "s3cret" #:code "aaaaa-bbbbb") "a code nobody issued")
+  (check-false (authenticate c "alice" "s3cret-enough" #:code "aaaaa-bbbbb") "a code nobody issued")
   ;; the password is still required — a code is a second factor, not a way past the first
   (check-false (authenticate c "alice" "wrong" #:code (list-ref codes 4)))
   (check-equal? (recovery-codes-remaining c uid) (- RECOVERY-CODE-COUNT 4)
@@ -136,25 +136,25 @@
 
 (test-case "re-issuing replaces the outstanding set; a reset takes the codes with it"
   (define c (fresh))
-  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret"))
+  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret-enough"))
   (define-values (_s _u codes) (enable-2fa! c uid))
   (define fresh-set (issue-recovery-codes! c uid))
   (check-equal? (recovery-codes-remaining c uid) RECOVERY-CODE-COUNT)
-  (check-false (authenticate c "alice" "s3cret" #:code (car codes)) "the old set is dead")
-  (check-equal? (authenticate c "alice" "s3cret" #:code (car fresh-set)) uid)
+  (check-false (authenticate c "alice" "s3cret-enough" #:code (car codes)) "the old set is dead")
+  (check-equal? (authenticate c "alice" "s3cret-enough" #:code (car fresh-set)) uid)
   ;; a reset revokes the seed AND the codes — they exist to open that second factor
   (check-true (reset-2fa! c uid))
   (check-equal? (recovery-codes-remaining c uid) 0)
-  (check-equal? (authenticate c "alice" "s3cret") uid "2FA is off")
+  (check-equal? (authenticate c "alice" "s3cret-enough") uid "2FA is off")
   ;; enrolling again issues a new set, and the old codes stay dead
   (define-values (_s2 _u2 codes2) (enable-2fa! c uid))
-  (check-false (authenticate c "alice" "s3cret" #:code (cadr fresh-set)))
-  (check-equal? (authenticate c "alice" "s3cret" #:code (car codes2)) uid)
+  (check-false (authenticate c "alice" "s3cret-enough" #:code (cadr fresh-set)))
+  (check-equal? (authenticate c "alice" "s3cret-enough" #:code (car codes2)) uid)
   (disconnect c))
 
 (test-case "codes are stored as hashes, not as codes"
   (define c (fresh))
-  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret"))
+  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret-enough"))
   (define-values (_s _u codes) (enable-2fa! c uid))
   (define stored (query-list c "SELECT code_hash FROM user_recovery_codes WHERE user_id = ?" uid))
   (check-equal? (length stored) RECOVERY-CODE-COUNT)
@@ -163,7 +163,7 @@
     (check-false (for/or ([h (in-list stored)]) (regexp-match? (regexp (regexp-quote code)) h))
                  "the code itself is not in the row"))
   ;; a spent code keeps its row, so "already used" stays distinguishable in an audit
-  (authenticate c "alice" "s3cret" #:code (car codes))
+  (authenticate c "alice" "s3cret-enough" #:code (car codes))
   (check-equal? (query-value c "SELECT COUNT(*) FROM user_recovery_codes WHERE user_id = ?" uid)
                 RECOVERY-CODE-COUNT)
   (check-equal? (query-value c "SELECT COUNT(*) FROM user_recovery_codes WHERE user_id = ? AND used_at IS NOT NULL" uid) 1)

@@ -165,7 +165,8 @@ instance deployed by following it.
   unset PW
   ```
 
-Both routes refuse a password under six characters. Keep the two passwords out of
+Both routes refuse a short password: under 12 characters for the operator,
+under 8 for a member. Keep the two passwords out of
 shell history and out of this file; change one later in the UI (**Team → Change
 your password**) or with `POST /api/password`.
 

@@ -32,7 +32,7 @@
 (define (team-of c)
   (seed-builtin-roles! c)
   (define t (create-team! c #:name "Req Log" #:slug "reqlog"))
-  (define u (create-user! c #:username "rl" #:password "pw"))
+  (define u (create-user! c #:username "rl" #:password "pw-fixture-1"))
   (add-member! c #:user u #:team t #:role "owner")
   (values t u (user-principal c u t)))
 
@@ -223,7 +223,7 @@
   (define c (fresh))
   (define-values (t u p) (team-of c))
   (log-one! c p)
-  (define m (create-user! c #:username "mem" #:password "pw"))
+  (define m (create-user! c #:username "mem" #:password "pw-fixture-1"))
   (add-member! c #:user m #:team t #:role "member")
   (define mp (user-principal c m t))
   (check-exn #rx"audit:read" (lambda () (model-requests-for c mp)))
@@ -237,7 +237,7 @@
   (for ([i (in-range 2)]) (log-one! c p #:executor "b"))
   ;; another team's rows are never in the answer, whatever the filter says
   (define t2 (create-team! c #:name "Other" #:slug "other"))
-  (define u2 (create-user! c #:username "oth" #:password "pw"))
+  (define u2 (create-user! c #:username "oth" #:password "pw-fixture-1"))
   (add-member! c #:user u2 #:team t2 #:role "owner")
   (define p2 (user-principal c u2 t2))
   (log-one! c p2 #:executor "a")

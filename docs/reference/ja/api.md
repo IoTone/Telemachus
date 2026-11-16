@@ -92,13 +92,16 @@ A machine-readable form of this same table is [openapi.json](openapi.json) (Open
 | POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | role | — | 組織レベルのクォータを設定；チームはその下に配置されます |
 | GET | `/api/orgs/:ref` | superadmin | `instance:manage` | role | — | 1つの会社、そのチームとクォータ。 |
 | PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | role | — | 会社の名前を変更する、プランを変更する（そのプランの上限を再適用します）、および／またはホスト名を設定する（{domain}、null でクリア）：そのホストで配信されるコンソールは、サインイン前から会社のブランディングをまといます（TEN-2d）。 |
+| POST | `/api/admin/users/:id/tokens` | bearer | `instance:manage` | role | — | サービスアカウント用のマシントークンを発行します：{name?, scopes?, ttl?}。ttl は秒数か "never" です。監視プローブ、ハーベスト、バックアップはサインインしないうえ、`POST /api/tokens` は呼び出した本人のために発行するので、これがなければ、そのようなアカウントが長寿命のトークンを持つ唯一の方法は、自分自身が `settings:manage` を持つことでした。監査には、発行した運用者と、そのトークンが代弁するアカウントの両方が記録されます。運用者アカウントは拒否されます。運用者はサインインして `POST /api/tokens` を使います。 |
 | POST | `/api/admin/users/:id/password` | bearer | `instance:manage` | role | — | サインインできず、メールも受け取れないユーザーのパスワードを設定します：{new_password} — 確認済みのアドレスがない場合や、送信手段が設定されていないインスタンスの場合です。そのユーザーのセッションは失効します。メールが使える環境では POST /api/password-reset がセルフサービスの経路であり、運用者を必要としません。 |
 | POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | role | — | 既知の開発用パスワードで Acme と Globex を投入する — デモ用の固定データのみ。 |
 | GET | `/api/org` | org-admin | `org:read` | role | — | 呼び出し元の会社 |
 | GET | `/api/org/teams` | org-admin | `org:read` | role | — | 呼び出し元の会社のチーム。 |
 | POST | `/api/org/teams` | org-admin | `org:manage` | role | — | 呼び元の会社でチームを作成します。 |
 | POST | `/api/org/teams/:ref/quota` | org-admin | `org:manage` | role | — | 組織管理プレーンから単一チームのクォータ上限を設定する（issue #113）: 呼び出し元自身の会社に属するチームを id または slug で指定し、{dimension, limit, window?} を渡します。チーム層の POST /api/quota は常に呼び出し元自身のチームにしか設定しないため、これがないと複数チームを管理する組織管理者はチームごとにトークンを持つ必要がありました。会社外のチームは 404 を返します — この呼び出し元にとっては存在しません。 |
-| POST | `/api/org/members` | org-admin | `org:manage` | role | — | 呼び出し元の会社のチームに人物を追加します。オプションで組織ロール（org_admin, org_owner, org_reader）も指定できます。 |
+| GET | `/api/org/members` | org-admin | `org:manage` | role | — | 呼び出し元の会社の人物一覧です（org 管理者向け）。各行に組織ロール、チームロール、メールアドレスが確認済みか保留中かが入ります。アドレス自体はこの応答に含まれず、どちらのフラグも復旧手段ではありません。確認済みのアドレスがない人はパスワード再設定のリンクを受け取れず、管理者はこの一覧でそれを見つけられます。 |
+| POST | `/api/org/members` | org-admin | `org:manage` | role | — | 呼び出し元の会社のチームに人物を追加します。オプションで組織ロール（org_admin、org_owner、org_reader）も指定できます。チーム側と同じ二つの形式があります。username ではアカウントが作成され、応答はこれまでどおりそのアカウントの *:* セッションを返します。email では招待になり、応答にセッションは含まれません。アカウントは invited で作成され、アドレスは承諾まで保留となり、リンクがメールで送られます。承諾するとアカウントが有効になり、アドレスも確認済みになります。招待された org_admin は承諾時に org_admin になります。メール送信の設定がないインスタンスでは、リンクが一度だけ返るので手渡しできます。 |
+| POST | `/api/org/members/:id/invite` | org-admin | `org:manage` | role | — | まだ承諾していないメンバーに会社の招待を再送します。チーム側ルートの会社版です。組織管理者は通常、その人物が加わるチームのメンバーではないため、このルートが必要になります。別の会社のメンバーには 404 を返します。 |
 | PATCH | `/api/org/members/:id` | org-admin | `org:manage` | role | — | 人の組織ロールを設定またはクリアする — 既存ユーザーを org_reader にする方法（TEN-2h）。自分自身には不可。 |
 | GET | `/api/org/audit` | org-admin | `org:read` | role | — | 会社の監査ログ。 |
 | GET | `/api/org/retention` | org-admin | `org:read` | role | — | 会社自身の保持ルール（#86 r3）。組織は自社のデータについてインスタンスが許す期間を短縮できますが、延長はできません。 |
@@ -305,30 +308,30 @@ A machine-readable form of this same table is [openapi.json](openapi.json) (Open
 
 ## Plugin routes
 
-Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. **Auth** is the route's own declaration. `bearer` — the default, and every route before G13 — needs a session or API token, and the permission, when named, is checked before the plugin's handler runs. `public` needs no credential at all: the handler gets no principal, so it has no team context and no `can?`, and it must read no team data unless the route carries something that identifies the team itself. A public route is still subject to the platform's request limits, and it is declared in the plugin's route table — never inferred from a path. Matched after the core routes above.
+Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. **Auth** is the route's own declaration. `bearer` — the default, and every route before G13 — needs a session or API token. Its permission, when named, is checked by the platform before the handler runs unless the route declares the `resource` scope, in which case the plugin's handler decides who may use the one object the route names and must refuse on its own — `Checked` says which of the two it is. `public` needs no credential at all: the handler gets no principal, so it has no team context and no `can?`, and it must read no team data unless the route carries something that identifies the team itself. A public route is still subject to the platform's request limits, and it is declared in the plugin's route table — never inferred from a path. Matched after the core routes above.
 
-| Method | Path | Plugin | Auth | Permission | Description |
-|---|---|---|---|---|---|
-| GET | `/api/x/example-tools/word-count` | `example-tools` | bearer | `chat:use` | ?text= の単語数を数える。 |
-| POST | `/api/x/example-tools/word-count` | `example-tools` | bearer | `chat:use` | {text} の単語数を数える。 |
-| GET | `/api/x/example-tools/ping` | `example-tools` | public | — | 公開のヘルスチェックです。トークンもプリンシパルも不要で、プレーンテキスト `pong` を返します。ルート表で public と宣言されており、チームのデータは読みません。 |
-| GET | `/api/x/feeds/queue` | `feeds` | bearer | `files:read` | チームのフィード作業キュー。優先度の高い順、次に期限の近い順。?status= は open\|claimed\|done\|dropped\|all（既定：対応中の 2 つ）、?feed= はフィードのスラッグ、?skill= は 1 つのスキル、?limit= と ?offset= でページングします。各行は参照先のドキュメントに対してあらためて権限確認されるので、件数は「そこにある数」ではなく「呼び出し側が読める数」です。 |
-| POST | `/api/x/feeds/items/:id/status` | `feeds` | bearer | `files:read` | キューの 1 件を別の状態へ移します：{"status": "claimed"}。オブジェクト ID はインスタンス全体で一意なので、ドキュメントに加えて行そのもののチームでも保護しています。 |
-| POST | `/api/x/inbox/items` | `inbox` | bearer | `inbox:write` | 項目を登録するか、登録し直します。`{source, key, title, severity?: critical\|high\|normal\|low, kind?, scope?, body?, url?, data?, revision?}`。生きた行は `(source, key)` ごとにひとつです。同じ revision は証拠だけを更新し、異なる revision は内容を置き換えて、確認済みまたはスヌーズ中の項目を open に戻します。解決済みのキーは新しい行として開きます。応答はどれだったかを返し、outcome は created、reopened、refreshed、revised、resurfaced のいずれかです。 |
-| POST | `/api/x/inbox/items/batch` | `inbox` | bearer | `inbox:write` | 最大100件の項目をひとつのトランザクションで登録または再登録します。すべて成功するか、すべて失敗するかのどちらかです。`{items: [{source, key, title, severity?, kind?, scope?, body?, url?, data?, revision?}]}` を渡します。応答は `{key, outcome}` を順に返します。指摘を一ページ分まとめて登録する呼び出し側が、部分的に成功することはありません。 |
-| GET | `/api/x/inbox/items` | `inbox` | bearer | `inbox:read` | チームの受信箱を、重要度の高い順、次に待ち時間の長い順で返します。`?state=` は open\|acknowledged\|snoozed\|suppressed\|resolved のいずれか、カンマ区切りの複数、または all（既定は open と acknowledged）です。ほかに `?severity=`、`?source=`、`?kind=`、`?scope=`（完全一致のスコープ・ラベル）、`?scope_prefix=`（その接頭辞で始まるすべてのラベル）、`?limit=`/`?offset=` を使えます。期限が過ぎたスヌーズは open として返ります。 |
-| GET | `/api/x/inbox/items/:id` | `inbox` | bearer | `inbox:read` | ひとつの項目とそのイベントを、起きた順の番号付きで返します。誰がいつ確認したか、そのときのメモ、すべての改訂と自動復帰を含みます。 |
-| POST | `/api/x/inbox/items/:id/ack` | `inbox` | bearer | `inbox:write` | 未対応の項目を確認済みにします。`{note?}` を渡します。誰かが内容を見て対応中であることを示し、項目は受信箱に残りますが、対応待ちとしては数えません。生産側から新しい revision が届くと open に戻ります。 |
-| POST | `/api/x/inbox/items/:id/snooze` | `inbox` | bearer | `inbox:write` | 指定した時刻まで項目を隠します。`{until: エポック秒, 最大90日先まで, note?}` を渡します。時刻を過ぎると open に戻ります。 |
-| POST | `/api/x/inbox/items/:id/suppress` | `inbox` | bearer | `inbox:write` | 終了時刻を定めずに項目を静かに保ちます。`{note?}` を渡します。生産側が登録し続けても、証拠が動いても、項目が呼び戻されることはありません。戻すには再オープンします。 |
-| POST | `/api/x/inbox/items/:id/reopen` | `inbox` | bearer | `inbox:write` | 確認済み、スヌーズ中、抑止中の項目を open に戻します。 |
-| POST | `/api/x/inbox/items/:id/resolve` | `inbox` | bearer | `inbox:write` | 項目を確定して閉じます。`{note?}` を渡します。解決済みは終端の状態です。同じ `(source, key)` が後から登録されると、次の occurrence を持つ新しい行になります。 |
-| GET | `/api/x/inbox/digest` | `inbox` | bearer | `inbox:read` | チーム全体またはひとつのスコープについて、まず何を見るかを返します。状態ごとの件数、重要度ごとの未対応件数、最も古い未対応項目の待ち時間、上位のいくつかです。`?scope=` は完全一致のラベル、`?scope_prefix=` はその配下を示します。解決済みの項目は数えません。 |
-| GET | `/api/x/integrator-demo/eta` | `integrator-demo` | bearer | `chat:use` | ?lane= で指定したレーンの推定日数。 |
-| POST | `/api/x/integrator-demo/eta` | `integrator-demo` | bearer | `chat:use` | {lane} の推定日数。 |
-| GET | `/api/x/matrix/rooms` | `matrix` | bearer | `webhooks:manage` | このチームの Matrix ルーム購読、絞り込みに使えるイベント名、そしてこのインスタンスにホームサーバーが設定されているかどうかを返します。 |
-| POST | `/api/x/matrix/rooms` | `matrix` | bearer | `webhooks:manage` | ルームへ通知します: {room_id, events?, label?, user_id?}。room_id は Matrix のルーム ID（`!abc:example.org`）で、エイリアスは受け付けません。ボットがあらかじめそのルームに参加している必要があります。 |
-| PATCH | `/api/x/matrix/rooms/:id` | `matrix` | bearer | `webhooks:manage` | 購読の `events`、`label`、`active` を変更します。 |
-| DELETE | `/api/x/matrix/rooms/:id` | `matrix` | bearer | `webhooks:manage` | ルームへの通知をやめます。 |
-| POST | `/api/x/matrix/rooms/:id/test` | `matrix` | bearer | `webhooks:manage` | テスト通知を送ります。実際の通知とまったく同じジョブを通ります。 |
+| Method | Path | Plugin | Auth | Permission | Checked | Description |
+|---|---|---|---|---|---|---|
+| GET | `/api/x/example-tools/word-count` | `example-tools` | bearer | `chat:use` | role | ?text= の単語数を数える。 |
+| POST | `/api/x/example-tools/word-count` | `example-tools` | bearer | `chat:use` | role | {text} の単語数を数える。 |
+| GET | `/api/x/example-tools/ping` | `example-tools` | public | — | — | 公開のヘルスチェックです。トークンもプリンシパルも不要で、プレーンテキスト `pong` を返します。ルート表で public と宣言されており、チームのデータは読みません。 |
+| GET | `/api/x/feeds/queue` | `feeds` | bearer | `files:read` | role | チームのフィード作業キュー。優先度の高い順、次に期限の近い順。?status= は open\|claimed\|done\|dropped\|all（既定：対応中の 2 つ）、?feed= はフィードのスラッグ、?skill= は 1 つのスキル、?limit= と ?offset= でページングします。各行は参照先のドキュメントに対してあらためて権限確認されるので、件数は「そこにある数」ではなく「呼び出し側が読める数」です。 |
+| POST | `/api/x/feeds/items/:id/status` | `feeds` | bearer | `files:read` | role | キューの 1 件を別の状態へ移します：{"status": "claimed"}。オブジェクト ID はインスタンス全体で一意なので、ドキュメントに加えて行そのもののチームでも保護しています。 |
+| POST | `/api/x/inbox/items` | `inbox` | bearer | `inbox:write` | role | 項目を登録するか、登録し直します。`{source, key, title, severity?: critical\|high\|normal\|low, kind?, scope?, body?, url?, data?, revision?}`。生きた行は `(source, key)` ごとにひとつです。同じ revision は証拠だけを更新し、異なる revision は内容を置き換えて、確認済みまたはスヌーズ中の項目を open に戻します。解決済みのキーは新しい行として開きます。応答はどれだったかを返し、outcome は created、reopened、refreshed、revised、resurfaced のいずれかです。 |
+| POST | `/api/x/inbox/items/batch` | `inbox` | bearer | `inbox:write` | role | 最大100件の項目をひとつのトランザクションで登録または再登録します。すべて成功するか、すべて失敗するかのどちらかです。`{items: [{source, key, title, severity?, kind?, scope?, body?, url?, data?, revision?}]}` を渡します。応答は `{key, outcome}` を順に返します。指摘を一ページ分まとめて登録する呼び出し側が、部分的に成功することはありません。 |
+| GET | `/api/x/inbox/items` | `inbox` | bearer | `inbox:read` | role | チームの受信箱を、重要度の高い順、次に待ち時間の長い順で返します。`?state=` は open\|acknowledged\|snoozed\|suppressed\|resolved のいずれか、カンマ区切りの複数、または all（既定は open と acknowledged）です。ほかに `?severity=`、`?source=`、`?kind=`、`?scope=`（完全一致のスコープ・ラベル）、`?scope_prefix=`（その接頭辞で始まるすべてのラベル）、`?limit=`/`?offset=` を使えます。期限が過ぎたスヌーズは open として返ります。 |
+| GET | `/api/x/inbox/items/:id` | `inbox` | bearer | `inbox:read` | role | ひとつの項目とそのイベントを、起きた順の番号付きで返します。誰がいつ確認したか、そのときのメモ、すべての改訂と自動復帰を含みます。 |
+| POST | `/api/x/inbox/items/:id/ack` | `inbox` | bearer | `inbox:write` | role | 未対応の項目を確認済みにします。`{note?}` を渡します。誰かが内容を見て対応中であることを示し、項目は受信箱に残りますが、対応待ちとしては数えません。生産側から新しい revision が届くと open に戻ります。 |
+| POST | `/api/x/inbox/items/:id/snooze` | `inbox` | bearer | `inbox:write` | role | 指定した時刻まで項目を隠します。`{until: エポック秒, 最大90日先まで, note?}` を渡します。時刻を過ぎると open に戻ります。 |
+| POST | `/api/x/inbox/items/:id/suppress` | `inbox` | bearer | `inbox:write` | role | 終了時刻を定めずに項目を静かに保ちます。`{note?}` を渡します。生産側が登録し続けても、証拠が動いても、項目が呼び戻されることはありません。戻すには再オープンします。 |
+| POST | `/api/x/inbox/items/:id/reopen` | `inbox` | bearer | `inbox:write` | role | 確認済み、スヌーズ中、抑止中の項目を open に戻します。 |
+| POST | `/api/x/inbox/items/:id/resolve` | `inbox` | bearer | `inbox:write` | role | 項目を確定して閉じます。`{note?}` を渡します。解決済みは終端の状態です。同じ `(source, key)` が後から登録されると、次の occurrence を持つ新しい行になります。 |
+| GET | `/api/x/inbox/digest` | `inbox` | bearer | `inbox:read` | role | チーム全体またはひとつのスコープについて、まず何を見るかを返します。状態ごとの件数、重要度ごとの未対応件数、最も古い未対応項目の待ち時間、上位のいくつかです。`?scope=` は完全一致のラベル、`?scope_prefix=` はその配下を示します。解決済みの項目は数えません。 |
+| GET | `/api/x/integrator-demo/eta` | `integrator-demo` | bearer | `chat:use` | role | ?lane= で指定したレーンの推定日数。 |
+| POST | `/api/x/integrator-demo/eta` | `integrator-demo` | bearer | `chat:use` | role | {lane} の推定日数。 |
+| GET | `/api/x/matrix/rooms` | `matrix` | bearer | `webhooks:manage` | role | このチームの Matrix ルーム購読、絞り込みに使えるイベント名、そしてこのインスタンスにホームサーバーが設定されているかどうかを返します。 |
+| POST | `/api/x/matrix/rooms` | `matrix` | bearer | `webhooks:manage` | role | ルームへ通知します: {room_id, events?, label?, user_id?}。room_id は Matrix のルーム ID（`!abc:example.org`）で、エイリアスは受け付けません。ボットがあらかじめそのルームに参加している必要があります。 |
+| PATCH | `/api/x/matrix/rooms/:id` | `matrix` | bearer | `webhooks:manage` | role | 購読の `events`、`label`、`active` を変更します。 |
+| DELETE | `/api/x/matrix/rooms/:id` | `matrix` | bearer | `webhooks:manage` | role | ルームへの通知をやめます。 |
+| POST | `/api/x/matrix/rooms/:id/test` | `matrix` | bearer | `webhooks:manage` | role | テスト通知を送ります。実際の通知とまったく同じジョブを通ります。 |
 

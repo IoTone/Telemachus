@@ -92,7 +92,7 @@ tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do
 done
 
 B="localhost:$PORT"
-TOK=$(curl -s -X POST "$B/api/bootstrap" -d '{"username":"ops","password":"ops-pw-pw1"}' \
+TOK=$(curl -s -X POST "$B/api/bootstrap" -d '{"username":"ops","password":"ops-pw-pw-1234"}' \
       | grep -oE '"token":"[^"]+"' | head -1 | cut -d'"' -f4)
 [ -n "$TOK" ] || { echo "no bootstrap token"; cat "$TMACH_DATA_DIR/server.log"; exit 1; }
 G(){ curl -s "$B$1" -H "Authorization: Bearer $TOK"; }

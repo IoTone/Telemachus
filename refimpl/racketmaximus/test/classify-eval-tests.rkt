@@ -306,7 +306,7 @@
 
 (test-case "the fixtures a caller may not read are not in their evaluation"
   (define-values (conn tid alice) (fresh/declared))
-  (define bob-id (create-user! conn #:username "bob" #:password "pw"))
+  (define bob-id (create-user! conn #:username "bob" #:password "pw-fixture-1"))
   (add-member! conn #:user bob-id #:team tid #:role "member")
   (define bob (user-principal conn bob-id tid))
   (expect! conn alice (up! conn alice "fix/a.txt" INVOICE-TEXT "text/plain" "private") "invoice")

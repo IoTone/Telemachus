@@ -17,13 +17,15 @@
 (require db-kit/portable
          web-kit
          (only-in "../../domain/authz/authz.rkt" SESSION-KIND bootstrap! issue-token! team-org)
+         ;; 0.13.0: ONE password floor. The endpoint applies the BASELINE here, and
+         ;; `activate!` asks the account-aware one before it spends the link.
+         (only-in "../../domain/authz/passwords.rkt" password-problem)
          (only-in "../../domain/beta/beta.rkt" default-team)
          (only-in "../../domain/beta/experience.rkt" experience-landing resolve-experience)
          (only-in "../../domain/i18n/policy.rkt" i18n-policy)
          (only-in "../../domain/saas/onboarding.rkt" activate! provision! set-tenant-quota!)
          (only-in "../../domain/quota/quota.rkt" default-policy!)
          (only-in "../../domain/authz/crypto.rkt" constant-time=?)
-         (only-in "../../domain/accounts/reset.rkt" reset-password-problem)
          (only-in "../../surface/messages.rkt" msg-already-init msg-bootstrap-done)
          "../admission.rkt"
          "../kit.rkt")
@@ -59,14 +61,6 @@
                          "or set TMACH_BOOTSTRAP_SECRET and send it as X-Telemachus-Bootstrap.")
           403)]
     [(not username) (err "username required" 400)]
-    ;; #282 item 2: the operator's password is the operator's to choose, and the
-    ;; console no longer pre-fills one, so an untouched form sends "" — which
-    ;; would mint an operator nobody can ever sign in as. A password that IS sent
-    ;; is held to the floor a change and a reset already use (one rule, three
-    ;; askers). An ABSENT one is still the scripted, token-only bootstrap.
-    [(and (hash-has-key? body 'password) (not (eq? (hash-ref body 'password) 'null))
-          (reset-password-problem (hash-ref body 'password)))
-     => (lambda (p) (err p 400))]
     [(query-maybe-value db-conn "SELECT id FROM users LIMIT 1") (err (msg-already-init) 409)]
     [else
      (define mt (multitenant?))
@@ -126,7 +120,9 @@
     [(redeem-throttled? (client-ip-of req))
      (err "too many attempts from this address — wait a few minutes" 429)]
     [(or (not tok) (not pw)) (err "token and password required" 400)]
-    [(< (string-length (format "~a" pw)) 8) (err "password must be at least 8 characters" 400)]
+    ;; the baseline; the account's own floor (12 for a role that can change other
+    ;; people's credentials) is enforced by `activate!` BEFORE it spends the link
+    [(password-problem (format "~a" pw)) => (lambda (p) (err p 400))]
     [else
      (define res (call-with-values
                   (lambda () (activate! db-conn #:token (format "~a" tok) #:password (format "~a" pw))) list))
