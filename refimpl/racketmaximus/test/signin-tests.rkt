@@ -25,7 +25,7 @@
 (define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 (define (setup)
   (define c (fresh))
-  (define-values (owner team) (bootstrap! c #:username "root" #:password "root-pass-1"))
+  (define-values (owner team) (bootstrap! c #:username "root" #:password "root-pass-12"))
   (define bob (create-user! c #:username "bob" #:password "bob-pass-1"))
   (add-member! c #:user bob #:team team #:role "member")
   (values c owner team bob))

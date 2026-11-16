@@ -51,7 +51,7 @@
          "authz.rkt")               ; hash-token
 
 (provide MAILED-TOKEN-PURPOSES mailed-token-purpose?
-         mint-mailed-token! claim-mailed-token! mailed-token-outstanding?)
+         mint-mailed-token! claim-mailed-token! mailed-token-holder mailed-token-outstanding?)
 
 ;; A CLOSED vocabulary, checked in both directions by the test: a purpose
 ;; invented in passing would arrive as a token nothing can redeem, and the two
@@ -123,6 +123,27 @@
 ;; THE PURPOSE IS IN THE `WHERE`, not checked afterwards, so a reset token
 ;; presented to the activation endpoint matches no row at all — and therefore
 ;; cannot be told from an unknown token, which is the answer a caller should get.
+;; WHOSE ACCOUNT A LINK WOULD SET A PASSWORD FOR, without spending it (0.13.0).
+;;
+;; A redemption has to know that BEFORE it claims, because the floor a password
+;; must meet depends on the ACCOUNT (12 for one that can change somebody else's
+;; credential, 8 otherwise) and a claim is single-use. Refusing a weak password
+;; after the claim burns the link, and a burned link is a lockout with no way back
+;; but an operator — which is the thing a mailed link exists to avoid.
+;;
+;; The checks are `claim-mailed-token!`'s without the UPDATE, deliberately in the
+;; same order, so a link this answers a user id for is a link that claim will
+;; accept a moment later.
+(define (mailed-token-holder conn raw #:purpose purpose)
+  (unless (mailed-token-purpose? purpose)
+    (error 'mailed-token-holder "unknown purpose: ~a" purpose))
+  (define row (token-row conn raw))
+  (and row
+       (sql-null? (vector-ref row 2))
+       (not (expired? (vector-ref row 3)))
+       (equal? (format "~a" (vector-ref row 4)) purpose)
+       (format "~a" (vector-ref row 1))))
+
 (define (claim-mailed-token! conn raw #:purpose purpose)
   (unless (mailed-token-purpose? purpose)
     (error 'claim-mailed-token! "unknown purpose: ~a" purpose))

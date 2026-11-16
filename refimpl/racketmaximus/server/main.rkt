@@ -93,7 +93,12 @@
          (only-in "../domain/ai/roles.rkt" model-role-executor)
          (only-in "../domain/agent/run.rkt" agent-configured? run-agent-flow)
          (only-in "../domain/agent/plugins.rkt" load-plugins! plugin-failures plugin-routes
-                  plugin-migrations)
+                  plugin-migrations plugin-seals plugin-csp-mode)
+         ;; 0.13.0: the policy a bundle page is served under — the console's own
+         ;; posture unless the plugin's manifest declares the escape hatch. One
+         ;; home with the manifest's closed vocabulary; see surface/csp.rkt.
+         "../surface/csp.rkt"
+         (only-in "../domain/agent/seals.rkt" record-plugin-seals!)
          ;; #121: a plugin's tables go through the platform's own runner
          (only-in db-kit/migrate migrate!)
          (only-in "../domain/mcp/connect.rkt" connect-mcp-servers!)
@@ -202,9 +207,13 @@
                        (serve-file (apply build-path impl-root "static" "console" segs)
                                    #:cache #"no-store")
                        (err "not found" 404)))
+   ;; 0.13.0: the PUBLIC landing bundle is a plugin's page too, so it carries the
+   ;; same policy the authenticated one does. A funnel is the surface a stranger
+   ;; meets first, which is the last place to leave inline script permitted.
    'bundle-file (lambda (req plugin path)
                   (define f (bundle-file-path (request-path req)))
-                  (if f (serve-file f) (err "not found" 404)))
+                  (if f (serve-file f #:headers (list (bundle-csp-header (plugin-csp-mode plugin))))
+                      (err "not found" 404)))
    ;; issue #20: authenticated, and never publicly cached. `Vary: Authorization`
    ;; so no intermediary can hand one principal's request to another.
    'plugin-bundle (lambda (req plugin path)
@@ -215,27 +224,43 @@
                     ;; Racket, so `or` alone would take it and never look at the
                     ;; cookie — which is how every sub-resource 401'd the first
                     ;; time this ran.
-                    (define ticket (let ([q (query-param req 'ticket #f)])
-                                     (or (and (string? q) (not (string=? q "")) q)
-                                         (bundle-cookie-of req))))
+                    (define query-ticket (let ([q (query-param req 'ticket #f)])
+                                           (and (string? q) (not (string=? q "")) q)))
+                    (define ticket (or query-ticket (bundle-cookie-of req)))
                     (define via-ticket (and ticket (bundle-ticket-valid? ticket plugin)))
+                    ;; 0.13.0: the ticket leaves the URL. A browser navigation to the bundle's entry
+                    ;; document carries the ticket in the query, where it survives in history, in a
+                    ;; copied link and in any Referer a page later sends. The entry document is served
+                    ;; through a 302 to the clean path with the cookie set on that response, so every
+                    ;; request after it carries the ticket in the cookie and the URL carries nothing.
+                    ;; Only the ENTRY document redirects: a sub-resource fetched with ?ticket= (a script
+                    ;; or a rehearsal probe with no cookie jar) is still served, which is the contract
+                    ;; `/api/x/:plugin/bundle/*` has always had.
+                    (define segs (filter (lambda (s) (not (string=? s "")))
+                                         (string-split (or path "") "/")))
+                    (define entry? (or (null? segs) (equal? segs (list "index.html"))))
                     (define (serve-it set-cookie?)
                       (define f (plugin-bundle-file-path plugin path))
                       (if f
                           (serve-file f #:cache #"private, no-store"
                                       #:headers (append
-                                                 (list (make-header #"Vary" #"Authorization, Cookie"))
+                                                 (list (make-header #"Vary" #"Authorization, Cookie")
+                                                       ;; 0.13.0: the STRICT bundle policy
+                                                       ;; unless this plugin's manifest asks
+                                                       ;; for the escape hatch. Set here rather
+                                                       ;; than left to the baseline, which
+                                                       ;; permits inline script.
+                                                       (bundle-csp-header (plugin-csp-mode plugin)))
                                                  (if set-cookie?
-                                                     (list (make-header
-                                                            #"Set-Cookie"
-                                                            (string->bytes/utf-8
-                                                             (format "tmx_bundle=~a; Path=/api/x/~a/bundle/; Max-Age=~a; HttpOnly; SameSite=Strict~a"
-                                                                     ticket plugin BUNDLE-TICKET-SECONDS
-                                                                     (if (tls-on?) "; Secure" "")))))
+                                                     (list (bundle-cookie-header plugin ticket))
                                                      '())))
                           (err "not found" 404)))
                     (cond
-                      [via-ticket (serve-it (and (query-param req 'ticket) #t))]
+                      [(and via-ticket query-ticket entry?)
+                       (found-to (string-append (format "/api/x/~a/bundle/" plugin)
+                                                (if (null? segs) "" (string-join segs "/")))
+                                 #:headers (list (bundle-cookie-header plugin query-ticket)))]
+                      [via-ticket (serve-it #f)]
                       [else (with-auth req (lambda (p) (serve-it #f)))]))
    'plugin-bundle-ticket (lambda (req plugin)
                            (with-auth req
@@ -283,7 +308,9 @@
    'seed-tenants ep-seed-tenants
    'my-org ep-my-org 'my-org-teams ep-my-org-teams 'my-org-team-create ep-my-org-team-create
    'my-org-team-quota ep-my-org-team-quota
-   'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role 'my-org-audit ep-my-org-audit
+   'my-org-members ep-my-org-members
+   'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role
+   'my-org-member-resend ep-my-org-member-resend 'my-org-audit ep-my-org-audit
    'email-transport-get ep-email-transport-get 'email-transport-put ep-email-transport-put
    'email-transport-delete ep-email-transport-delete 'email-transport-test ep-email-transport-test
    'email-notify-get ep-email-notify-get 'email-notify-put ep-email-notify-put
@@ -340,6 +367,7 @@
    'worker-claim ep-worker-claim 'worker-state ep-worker-state 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail 'worker-release ep-worker-release
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
+   'admin-user-token ep-admin-user-token
    'search ep-search 'audit ep-audit 'model-requests ep-model-requests
    'webhooks-list ep-webhooks-list 'webhooks-create ep-webhooks-create
    'webhook-get ep-webhook-get 'webhook-patch ep-webhook-patch 'webhook-delete ep-webhook-delete
@@ -436,6 +464,7 @@
   (set-box! PLUGIN-ROUTES
     (for/list ([r (in-list (plugin-routes))])
       (define auth (hash-ref r 'auth 'bearer))
+      (define scope (hash-ref r 'scope 'role))
       ;; Built through `R` rather than the `rt` constructor POSITIONALLY. It was
       ;; positional, and adding #110 r2's `scope` field broke plugin routes at
       ;; BOOT with an arity mismatch — which the full suite had already passed
@@ -449,6 +478,7 @@
                        ;; the behaviour cannot drift apart
                        #:auth (if (eq? auth 'public) 'public 'bearer)
                        #:perm (hash-ref r 'perm)
+                       #:scope scope
                        #:doc (hash-ref r 'doc)))
       (define perm (hash-ref r 'perm))
       (define handler (hash-ref r 'handler))
@@ -462,7 +492,10 @@
                     (plugin-route-call auth handler db-conn #f (plugin-route-args req names vals))))
                 (lambda (req . vals)
                   (with-auth req (lambda (p)
-                    (when perm (require-perm db-conn p perm))
+                    ;; a resource-scoped route weighs the permission itself, on
+                    ;; the object it serves; a role pre-check here would refuse
+                    ;; exactly the grant holder the scope exists for
+                    (when (and perm (eq? scope 'role)) (require-perm db-conn p perm))
                     (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
                       (plugin-route-call auth handler db-conn p (plugin-route-args req names vals)))))))))))
 
@@ -559,49 +592,29 @@
 ;; and tokens never, but the origin is enough for anyone), frame denial (the
 ;; console is not meant to be framed — the Tier-C funnel template is served
 ;; INTO an iframe by the console itself, same origin, which SAMEORIGIN allows),
-;; and HSTS only when the instance says it is behind TLS. A Content-Security-Policy
-;; for the console is a separate audit (it has inline scripts); the download path
-;; already sends a denying one per object. A route that sets one of these itself
-;; wins — headers already present are left alone.
-;; The console's Content-Security-Policy (issue #11 part 2, #27, and #110 r6).
+;; and HSTS only when the instance says it is behind TLS. A route that sets one of
+;; these itself wins — headers already present are left alone, which is how the
+;; console, a download and a plugin bundle each carry their own policy.
 ;;
-;; What it buys: no script, style, image, font, frame or connection from any
-;; origin but our own, no plugins, no <base> hijack, no form posting elsewhere,
-;; no framing by other origins — so an injected payload can neither load remote
-;; code nor beacon data out. Downloads keep their own, stricter, per-object CSP
-;; (a header already present wins).
+;; The console's Content-Security-Policy (issue #11 part 2, #27, and #110 r6), the
+;; baseline every other response carries, and the BUNDLE policy (0.13.0), all live
+;; in `surface/csp.rkt`. They moved out of this file because the manifest validator
+;; in domain/agent/plugins.rkt has to judge the same closed vocabulary, and a
+;; policy defined here and asked about there is a cycle out of a two-string
+;; decision. That module is also free of the connection pool, which is what lets a
+;; unit test assert the policy without a database (#123's rule).
 ;;
-;; THE CONSOLE NOW HAS NO INLINE SCRIPT AT ALL, so `script-src` is plain
-;; `'self'`. The history is worth keeping because each step depended on the one
-;; before it: the policy could not drop `'unsafe-inline'` while 141 inline event
-;; handlers existed (an attribute cannot be nonced), so #27 moved them to
-;; delegated listeners and the policy became a per-request NONCE over one inline
-;; block; #110 r6 moved that block into static/console/*.js, which `'self'`
-;; already permitted. A nonce only ever authorized OUR OWN inline script — it
-;; protects nothing on its own — so with none left it authorizes nothing and is
-;; gone. An injected inline script was blocked by the absence of
-;; `'unsafe-inline'` before and is blocked by it now.
-;;
-;; `inline?` is for the BASELINE policy every OTHER response carries, which keeps
-;; `'unsafe-inline'`: a plugin's own bundle page may legitimately ship inline
-;; script, and that page is not the console.
-;;
-;; style-src keeps `'unsafe-inline'` either way, deliberately: there are still
-;; ~250 style attributes in the console, and injected CSS is a far smaller prize
-;; than injected script. That is a separate tranche.
-(define (console-csp [inline? #f])
-  (string-append "default-src 'self'; "
-                 "script-src 'self'" (if inline? " 'unsafe-inline'" "") "; "
-                 "style-src 'self' 'unsafe-inline'; "
-                 "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
-                 "frame-src 'self' blob: data:; frame-ancestors 'self'; form-action 'self'; "
-                 "base-uri 'self'; object-src 'none'"))
-(define CONSOLE-CSP (console-csp #t))
+;; What the baseline buys: no script, style, image, font, frame or connection from
+;; any origin but our own, no plugins, no <base> hijack, no form posting
+;; elsewhere, no framing by other origins — so an injected payload can neither load
+;; remote code nor beacon data out. Downloads keep their own, stricter, per-object
+;; CSP, and a plugin bundle page gets the STRICTER bundle policy unless its
+;; manifest asks for the escape hatch; a header already present wins either way.
 (define BASE-SECURITY-HEADERS
   (list (make-header #"X-Content-Type-Options" #"nosniff")
         (make-header #"Referrer-Policy" #"strict-origin-when-cross-origin")
         (make-header #"X-Frame-Options" #"SAMEORIGIN")
-        (make-header #"Content-Security-Policy" (string->bytes/utf-8 CONSOLE-CSP))))
+        (csp-header CONSOLE-CSP)))
 (define HSTS-HEADER (make-header #"Strict-Transport-Security" #"max-age=31536000; includeSubDomains"))
 (define (with-security-headers resp)
   (define have (map header-field (response-headers resp)))
@@ -694,6 +707,22 @@
   (let ([pm (plugin-migrations)])
     (unless (null? pm)
       (migrate! db-conn pm #:log (lambda (id) (printf "  plugin migration: ~a\n" id)))))
+  ;; SEAL-1: remember the sealed columns every loaded plugin declared, so a
+  ;; rotation still walks them after the plugin is uninstalled. After the
+  ;; migrations, because the ledger table itself is one of them.
+  (define-values (sealed seal-skipped seal-changed)
+    (record-plugin-seals! db-conn (plugin-seals) (current-seconds)))
+  (when (positive? sealed)
+    (printf "  sealed columns declared by plugins: ~a\n" sealed))
+  ;; A declaration naming a table that does not exist is REPORTED, not dropped:
+  ;; a typo, or a plugin whose migration has not run, would otherwise stop being
+  ;; rotated with nothing said (SEAL-1's silent skip).
+  (for ([s (in-list seal-skipped)])
+    (printf "  sealed column NOT recorded, no such table: ~a\n" s))
+  ;; A corrected template is written over the old one; the operator still has to
+  ;; know that rows written under the previous spelling need their own pass.
+  (for ([c (in-list seal-changed)])
+    (printf "  sealed column declaration CHANGED: ~a (rows under the old context need their own rotation)\n" c))
   ;; Refuse to serve with a RELATIVE blob root. `serve/servlet` repoints
   ;; `current-directory` at the web server's own web root while it handles a
   ;; request, so a relative root aims writes at whatever that is — for a Nix

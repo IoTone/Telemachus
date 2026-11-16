@@ -48,7 +48,7 @@ async function localizeView(){
         ${write?`<button class="btn sm" data-h-click="${H((el,ev)=>l10nSave((i.message_id)))}">${t('save')}</button>`:''}
         ${canApprove?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nReview((tid),'approve'))}">${t('l10napprove')}</button>
                       <button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nReview((tid),'reject'))}">${t('l10nreject')}</button>`:''}
-        ${(review && mine && tid && i.status!=='approved')?`<span class="muted" style="font-size:12px">${esc(t('l10nself'))}</span>`:''}
+        ${(review && mine && tid && i.status!=='approved')?`<span class="muted" style="font-size:12px">${t('l10nself')}</span>`:''}
       </td></tr>`;
   }).join('');
 
@@ -58,7 +58,7 @@ async function localizeView(){
       <span class="muted" style="font-size:12px;align-self:center">${S3.offset+1}–${Math.min(S3.offset+50,total)} / ${total}</span></div>`;
 
   return `<h2>${t('localize')}</h2>
-    <p class="muted" style="margin-top:0">${esc(t('l10nhint'))}</p>
+    <p class="muted" style="margin-top:0">${t('l10nhint')}</p>
     <div class="card">
       <div class="row" style="align-items:end">
         <div style="flex:0 0 170px"><label>${t('l10ntarget')}</label>
@@ -92,7 +92,7 @@ async function localizeView(){
           <input id="l10nq" value="${esc(S3.q)}" data-h-change="${H((el,ev)=>l10nFilter('q',el.value))}"></div>
       </div>
       ${items.length? `<table><thead><tr><th>${t('l10nkey')}</th><th>${t('l10nsource')}</th><th>${t('l10ntranslation')}</th><th>${t('l10nstatus')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>${pager}`
-                    : `<p class="muted">${esc(t('l10nnothing'))}</p>`}
+                    : `<p class="muted">${t('l10nnothing')}</p>`}
     </div>`;
 }
 function l10nSetLocale(v){ S.l10n.locale=v; S.l10n.offset=0; renderTab(); }
@@ -101,11 +101,11 @@ function l10nPage(off){ S.l10n.offset=off; renderTab(); }
 async function l10nSave(mid){
   const el=document.getElementById('l10n_'+mid); if(!el) return;
   const r=await api('/api/l10n/messages/'+mid,{method:'PUT',body:{locale:S.l10n.locale,text:el.value}});
-  if(r.ok){ toast(t('saved'),true); renderTab(); } else toast(r.json.error||'error');
+  if(r.ok){ toast(tRaw('saved'),true); renderTab(); } else toast(r.json.error||'error');
 }
 async function l10nReview(tid,decision){
   const r=await api('/api/l10n/review/'+tid,{method:'POST',body:{decision}});
-  if(r.ok){ toast(t('saved'),true); renderTab(); } else toast(r.json.error||'error');
+  if(r.ok){ toast(tRaw('saved'),true); renderTab(); } else toast(r.json.error||'error');
 }
 async function l10nImport(){
   const r=await api('/api/l10n/import',{method:'POST'});
@@ -117,9 +117,9 @@ async function l10nDraft(){
   if(r.ok){
     const b=r.json.budget||{};
     const short = typeof b.remaining==='number' && typeof b.estimate==='number' && b.estimate>b.remaining;
-    toast(t('draftqueued').replace('{n}',r.json.queued).replace('{b}',r.json.batches),true);
+    toast(tRaw('draftqueued').replace('{n}',r.json.queued).replace('{b}',r.json.batches),true);
     // Over budget, the queue just stops and looks like a hang. Say so now.
-    if(short) toast(t('draftbudget').replace('{need}',b.estimate).replace('{left}',b.remaining));
+    if(short) toast(tRaw('draftbudget').replace('{need}',b.estimate).replace('{left}',b.remaining));
   } else toast(r.json.error||'error');
 }
 async function l10nExport(){

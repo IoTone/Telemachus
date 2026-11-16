@@ -1363,6 +1363,49 @@ try {
       return pages === 20 && lo === 1 && hi === 20;
     }));
 
+  // #282 items 3 and 7. `t()` answers whatever the catalog holds — a translation
+  // is written by a person — and 475 sites interpolated that straight into a
+  // template literal, so a string containing `<` was parsed as MARKUP.
+  //
+  // Escaping is a question about what the code COMPUTES, so the half that can be
+  // answered by running it is answered here and the structure is pinned in
+  // `test/console-tests.rkt`. THE SINK IS A SHIPPED BUILDER, `pagerHTML`, not a
+  // call assembled for this test: a probe that inlines `esc(t(…))` would pass
+  // against the console this item was filed about.
+  step('a catalog string is text, wherever the console interpolates it');
+  const XSS = '<img onerror="window.__xss=1" src=x> {from}/{to}/{total}';
+  const xss = await page.evaluate((payload) => {
+    const had = Object.prototype.hasOwnProperty.call(S.cat, 'ui.qshowing');
+    const before = S.cat['ui.qshowing'];
+    S.cat['ui.qshowing'] = payload;
+    const host = document.createElement('div');
+    host.innerHTML = pagerHTML({ total: 3, size: 1, offset: 0, shown: 1, go: () => {} });
+    document.body.appendChild(host);
+    const out = {
+      img: host.querySelectorAll('img').length,
+      text: host.textContent,
+      fired: !!window.__xss,
+    };
+    host.remove();
+    delete window.__xss;
+    // PUT IT BACK, or a later assertion reads a catalog this step wrote — the
+    // fixture lesson this file has paid for twice (§3c5, §5c).
+    if (had) S.cat['ui.qshowing'] = before; else delete S.cat['ui.qshowing'];
+    out.restored = had ? S.cat['ui.qshowing'] === before : !('ui.qshowing' in S.cat);
+    return out;
+  }, XSS);
+  ok('the catalog string reaches the DOM as TEXT', xss.text.includes('<img onerror="window.__xss=1" src=x>'),
+    JSON.stringify(xss.text.slice(0, 120)));
+  eq('…so no img element was created', xss.img, 0);
+  // THIS ONE CANNOT BITE WHILE THE CONSOLE'S CSP STANDS, and the control proved
+  // it: with the escaping reverted the `img` was really created and this still
+  // passed, because `script-src 'self'` refused the inline handler and logged
+  // the refusal. It is kept as the second layer's evidence — the day somebody
+  // adds `'unsafe-inline'` the escaping becomes the only thing left, and this is
+  // what would say so.
+  eq('…and nothing ran an event handler', xss.fired, false);
+  ok('…and the catalog is put back for the steps after this one', xss.restored, JSON.stringify(xss));
+
   // THE PROPERTY THE REPORT WAS ABOUT: a refresh must not re-render the tab.
   // `renderTab()` bumps `renderSeq` and paints a `…` placeholder first, so if a
   // filter change went through it the sequence would move and the screen would
@@ -2317,6 +2360,59 @@ try {
        `status ${self.status} ${JSON.stringify(self.json)}`);
   }
   pageErrors.length = errMark;   // the refusals above were the point of the test
+
+  // ── a translation cannot be markup (#282 item 3) ────────────────────────────
+  // A catalog string is somebody's translation, approved in the Localize tab and
+  // exported to disk, and `t()` used to hand it to innerHTML as written. This is
+  // a question about what the console COMPUTES, so it is asked at runtime (§3c's
+  // rule): every string is given a tag and an entity, every tab the operator
+  // can see is rendered, and two things must hold on each —
+  //   * nothing from a string became an ELEMENT, and
+  //   * nothing shows an entity as text, which is what escaping TWICE looks like
+  //     (`esc(t(…))`, or `t(…)` handed to a helper that escapes its own label).
+  // It covers each tab as it first renders plus the shell and the sign-in view;
+  // a card that only opens on a click is not reached, and that is stated.
+  step('a translation cannot be markup');
+  const poison = await page.evaluate(async () => {
+    const saved = S.cat, savedTab = S.tab, out = [];
+    const bad = {};
+    for (const k in saved) bad[k] = saved[k] + ' <i class="tmx-poison">&amp;</i>';
+    const look = (where, root) => {
+      const injected = root.querySelectorAll('.tmx-poison').length;
+      // a sample of each, so a failure names the string rather than the tab
+      const twice = /&lt;i class|&amp;amp;|&quot;tmx-poison/, samples = [];
+      let doubled = 0;
+      const note = (kind, txt) => { doubled++; const i = txt.search(twice);
+        if (samples.length < 4) samples.push(kind + ': ' + txt.slice(Math.max(0, i - 40), i + 12)); };
+      const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = walk.nextNode(); n; n = walk.nextNode())
+        if (twice.test(n.nodeValue)) note('text', n.nodeValue);
+      for (const el of root.querySelectorAll('*'))
+        for (const a of el.attributes)
+          if (twice.test(a.value)) note(el.tagName.toLowerCase() + '@' + a.name, a.value);
+      const reached = root.textContent.includes('<i class="tmx-poison">');
+      out.push({ where, injected, doubled, reached, samples });
+    };
+    S.cat = bad;
+    try {
+      for (const tab of visibleTabs()) {
+        S.tab = tab; await renderTab();
+        look(tab, document.getElementById('main'));
+      }
+      const d = document.createElement('div');
+      d.innerHTML = appShell(); look('shell', d);
+      d.innerHTML = authView(); look('sign-in', d);
+    } finally { S.cat = saved; S.tab = savedTab; await renderTab(); }
+    return out;
+  });
+  const bad1 = poison.filter(x => x.injected), bad2 = poison.filter(x => x.doubled);
+  ok('the check reached every view (the marked strings are on screen as text)',
+    poison.length > 8 && poison.every(x => x.reached),
+    JSON.stringify(poison.filter(x => !x.reached).map(x => x.where)));
+  ok('no translated string becomes an element, on any tab',
+    bad1.length === 0, JSON.stringify(bad1));
+  ok('…and none is escaped twice',
+    bad2.length === 0, JSON.stringify(bad2));
 
   step('sign out and sign back in');
   await page.evaluate(() => window.logout());

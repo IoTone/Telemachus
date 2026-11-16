@@ -258,7 +258,7 @@ function orgRender(src, resolved){
     // theme token and an unknown classifier backend: a directive that silently
     // does nothing is the hardest thing on a surface to diagnose.
     if (/^[ \t]*#\+INCLUDE:/i.test(l)) {
-      out.push('<p class="org-refused">' + esc(t('orgnoinclude')) + '</p>'); i++; continue;
+      out.push('<p class="org-refused">' + t('orgnoinclude') + '</p>'); i++; continue;
     }
     if ((m = l.match(/^[ \t]*#\+TITLE:[ \t]*(.*)$/i))) {
       out.push('<h1 class="org-title">' + orgInline(m[1].trim(), resolved) + '</h1>'); i++; continue;
@@ -394,8 +394,8 @@ function edSetFormat(key, fmt){
   const x = document.getElementById('edexp_' + key);
   if (x) {
     const org = fmt === 'org';
-    x.textContent = t(org ? 'edexportorg' : 'edexport');
-    x.title = t(org ? 'edexportorghint' : 'edexporthint');
+    x.textContent = tRaw(org ? 'edexportorg' : 'edexport');
+    x.title = tRaw(org ? 'edexportorghint' : 'edexporthint');
   }
   // …and anything the SURROUNDING FORM shows because of the format. ORG-12 makes
   // the Notes form's tags field depend on it, and that field is the tab's rather
@@ -412,7 +412,7 @@ function edCount(v){
   const chars = v.length;
   const words = v.trim() ? v.trim().split(/\s+/).length : 0;
   const lines = v.split('\n').length;
-  return t('edcount').replace('{words}', words).replace('{chars}', chars).replace('{lines}', lines);
+  return tRaw('edcount').replace('{words}', words).replace('{chars}', chars).replace('{lines}', lines);
 }
 // LINE NUMBERS IMPLY NO SOFT WRAP, and that is a correctness tie rather than a
 // preference. A wrapped logical line occupies several visual rows, so a gutter
@@ -480,7 +480,7 @@ function edExport(key, name){
     a.href = url; a.download = (name || 'note') + (org ? '.org' : '.md');
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
-  } catch (e) { toast(t('edexportfail')); }
+  } catch (e) { toast(tRaw('edexportfail')); }
 }
 // "Save to the repository as a document" — the issue's fourth ask, and it is
 // one existing endpoint: a text document IS a repository object since the 0022
@@ -489,9 +489,9 @@ function edExport(key, name){
 async function edToRepo(key, titleId){
   const title = (document.getElementById(titleId) || {}).value || '';
   const content = edRead(key);
-  if (!content.trim()) { toast(t('edempty')); return; }
+  if (!content.trim()) { toast(tRaw('edempty')); return; }
   const r = await api('/api/documents', { method: 'POST', body: { title: title || t('untitled'), content, visibility: 'team' } });
-  if (r.ok) toast(t('edsaved'), true); else toast((r.json && r.json.error) || 'error');
+  if (r.ok) toast(tRaw('edsaved'), true); else toast((r.json && r.json.error) || 'error');
 }
 // The toolbar and the two panes. `key` scopes every id, so two editors on one
 // screen cannot collide.
@@ -515,20 +515,20 @@ function editorHTML(key, opts){
   // are repository objects with a content type and no `format` column, so the
   // control would be a switch with nowhere to save to.
   const fmtSel = opts.formats
-    ? `<span class="ed-seg"><select class="ed-fmt" id="edfmt_${key}" aria-label="${esc(t('orgformat'))}"
+    ? `<span class="ed-seg"><select class="ed-fmt" id="edfmt_${key}" aria-label="${t('orgformat')}"
         data-h-change="${H((el) => edSetFormat(key, el.value))}">${
-        opts.formats.map(f => `<option value="${esc(f)}"${f === st.fmt ? ' selected' : ''}>${esc(t('fmt' + f))}</option>`).join('')
+        opts.formats.map(f => `<option value="${esc(f)}"${f === st.fmt ? ' selected' : ''}>${esc(tRaw('fmt' + f))}</option>`).join('')
       }</select></span>` : '';
   const bar = `<div class="ed-bar">
-    <span class="ed-seg">${seg('off', t('edwrite'))}${seg('side', t('edsplit'))}${seg('only', t('edpreview'))}</span>
-    <span class="ed-seg">${tog('nums', t('ednums'))}${
-      p.nums ? `<button class="btn sm ghost" disabled title="${esc(t('edwraphint'))}">${esc(t('edwrap'))}</button>`
-             : tog('wrap', t('edwrap'))}${tog('mono', t('edmono'))}</span>
+    <span class="ed-seg">${seg('off', tRaw('edwrite'))}${seg('side', tRaw('edsplit'))}${seg('only', tRaw('edpreview'))}</span>
+    <span class="ed-seg">${tog('nums', tRaw('ednums'))}${
+      p.nums ? `<button class="btn sm ghost" disabled title="${t('edwraphint')}">${t('edwrap')}</button>`
+             : tog('wrap', tRaw('edwrap'))}${tog('mono', tRaw('edmono'))}</span>
     ${fmtSel}
     <span class="sp" style="flex:1"></span>
     <span class="muted" id="edcount_${key}" style="font-size:12px">${esc(edCount(v))}</span>
     <button class="btn sm ghost" data-h-click="${H(() => edZen(key, !st.zen))}"
-      title="${esc(t('edzenhint'))}">${st.zen ? esc(t('edleavezen')) : esc(t('edzen'))}</button>
+      title="${t('edzenhint')}">${st.zen ? t('edleavezen') : t('edzen')}</button>
   </div>`;
   const nums = p.nums ? `<pre class="ed-nums" id="ednums_${key}" aria-hidden="true">${esc(edGutter(v))}</pre>` : '';
   const ta = `<textarea class="ed-ta${p.mono ? ' mono' : ''}" id="${esc(st.el)}" rows="${p.nums ? edRows(v, 8) : (opts.rows || 10)}"

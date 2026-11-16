@@ -26,9 +26,9 @@ async function researchView(){
       <td><b>${esc(s.title && s.title !== 'null' ? s.title : s.url)}</b>
         <div class="muted mono" style="font-size:12px">${esc(s.url)}</div>
         ${s.note && s.note !== 'null' ? `<div class="muted" style="font-size:12px">${esc(s.note)}</div>` : ''}</td>
-      <td>${s.archived ? `<span class="badge run">${esc(t('rs_archived'))}</span>`
-                       : `<span class="badge bad">${esc(t('rs_notarchived'))}</span>`}
-        ${s.last_error && s.last_error !== 'null' ? `<div class="muted" style="font-size:12px" title="${esc(s.last_error)}">${esc(t('rs_lasterror'))}</div>` : ''}</td>
+      <td>${s.archived ? `<span class="badge run">${t('rs_archived')}</span>`
+                       : `<span class="badge bad">${t('rs_notarchived')}</span>`}
+        ${s.last_error && s.last_error !== 'null' ? `<div class="muted" style="font-size:12px" title="${esc(s.last_error)}">${t('rs_lasterror')}</div>` : ''}</td>
       <td>${jobWhen({ created_epoch: s.last_ok_epoch })}</td>
       <td style="white-space:nowrap">
         <button class="btn sm ghost" data-h-click="${H(() => rsOpen(s.id))}">${t('details')}</button>
@@ -66,7 +66,7 @@ async function rsCreate(){
       body: { url, title: val('rstitle') || undefined, note: val('rsnote') || undefined } });
     if(!r.ok){ toast(r.json.error || 'error'); return; }
     const f = r.json.fetched || {};
-    toast(f.ok === false ? t('rs_fetchfailed') : t('created'), f.ok !== false);
+    toast(f.ok === false ? tRaw('rs_fetchfailed') : tRaw('created'), f.ok !== false);
     S.rs.sel = r.json.source ? r.json.source.id : (r.json.id || null);
     S.rs.ent = null;
     renderTab();
@@ -80,15 +80,15 @@ async function rsFetch(id){
   const r = await api('/api/research/' + encodeURIComponent(id) + '/fetch', { method: 'POST' });
   if(!r.ok){ toast(r.json.error || 'error'); return; }
   const f = r.json.fetched || {};
-  toast(!f.ok ? t('rs_fetchfailed') : (f.unchanged ? t('rs_unchanged') : t('rs_newversion')), !!f.ok);
+  toast(!f.ok ? tRaw('rs_fetchfailed') : (f.unchanged ? tRaw('rs_unchanged') : tRaw('rs_newversion')), !!f.ok);
   renderTab();
 }
 
 async function rsDelete(id){
-  if(!confirm(t('rs_delconfirm'))) return;
+  if(!confirm(tRaw('rs_delconfirm'))) return;
   const r = await api('/api/research/' + encodeURIComponent(id), { method: 'DELETE' });
   if(!r.ok){ toast(r.json.error || 'error'); return; }
-  toast(t('deleted'), true);
+  toast(tRaw('deleted'), true);
   if(S.rs.sel === id){ S.rs.sel = null; S.rs.ent = null; }
   renderTab();
 }
@@ -124,7 +124,7 @@ async function rsDetailHtml(id){
       <h3 style="margin:0">${esc(s.title && s.title !== 'null' ? s.title : s.url)}</h3>
       <div style="flex:none"><button class="btn sm ghost" data-h-click="${H(() => rsClose())}">${t('close')}</button></div></div>
     <div class="muted mono" style="font-size:12px">${esc(s.url_canon)}</div>
-    <p class="muted" style="font-size:12px;margin:6px 0 0">${esc(t('rs_fetches').replace('{n}', s.fetches))}
+    <p class="muted" style="font-size:12px;margin:6px 0 0">${esc(tRaw('rs_fetches').replace('{n}', s.fetches))}
       ${s.content_type && s.content_type !== 'null' ? ` · <span class="mono">${esc(s.content_type)}</span>` : ''}</p>
     <h4 style="margin:12px 0 6px">${t('rs_entities')}</h4>
     ${note ? `<p class="muted" id="rsentnote">${esc(note)}</p>` : ''}
@@ -153,14 +153,14 @@ async function rsGraphHtml(id){
   const sel = [1, 2].map(d => `<option value="${d}"${d === S.rs.hops ? ' selected' : ''}>${d}</option>`).join('');
   return `<div class="card" id="rsgraphcard" style="margin-top:12px">
     <div class="row" style="gap:8px;align-items:flex-end">
-      <div style="flex:1"><h4 style="margin:0">${esc(t('rs_graph').replace('{n}', focus.name || ''))}</h4></div>
+      <div style="flex:1"><h4 style="margin:0">${esc(tRaw('rs_graph').replace('{n}', focus.name || ''))}</h4></div>
       <div style="flex:none"><label>${t('rs_hops')}</label>
         <select data-h-change="${H(el => rsSetHops(el.value))}">${sel}</select></div>
       <div style="flex:none"><button class="btn sm ghost" data-h-click="${H(() => { S.rs.ent = null; rsGraphSwap(); })}">${t('close')}</button></div>
     </div>
-    <p class="muted" style="font-size:12px;margin:6px 0 0">${esc(t('rs_graphcount')
+    <p class="muted" style="font-size:12px;margin:6px 0 0">${esc(tRaw('rs_graphcount')
       .replace('{n}', (G.nodes || []).length).replace('{e}', (G.edges || []).length))}</p>
-    ${G.truncated ? `<p class="muted" style="font-size:12px">${esc(t('rs_truncated').replace('{cap}', G.cap))}</p>` : ''}
+    ${G.truncated ? `<p class="muted" style="font-size:12px">${esc(tRaw('rs_truncated').replace('{cap}', G.cap))}</p>` : ''}
     ${entityGraphSVG(G)}</div>`;
 }
 
@@ -193,5 +193,5 @@ function entityGraphSVG(G){
       : `<g class="ng-g ng-click" data-h-click="${H(() => rsGraph(nd.id))}" role="button" tabindex="0" aria-label="${esc(full)}">${dot}${label}</g>`;
   }).join('');
   return `<svg class="ng-svg" id="rssvg" viewBox="0 0 ${GRAPH_W} ${GRAPH_H}" role="img"
-      aria-label="${esc(t('rs_graph').replace('{n}', (nodes.find(n => n.focus) || {}).title || ''))}">${lines}${dots}</svg>`;
+      aria-label="${esc(tRaw('rs_graph').replace('{n}', (nodes.find(n => n.focus) || {}).title || ''))}">${lines}${dots}</svg>`;
 }

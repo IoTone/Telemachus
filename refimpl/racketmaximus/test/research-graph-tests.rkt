@@ -39,7 +39,7 @@
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))
   (define alice (user-principal c uid tid))
-  (define bob-id (create-user! c #:username "bob" #:password "pw"))
+  (define bob-id (create-user! c #:username "bob" #:password "bob-pw-1"))
   (add-member! c #:user bob-id #:team tid #:role "member")
   (define bob (user-principal c bob-id tid))
   (define (up! p key text #:vis [vis "team"])

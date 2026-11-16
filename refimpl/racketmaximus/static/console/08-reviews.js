@@ -10,20 +10,20 @@ function reviewSubject(v){
 function reviewCard(v, open){
   const checks = (v.checklist||[]).map(c=>`
     <div style="margin-top:8px"><label>${esc(c.label)}${c.required?' *':''}</label>
-      ${open?`<input id="rvq_${esc(v.id)}_${esc(c.key)}" placeholder="${esc(t('reviewnote'))}">`
+      ${open?`<input id="rvq_${esc(v.id)}_${esc(c.key)}" placeholder="${t('reviewnote')}">`
             :`<div class="muted">${esc((v.answers||{})[c.key]||'—')}</div>`}</div>`).join('');
   const decided = v.status === 'decided';
   const head = `<div class="row" style="justify-content:space-between;align-items:center">
       <h3 style="margin:0">${esc(v.title)}</h3>
-      <span class="muted">${decided?`${esc(t('reviewverdict_'+v.verdict)||v.verdict)}`
-                                   :(v.four_eyes?esc(t('reviewfoureyes')):'')}</span></div>`;
+      <span class="muted">${decided?`${esc(tRaw('reviewverdict_'+v.verdict)||v.verdict)}`
+                                   :(v.four_eyes?t('reviewfoureyes'):'')}</span></div>`;
   const body = `${v.instructions?`<p class="muted">${esc(v.instructions)}</p>`:''}
       <label>${t('reviewof')}</label>
       <pre class="mono" style="white-space:pre-wrap;max-height:220px;overflow:auto">${esc(reviewSubject(v))}</pre>
       ${checks}`;
   const actions = open ? `
       <div style="margin-top:10px"><label>${t('rationale')}</label>
-        <textarea id="rvr_${esc(v.id)}" rows="2" placeholder="${esc(t('reviewwhy'))}"></textarea></div>
+        <textarea id="rvr_${esc(v.id)}" rows="2" placeholder="${t('reviewwhy')}"></textarea></div>
       <div class="row" style="margin-top:10px">
         <button class="btn" data-h-click="${H((el,ev)=>doDecide(v,'approve'))}">${t('reviewapprove')}</button>
         <button class="btn ghost" data-h-click="${H((el,ev)=>doDecide(v,'revise'))}">${t('reviewrevise')}</button>
@@ -49,7 +49,7 @@ async function doDecide(v, verdict){
   const rt = document.getElementById('rvr_'+v.id);
   const r = await api('/api/reviews/'+v.id+'/decide',
                       {method:'POST', body:{verdict, rationale:(rt?rt.value:''), answers}});
-  if(r.ok){ toast(t('reviewrecorded'), true); renderTab(); } else toast(r.json.error||'error');
+  if(r.ok){ toast(tRaw('reviewrecorded'), true); renderTab(); } else toast(r.json.error||'error');
 }
 // a queued job the platform is holding says so beside its status (issue #55).
 // `waiting` is ABSENT when nothing holds it — it is then simply waiting for a
@@ -77,8 +77,8 @@ function jobWaitBadge(j){
 function jobWorker(j){
   if(j.executor && j.executor!=='null') return `<span class="mono">${esc(j.executor)}</span>`;
   if(j.status==='queued')
-    return `<span class="muted" title="${esc(t('jobunclaimed'))}">${esc(t('jobunclaimedshort'))}</span>`;
-  return `<span class="muted" title="${esc(t('jobinproc'))}">${esc(t('jobinprocshort'))}</span>`;
+    return `<span class="muted" title="${t('jobunclaimed')}">${t('jobunclaimedshort')}</span>`;
+  return `<span class="muted" title="${t('jobinproc')}">${t('jobinprocshort')}</span>`;
 }
 
 // WHEN, FROM THE EPOCH AND NEVER FROM THE TEXT COLUMN. `created_at` is TEXT
@@ -97,7 +97,7 @@ function jobWhen(j){
   const abs=new Date(e*1000);
   const age=wkAge(Math.floor(Date.now()/1000)-e);
   // "4m ago" is a sentence, so the word order is the catalog's and not English's
-  return `<span class="muted" title="${esc(abs.toLocaleString())}">${esc(t('jobago').replace('{age}', age))}</span>`;
+  return `<span class="muted" title="${esc(abs.toLocaleString())}">${esc(tRaw('jobago').replace('{age}', age))}</span>`;
 }
 
 // HOW LONG IT TOOK — or how long it has been going, which is the number
@@ -125,8 +125,8 @@ function jobTook(j){
   const d = (settled ? b : Math.floor(Date.now()/1000)) - a;
   if(d<0) return '';
   return settled
-    ? ` <span class="muted" title="${esc(t('jobtookhint'))}">· ${esc(wkAge(d))}</span>`
-    : ` <span title="${esc(t('jobrunninghint'))}" style="color:var(--accent3)">· ${esc(t('jobsofar').replace('{age}', wkAge(d)))}</span>`;
+    ? ` <span class="muted" title="${t('jobtookhint')}">· ${esc(wkAge(d))}</span>`
+    : ` <span title="${t('jobrunninghint')}" style="color:var(--accent3)">· ${esc(tRaw('jobsofar').replace('{age}', wkAge(d)))}</span>`;
 }
 
 function jobsRows(jobs){
@@ -159,10 +159,10 @@ function jobsListCard(jobs){
     setTimeout(()=>{ if(S.tab==='jobs'&&S.jobPoll===gen) jobsRefresh(); },2000); }
   return `<div class="card" id="jobscard" style="margin-top:14px"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${t('jobs')}</h3>
       <div class="row" style="align-items:center;gap:10px;margin:0">${
-        live?`<span class="muted" style="font-size:13px">${esc(t('joblive'))}</span>`:''
+        live?`<span class="muted" style="font-size:13px">${t('joblive')}</span>`:''
       }<button class="btn sm ghost" data-h-click="${H((el,ev)=>jobsRefresh())}">${t('refresh')}</button></div></div>
       <table style="margin-top:8px"><thead><tr><th>id</th><th>kind</th><th>${t('status')}</th>
-        <th title="${esc(t('jobwhenhint'))}">${t('jobwhen')}</th>
+        <th title="${t('jobwhenhint')}">${t('jobwhen')}</th>
         <th>${t('worker')}</th><th>result</th><th></th></tr></thead>
       <tbody>${jobsRows(jobs)}</tbody></table></div>`;
 }
@@ -195,17 +195,17 @@ async function jobsView(){
         <div style="flex:1"><label>${t('prompt')} / ${t('sourcetext')}</label><input id="jtext"></div>
         <div><label>${t('target')}</label><input id="jtgt" value="ja" style="width:90px"></div>
         <div><button class="btn" data-h-click="${H((el,ev)=>doSubmitJob())}">${t('submit')}</button></div></div>
-      <p class="muted" style="margin:8px 0 0;font-size:13px">${esc(t('jobkindhint'))}</p></div>
+      <p class="muted" style="margin:8px 0 0;font-size:13px">${t('jobkindhint')}</p></div>
     ${jobsListCard(jobs)}
-    <p class="muted" style="font-size:13px;margin-top:10px">${esc(t('jobscope'))}</p>`;
+    <p class="muted" style="font-size:13px;margin-top:10px">${t('jobscope')}</p>`;
 }
 async function doSubmitJob(){
   const kind=val('jk'), text=val('jtext');
   const payload = kind==='translate' ? {text, target_lang: val('jtgt')} : {prompt: text};
   const r=await api('/api/jobs',{method:'POST',body:{kind,payload}});
-  if(r.ok){ toast(t('queued'),true); jobsRefresh(); } else toast(r.json.error||t('error'));
+  if(r.ok){ toast(tRaw('queued'),true); jobsRefresh(); } else toast(r.json.error||tRaw('error'));
 }
 async function doCancelJob(id){
   const r=await api('/api/jobs/'+id+'/cancel',{method:'POST'});
-  if(r.ok){ toast(t('canceled'),true); jobsRefresh(); } else toast(r.json.error||t('error'));
+  if(r.ok){ toast(tRaw('canceled'),true); jobsRefresh(); } else toast(r.json.error||tRaw('error'));
 }

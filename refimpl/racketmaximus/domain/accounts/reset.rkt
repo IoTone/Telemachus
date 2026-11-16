@@ -19,13 +19,12 @@
 (require db-kit/portable
          racket/string
          "../authz/authz.rkt"            ; set-password!/revoke-user-sessions!/login-lock-clear!/has-second-factor?/issue-token!/first-team-for/audit!/SESSION-KIND
-         "../authz/mailed-tokens.rkt"    ; mint-mailed-token!/claim-mailed-token!
+         "../authz/mailed-tokens.rkt"    ; mint-mailed-token!/claim-mailed-token!/mailed-token-holder
          "../mail/addresses.rkt"         ; user-by-verified-address
          "../mail/transport.rkt"         ; transport-configured?
          "../mail/mail.rkt")             ; mail-enqueue-password-reset!
 
-(provide RESET-TTL-HOURS MIN-RESET-PASSWORD
-         request-password-reset! reset-password! reset-password-problem)
+(provide RESET-TTL-HOURS request-password-reset! reset-password!)
 
 ;; AN HOUR, where a verification gets a day and an invitation may get several.
 ;; The horizons differ because the risk does: a verification link proves a
@@ -35,18 +34,12 @@
 ;; turns a stale link into somebody else's account.
 (define RESET-TTL-HOURS 1)
 
-;; The floor `POST /api/password` already enforces for a change. It is stated
-;; here rather than re-chosen: a reset that accepted a weaker password than a
-;; change would make the mailbox path the way to set a password the ordinary path
-;; refuses.
-(define MIN-RESET-PASSWORD 6)
-
-(define (reset-password-problem pw)
-  (cond
-    [(not (string? pw)) "a password is required"]
-    [(< (string-length pw) MIN-RESET-PASSWORD)
-     (format "password too short (min ~a)" MIN-RESET-PASSWORD)]
-    [else #f]))
+;; THE FLOOR IS NOT CHOSEN HERE ANY MORE (0.13.0). This module carried its own 6,
+;; which made the mailbox path the way to set a password the ordinary path would
+;; refuse — and every other path carried a copy too. The rule, and the two numbers
+;; in it, live in `domain/authz/passwords.rkt`; the account-dependent part of it
+;; (12 for an account that can change somebody else's credential) is asked through
+;; `require-password!` below, before the token is spent.
 
 ;; ---- asking for one ---------------------------------------------------------
 ;;
@@ -131,31 +124,42 @@
 ;;  5. ITS OWN AUDIT ACTION, so a reset and an onboarding are not one event in a
 ;;     chained, exported log.
 (define (reset-password! conn #:token raw #:password pw)
-  (define uid (claim-mailed-token! conn raw #:purpose "reset"))
+  ;; BEFORE THE CLAIM, for `activate!`'s reason: the floor depends on the account,
+  ;; and a claim is single-use — so a weak password must be refused while the link
+  ;; is still good. The endpoint's own check can only apply the BASELINE (it has no
+  ;; account yet), and this is where the higher floor for an operator's reset is
+  ;; enforced. `mailed-token-holder` is the read half of the claim, in the same
+  ;; order, so a token it answers for is one the claim accepts a moment later.
+  (define holder (mailed-token-holder conn raw #:purpose "reset"))
   (cond
-    [(not uid) #f]
-    ;; RE-CHECKED AT REDEMPTION, not trusted from the request. An account can be
-    ;; suspended in the hour between asking and clicking, and the token outlives
-    ;; that change — so the state is read now. It is spent either way: a token
-    ;; that failed this check must not be presentable again.
-    [(not (active-user? conn uid)) #f]
+    [(not holder) #f]
     [else
-     (set-password! conn uid pw)
-     (define revoked (revoke-user-sessions! conn uid))
-     (login-lock-clear! conn (username-of conn uid))
-     (define tid (first-team-for conn uid))
-     (define tok
-       (and (not (has-second-factor? conn uid))
-            (let-values ([(t _t) (issue-token! conn #:user uid #:team tid
-                                               #:name "login" #:scopes '("*:*")
-                                               #:kind SESSION-KIND)])
-              t)))
-     (audit! conn #:action "user.password.reset"
-             #:actor-type "user" #:actor-id uid
-             #:resource-type "user" #:resource-id uid
-             #:meta (format "{\"sessions_revoked\":~a,\"second_factor\":~a}"
-                            revoked (if tok "false" "true")))
-     (values uid revoked tok)]))
+     (require-password! conn holder pw)
+     (define uid (claim-mailed-token! conn raw #:purpose "reset"))
+     (cond
+       [(not uid) #f]
+       ;; RE-CHECKED AT REDEMPTION, not trusted from the request. An account can be
+       ;; suspended in the hour between asking and clicking, and the token outlives
+       ;; that change — so the state is read now. It is spent either way: a token
+       ;; that failed this check must not be presentable again.
+       [(not (active-user? conn uid)) #f]
+       [else
+        (set-password! conn uid pw)
+        (define revoked (revoke-user-sessions! conn uid))
+        (login-lock-clear! conn (username-of conn uid))
+        (define tid (first-team-for conn uid))
+        (define tok
+          (and (not (has-second-factor? conn uid))
+               (let-values ([(t _t) (issue-token! conn #:user uid #:team tid
+                                                  #:name "login" #:scopes '("*:*")
+                                                  #:kind SESSION-KIND)])
+                 t)))
+        (audit! conn #:action "user.password.reset"
+                #:actor-type "user" #:actor-id uid
+                #:resource-type "user" #:resource-id uid
+                #:meta (format "{\"sessions_revoked\":~a,\"second_factor\":~a}"
+                               revoked (if tok "false" "true")))
+        (values uid revoked tok)])]))
 
 (define (active-user? conn uid)
   (equal? (let ([v (query-maybe-value conn "SELECT status FROM users WHERE id = ?" uid)])

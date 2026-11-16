@@ -137,15 +137,33 @@
 
       # `nix flake check` — the unit suite runs inside the package build (doCheck),
       # so it is covered by `nix build`; this adds the HTTP smoke, which binds a port
-      # and therefore cannot run in the build sandbox.
+      # on loopback (the sandbox gives one) and needs the zone database.
+      #
+      # TZDIR IS NOT OPTIONAL HERE. The packaged server reads it (`--set-default TZDIR`
+      # in the wrapper), and a build without it finds no zoneinfo at all, so the timezone
+      # group fails with "Europe/London is not a timezone this instance has data for" —
+      # a sandbox gap that reads exactly like a product bug. Found 2026-11-15.
       checks = forAll (pkgs:
         let system = pkgs.stdenv.hostPlatform.system; in {
           package = self.packages.${system}.telemachus;
           smoke = pkgs.runCommand "telemachus-smoke"
-            { nativeBuildInputs = [ pkgs.racket pkgs.curl pkgs.python3 pkgs.bash ]; }
+            {
+              # poppler is not optional: the packaged server's wrapper puts `pdftotext` on
+              # PATH (`lib.makeBinPath` in nix/telemachus.nix), and this check runs the
+              # source directly, so the indexing workflow failed with "pdftotext is not
+              # installed" — a missing tool, not a broken extractor.
+              nativeBuildInputs = [ pkgs.racket pkgs.curl pkgs.python3 pkgs.bash pkgs.poppler-utils ];
+              TZDIR = "${pkgs.tzdata}/share/zoneinfo";
+            }
             ''
               cp -r ${./refimpl/racketmaximus} src && chmod -R +w src && cd src
-              export HOME=$TMPDIR PLTCOLLECTS="$PWD/pkgs:" PORT=8899
+              # PORT IS THE SCRIPT'S OWN DEFAULT, and every other number around it is taken.
+              # `test/server-smoke.sh` runs fixture servers on 8898 (feed), 8899 (webhook),
+              # 8903 (Matrix) and 8929, each on loopback; the app on 8898 made the feed's
+              # fixture unreachable and the app on 8899 made every webhook POST land on the
+              # app's own handler, so assertions in blocks with nothing to do with either
+              # failed. The script warns about exactly this at its Matrix block.
+              export HOME=$TMPDIR PLTCOLLECTS="$PWD/pkgs:" PORT=8835
               raco make -j $NIX_BUILD_CORES server/main.rkt
               bash test/server-smoke.sh
               touch $out

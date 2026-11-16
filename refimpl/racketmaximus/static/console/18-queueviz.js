@@ -111,8 +111,8 @@ async function jobTrail(id, el){
         : (e.action==='job.lease.expired' ? t('qvexpiredat') : t('qvexhausted'));
       return pill(who, why, e.action==='job.released' ? 'warn' : 'bad');
     });
-    const now = (j.holder && j.holder!=='null') ? [pill(j.holder, t('qvholding'), 'ok')]
-              : (j.status==='done' ? [pill(t('qvfinished'), '', 'ok')] : []);
+    const now = (j.holder && j.holder!=='null') ? [pill(j.holder, tRaw('qvholding'), 'ok')]
+              : (j.status==='done' ? [pill(tRaw('qvfinished'), '', 'ok')] : []);
     const all = steps.concat(now);
     row.innerHTML = `<td colspan="${cells}"><div class="qvpath">
       <span class="muted mono">${esc(j.kind)}</span>
@@ -140,17 +140,17 @@ function queueVizCard(vr, fr){
   if(!vr||!vr.ok) return '';
   const V = vr.json, b = V.breakdown||{};
   const segs = [
-    {label:t('qvunclaimable'), n:b.unclaimable||0, hue:'bad'},
-    {label:t('qvpaused'),      n:b.held_by_paused||0, hue:'warn'},
-    {label:t('qvwaiting'),     n:b.waiting||0, hue:'accent2'},
-    {label:t('qvqueued'),      n:b.queued||0, hue:'ok'}];
+    {label:tRaw('qvunclaimable'), n:b.unclaimable||0, hue:'bad'},
+    {label:tRaw('qvpaused'),      n:b.held_by_paused||0, hue:'warn'},
+    {label:tRaw('qvwaiting'),     n:b.waiting||0, hue:'accent2'},
+    {label:tRaw('qvqueued'),      n:b.queued||0, hue:'ok'}];
   const total = segs.reduce((a,s)=>a+s.n,0);
   // `truncated` is not decoration: the scan is bounded, so a deeper queue than
   // the cap means the bar is a SAMPLE of the oldest rows and says so. CLS-27's
   // rule — a figure that stops reporting its own limits is one an operator
   // over-reads.
   const trunc = b.truncated
-    ? ` <span class="badge warn" title="${esc(t('qvtrunchint'))}">${t('qvtrunc').replace('{n}', b.scanned)}</span>`
+    ? ` <span class="badge warn" title="${t('qvtrunchint')}">${t('qvtrunc').replace('{n}', b.scanned)}</span>`
     : '';
   const mins = Math.round((V.bucket_seconds||60)/60);
   const grain = mins>1 ? ` <span class="muted">${t('qvgrain').replace('{n}', mins)}</span>` : '';
@@ -170,9 +170,9 @@ function queueVizCard(vr, fr){
     ${qvBar(segs, total)}
     <h4>${t('qvflow')}</h4>
     <table class="qvtbl"><tbody>
-      ${qvSpark(t('qvarrivals'), V.arrivals||[], 'accent2', t('qvarrivalshint'))}
-      ${qvSpark(t('qvclaims'), V.claims||[], 'warn', t('qvclaimshint'))}
-      ${qvSpark(t('qvcompletions'), V.completions||[], 'ok', t('qvcompletionshint'))}
+      ${qvSpark(tRaw('qvarrivals'), V.arrivals||[], 'accent2', tRaw('qvarrivalshint'))}
+      ${qvSpark(tRaw('qvclaims'), V.claims||[], 'warn', tRaw('qvclaimshint'))}
+      ${qvSpark(tRaw('qvcompletions'), V.completions||[], 'ok', tRaw('qvcompletionshint'))}
     </tbody></table>
     <h4>${t('qvleases')} <span class="muted" style="font-weight:normal">— ${t('qvleaseshint')}</span></h4>
     ${qvLeases(fr)}</div>`;

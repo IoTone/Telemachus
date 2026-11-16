@@ -36,19 +36,16 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 # 1. Compile
 raco make server/main.rkt
 
-# 2. Unit tests
-raco test \
-  test/engine-tests.rkt test/authz-tests.rkt test/i18n-tests.rkt \
-  test/auth-tests.rkt test/notes-tests.rkt test/quota-tests.rkt \
-  test/executor-tests.rkt test/agent-tests.rkt test/plugin-tests.rkt \
-  test/mcp-tests.rkt test/oop-tests.rkt test/translate-tests.rkt \
-  test/federation-tests.rkt test/llm-client-tests.rkt
+# 2. Unit tests — the GLOB, not a hand list. A list here had 14 files while CI
+# runs 135, so a contributor following it had not run the suite.
+raco test test/*-tests.rkt
 
 # 3. HTTP server integration smoke
 bash test/server-smoke.sh
 
 # 4. Localization gate — fails on bare literals and missing/stale required strings
-racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt --required en
+racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt \
+  static/ui-strings.json ../../docs/reference/strings.json --required en,ja
 ```
 
 If you touched the UI, also run the end-to-end feature tour (it boots a throwaway
@@ -78,7 +75,7 @@ English is required at launch; Japanese, Dutch, and Latin American Spanish follo
 
 ## Commits & pull requests
 
-- Branch off the working branch (`dev`); keep PRs focused.
+- Branch from `main` and target `main`; keep PRs focused.
 - Conventional-commit subjects (`feat(scope): …`, `fix(scope): …`, `test(…)`,
   `ci: …`), imperative mood.
 - Fill in the pull-request template and make sure the checklist passes — **CI must

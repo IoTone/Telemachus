@@ -1070,3 +1070,52 @@
            (check-true (exn:fail:mail? e) "the refusal is this subsystem's own, not a bare exn")
            (check-true (exn:fail:mail-permanent? e)
                        "a certificate that will never verify must not be retried ten times"))))]))
+
+;; #282 item 1: the read says HOW the password is stored, never what it is. The
+;; key is a variable NAME passed to `with-env` (ENVN-2), and the empty string is
+;; "absent" to the key reader, so each branch below is the state it names.
+(define SECRET-KEY-VAR "TMACH_SECRET_KEY")
+(define A-KEY (make-string 64 #\a))
+
+(define (set-transport/pw! c pw)
+  (transport-set! c (hasheq 'host "127.0.0.1" 'port 25 'security "none"
+                            'username "postmaster" 'password pw
+                            'from_address "tmach@example.test")))
+
+(test-case "#282: the read reports a password stored in the clear, and one sealed"
+  (with-env SECRET-KEY-VAR ""
+    (lambda ()
+      (define c (fresh))
+      (set-transport/pw! c "s3cret")
+      (define t (transport-ref c))
+      (check-equal? (hash-ref t 'password_stored #f) "plaintext"
+                    "no key: the password is in the database as typed, and the read says so")
+      (check-false (hash-has-key? t 'password) "and still never the value")
+      (close-db! c)))
+  (with-env SECRET-KEY-VAR A-KEY
+    (lambda ()
+      (define c (fresh))
+      (set-transport/pw! c "s3cret")
+      (check-equal? (hash-ref (transport-ref c) 'password_stored #f) "sealed")
+      (check-equal? (transport-password c) "s3cret" "sealed, and it still opens")
+      (close-db! c))))
+
+(test-case "#282: a password saved BEFORE the key still reads plaintext until rewrapped"
+  ;; The demo's own state: the key was configured after the relay password had
+  ;; been saved. Reporting `sealed` there because a key now EXISTS would be the
+  ;; answer the field was added to stop the card giving.
+  (define c (fresh))
+  (with-env SECRET-KEY-VAR "" (lambda () (set-transport/pw! c "s3cret")))
+  (with-env SECRET-KEY-VAR A-KEY
+    (lambda ()
+      (check-equal? (hash-ref (transport-ref c) 'password_stored #f) "plaintext")))
+  (close-db! c))
+
+(test-case "#282: with no password the field is absent, not a guess"
+  (define c (fresh))
+  (transport-set! c (hasheq 'host "127.0.0.1" 'port 25 'security "none"
+                            'from_address "tmach@example.test"))
+  (define t (transport-ref c))
+  (check-false (hash-ref t 'has_password))
+  (check-false (hash-has-key? t 'password_stored))
+  (close-db! c))

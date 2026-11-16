@@ -148,8 +148,23 @@ plugins/acme/bundle/index.html   →  GET /api/x/acme/bundle/
 plugins/acme/bundle/app.js       →  GET /api/x/acme/bundle/app.js
 ```
 
-- **Ship every asset in the bundle.** The console's Content-Security-Policy is
-  same-origin: a CDN font or script is blocked. This is deliberate.
+- **A bundle page is served under the STRICT policy**, which is the console's own
+  posture: `script-src 'self'` with no `'unsafe-inline'`, and script, connections
+  and frames reach this origin only. So your page's code is a **file beside it** —
+  `<script src="./app.js"></script>`, as `plugins/example-tools/bundle/` does — not
+  a `<script>` block, and no inline `onclick=` either; the policy refuses both. Ship
+  every other asset in the bundle too: a CDN font or script is blocked, and that is
+  deliberate.
+- **The escape hatch is `"csp": "relaxed"` in `plugin.json`.** It serves your
+  pages under the baseline policy every other response carries, which does permit
+  inline script. Reach for it when a page genuinely needs one — a third-party widget
+  you cannot bundle, or a page written before this existed — and know what it costs:
+  an injected script on that page runs. The declaration is per PLUGIN, not per page,
+  it is validated (an unknown value fails the plugin's load by name rather than
+  being ignored), and `GET /api/plugins` reports it so the operator who installed
+  you can see which policy your pages are under. Both directories are governed by
+  it: a `landing/` funnel is served by the public bundle route under the same
+  policy, and is the page a stranger meets first.
 - **`bundle/` is reserved** by the platform under your prefix, and core routes match
   before plugin ones, so do not declare a route there.
 - **Opening a page in a browser needs a ticket.** The route wants a bearer token, and
@@ -184,11 +199,65 @@ plugins/acme/bundle/app.js       →  GET /api/x/acme/bundle/app.js
 ```
 
 Mounted at **`/api/x/<plugin-id>/<path>`** — the prefix is platform-fixed, so you can
-never shadow a core route or another plugin's. Every route requires a bearer token;
-the permission you name is checked through `can?` before your handler runs. A
-`raise-user-error` becomes the caller's 400. A malformed entry fails **your plugin's
+never shadow a core route or another plugin's. Every route requires a bearer token
+unless it declares `'public`. By default the permission you name is checked by
+ROLE before your handler runs; declare the optional seventh element `'resource`
+when the handler will weigh the permission itself against one object (the shape a
+grant holder needs, and the only way `files:read` admits a viewer with a share).
+On a `'resource` route YOUR HANDLER IS THE ONLY GATE: the platform checks nothing
+before it runs, so a route that declares the scope and then forgets to call
+`require-perm` or `can?` refuses nobody. A `raise-user-error` becomes the caller's 400. A malformed entry fails **your plugin's
 load**, not a request an hour later. They appear in
 [api.md](reference/api.md#plugin-routes) and in `GET /api/plugins`.
+
+### Your plugin's own reference
+
+The generated reference is the INSTANCE's, so your routes are a section inside three
+hundred others. The same generator can render yours alone:
+
+```sh
+racket cli/telemachus-docs.rkt render --plugin <your-id> --out docs/mine
+racket cli/telemachus-docs.rkt check  --plugin <your-id> --out docs/mine   # gate drift
+```
+
+It writes five pages — `tools.md`, `workflows.md`, `permissions.md`, `api.md` and an
+index — filtered to the tools, workflows and routes YOUR plugin contributes, plus
+the platform permissions those name. `openapi.json`, `plugins.md` and `sdk.md` are
+deliberately absent: they are the instance's, and a partial `openapi.json` would
+invite a generator to treat your routes as the whole API. `--out` is required with
+`--plugin`, because `docs/reference/` is the instance's own and is gated for drift.
+An unknown id is refused with the loaded ids listed, rather than answered with an
+empty document.
+
+### A sealed column a rotation must walk
+
+If your plugin seals a column with the platform key (`secret-wrap`, or a
+`define-sealed-column` of your own), declare it — as DATA, the same shape
+`(provide migrations)` uses:
+
+```racket
+(provide secrets)
+(define secrets
+  (list (list "x_acme_notes" "body" "id" "{table}.{id}.{column}")))
+;; (list table column id-columns context-template [form])
+```
+
+- `id-columns` is one name or a list, in template order.
+- `context-template` is the AAD your rows were sealed under. `{table}`,
+  `{column}`, `{id1}..{idN}` (and `{id}` for `{id1}`) are substituted; it must
+  name at least one id, because one AAD for every row is not a per-row binding.
+  The platform's own spelling is `<column>:<id>`, which is
+  `"{column}:{id}"`; a different order is why this is a template and not a prefix.
+- `form` is `'text` (default) or `'bytes`.
+- A bad entry fails YOUR plugin's load, and the table must carry your
+  `x_<id>_` prefix.
+- The entry is written to the platform ledger at boot and never deleted, so a
+  rotation still walks it after your plugin is uninstalled. `rewrap` aborts on a
+  row it cannot open rather than skipping it, which is why the template must be
+  right.
+- What this does NOT cover: a sealed BLOB. A column is one row and one UPDATE; a
+  blob needs a new object and a repointed digest, so a product that seals bytes
+  owns their rotation.
 
 ### A route a stranger may call
 
@@ -549,7 +618,7 @@ TMach rather than extending it, the deployment surface is two pages:
 nix build .#container && docker load < result    # on a Linux host
 docker run -d --read-only --tmpfs /tmp -v telemachus-data:/data \
   -e DATABASE_URL='postgres://…' -e TMACH_SECRET_KEY="$(openssl rand -hex 32)" \
-  -p 8835:8835 --stop-timeout 30 telemachus:0.12.0
+  -p 8835:8835 --stop-timeout 30 telemachus:0.13.0
 ```
 
 Four things about the image are worth knowing before you plan around it:

@@ -217,13 +217,13 @@ function growAll(){ document.querySelectorAll('textarea.grow').forEach(growTA); 
 // that refuses.
 function charCountText(n, max){
   if (!max) return '';
-  return t('trcount').replace('{n}', n.toLocaleString()).replace('{max}', max.toLocaleString());
+  return tRaw('trcount').replace('{n}', n.toLocaleString()).replace('{max}', max.toLocaleString());
 }
 function charCount(srcId, outId, max){
   const el = document.getElementById(srcId), out = document.getElementById(outId);
   if (!el || !out) return;
   const n = el.value.length;
-  out.textContent = charCountText(n, max) + (max && n > max ? ' — ' + t('troverlimit') : '');
+  out.textContent = charCountText(n, max) + (max && n > max ? ' — ' + tRaw('troverlimit') : '');
   out.style.color = (max && n > max) ? 'var(--bad)' : '';
 }
 // Called after a render for the same reason `growAll` is: both prompts ship
@@ -335,7 +335,18 @@ function markSVG(px){
     <path d="${MARK_SIL} ${d}" fill="currentColor" fill-rule="nonzero"/></svg>`;
 }
 S.cat = {};
-const t = k => S.cat['ui.'+k] || k;
+// #282 item 3: a catalog string is somebody's TRANSLATION, approved in the
+// Localize tab and exported to disk, and it used to reach innerHTML exactly as
+// written. So there are two accessors and the choice is about the destination:
+//   t(key)     for markup. Already escaped; never wrap it in esc() again, or an
+//              ampersand in a translation is shown as an entity.
+//   tRaw(key)  for a place that takes plain TEXT: a toast (textContent),
+//              confirm(), a DOM property, or a helper that escapes its own
+//              argument.
+// `esc` is defined further down this file; `t` only calls it when a view
+// renders, by which time every script has loaded.
+const tRaw = k => S.cat['ui.'+k] || k;
+const t = k => esc(tRaw(k));
 async function loadCatalog(){
   const r = await api('/api/i18n/catalog?locale='+encodeURIComponent(S.lang));
   if (r.ok && r.json && r.json.messages) { S.cat = r.json.messages; S.catLocale = S.lang; document.documentElement.lang = S.lang; }
@@ -430,7 +441,7 @@ function brandLockup(px){
     return `<img class="tmx-logo" src="${esc(S.brand.logoUrl)}" alt="${esc(S.brand.title)}" style="height:${Math.round(px*1.15)}px">`;
   return `${markSVG(px)}<span>${esc(S.brand.title)}<span class="dot">.</span></span>`;
 }
-const brandTagline = () => S.brand.tagline || t('tagline');
+const brandTagline = () => S.brand.tagline || tRaw('tagline');
 
 // The server is the authority; this only decides what to SHOW. A surface the
 // caller cannot use is worse than a missing one — it offers work that will 403.
@@ -499,7 +510,7 @@ function sendKey(ev, fn){
 // never needed a deliberate double-click.
 function sendBusy(sendId, stopId, busy){
   const b=document.getElementById(sendId), s=document.getElementById(stopId);
-  if(b){ b.disabled=busy; b.textContent = busy ? t('sending') : t('send'); }
+  if(b){ b.disabled=busy; b.textContent = busy ? tRaw('sending') : tRaw('send'); }
   if(s) s.style.display = busy ? '' : 'none';
 }
 // A stream is abandoned by aborting its fetch: the reader then throws, the
