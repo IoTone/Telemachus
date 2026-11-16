@@ -19,14 +19,17 @@
 (provide seed-tenants! tenants-seeded?)
 
 ;; (org-name slug plan owner-username owner-password member-username member-password)
+;;
+;; THE OWNER PASSWORDS ARE 12+ because an org owner holds `members:manage` and the one
+;; password floor holds that account to 12. They were 10, which `org-create-rows!` now
+;; refuses — the seed was producing an account the platform would not let re-password.
 (define demo-tenants
-  '(("Acme Robotics" "acme"   "starter" "admin@acme.test"   "acme-admin1"
+  '(("Acme Robotics" "acme"   "starter" "admin@acme.test"   "acme-admin-2026"
                                         "dev@acme.test"     "acme-dev1"
      "Acme rocket telemetry — battery chemistry vendor terms. CONFIDENTIAL to Acme.")
-    ("Globex Media"  "globex" "trial"   "admin@globex.test" "globex-admin1"
+    ("Globex Media"  "globex" "trial"   "admin@globex.test" "globex-admin-2026"
                                         "dev@globex.test"   "globex-dev1"
      "Globex Q4 ad-buy rates and the renewal list. CONFIDENTIAL to Globex.")))
-
 (define (tenants-seeded? conn)
   (and (for/or ([t (in-list demo-tenants)])
          (query-maybe-value conn "SELECT id FROM orgs WHERE slug = ?" (cadr t)))

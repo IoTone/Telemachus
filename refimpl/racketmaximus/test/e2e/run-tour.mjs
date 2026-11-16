@@ -55,7 +55,7 @@ try {
   // 2 — bootstrap the first operator
   log('bootstrap');
   await page.locator('summary', { hasText: 'First run' }).click();
-  await page.fill('#bu', 'alice'); await page.fill('#bp', 's3cret');
+  await page.fill('#bu', 'alice'); await page.fill('#bp', 's3cret-enough');
   await shot(page, '02-bootstrap', 'First-run bootstrap',
     'Creating the first operator. Under RBAC-5 the first owner bootstraps as the instance operator — a distinct tier above team owners.');
   await page.evaluate(() => window.doBootstrap());

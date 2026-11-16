@@ -31,7 +31,7 @@
   (define-values (uid tid) (bootstrap! c #:username "root"))
   (values c (user-principal c uid tid) tid))
 (define (member-of c team username #:role [role "member"])
-  (define u (create-user! c #:username username #:password "pw"))
+  (define u (create-user! c #:username username #:password "pw-fixture-1"))
   (add-member! c #:user u #:team team #:role role)
   (user-principal c u team))
 (define (org c p title body #:visibility [vis "team"])

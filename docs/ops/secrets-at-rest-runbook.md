@@ -149,6 +149,13 @@ export TMACH_SECRET_KEY=<the new key>
 racket cli/telemachus-secrets.rkt rewrap
 ```
 
+Plugin-declared columns are walked too. A plugin declares them in `(provide
+secrets)`, the loader validates the entry and writes it to the `plugin_seals`
+ledger (migration 0076), and `rewrap` reads that ledger alongside the platform's
+own lists — so a column is still rotated after the plugin that wrote it is
+uninstalled. `status` names those rows in the plugin's own line; a table that does
+not exist is reported and skipped, never silently treated as rotated.
+
 Rows sealed by either key are readable while both are set; `rewrap` re-seals every
 row under the new one. Then run `status` **with both keys still set**: it marks any
 column that still holds rows `under ANOTHER key` and says so in a closing line.

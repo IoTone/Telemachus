@@ -29,14 +29,27 @@
          (only-in "../feeds/adapters.rkt" feed-adapters-of-plugin) json racket/list racket/string
          db-kit/portable
          (only-in db-kit/migrate migration migration-id)
-         "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt")
+         "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt"
+         (only-in "seals.rkt" check-seals!)
+         ;; the policy a bundle page is served under is `surface/csp.rkt`'s; the
+         ;; closed vocabulary is asked for here rather than restated, because a
+         ;; mode declared in this file with no policy behind it would be a
+         ;; manifest value nothing implements. No cycle: csp.rkt requires nothing.
+         (only-in "../../surface/csp.rkt" PLUGIN-CSP-MODES PLUGIN-CSP-DEFAULT plugin-csp-mode?))
 
 (provide load-plugins! loaded-plugins plugin-routes plugin-dir plugin-failures
          ;; G13: the closed vocabulary a route's auth may name, and the check itself,
          ;; exported FOR the tests — a bad declaration must fail the plugin's LOAD
-         PLUGIN-ROUTE-AUTHS check-route!
+         PLUGIN-ROUTE-AUTHS PLUGIN-ROUTE-SCOPES check-route!
          ;; issue #121: a plugin that owns data
-         plugin-migrations plugin-table-prefix check-migrations!)
+         plugin-migrations plugin-table-prefix check-migrations!
+         ;; a plugin that seals a column the platform key rotates
+         plugin-seals
+         ;; 0.13.0: the policy its bundle page is served under. The closed
+         ;; vocabulary and the check itself are exported FOR the tests, as the
+         ;; route auth/scope vocabulary above is — a bad value must fail the
+         ;; plugin's LOAD, not a request later.
+         PLUGIN-CSP-MODES check-csp! plugin-csp-mode)
 
 (define *loaded* (box '()))
 (define (loaded-plugins) (unbox *loaded*))
@@ -48,6 +61,30 @@
 ;; TELEMACHUS_PLUGINS work for the loader and not for the pages.
 (define *dirs* (make-hash))                       ; plugin id -> its directory
 (define (plugin-dir id) (hash-ref *dirs* id #f))
+
+;; plugin id -> the Content-Security-Policy mode its bundle pages are served
+;; under (0.13.0). Beside `*dirs*` because it is the same kind of fact — a
+;; property of the loaded plugin that a ROUTE asks about, kept out of the listing
+;; only where the listing is JSON about seams rather than HTTP.
+(define *csp* (make-hash))
+(define (plugin-csp-mode id) (hash-ref *csp* id PLUGIN-CSP-DEFAULT))
+
+;; The manifest field, judged like every other one: absent means the default, and
+;; a value outside the closed vocabulary fails THIS plugin's load. A plugin that
+;; asked for a mode nobody wrote a policy for would otherwise be served the wrong
+;; policy with nothing anywhere saying so.
+(define (check-csp! id m)
+  (define v (hash-ref m 'csp #f))
+  (cond
+    [(not v) PLUGIN-CSP-DEFAULT]
+    [(not (string? v))
+     (error 'plugins "~a: \"csp\" must be a string, one of ~a, not ~s" id PLUGIN-CSP-MODES v)]
+    [else
+     (define mode (string->symbol v))
+     (unless (plugin-csp-mode? mode)
+       (error 'plugins "~a: \"csp\" must be one of ~a, not \"~a\" — \"relaxed\" is the escape hatch for a page that needs an inline script"
+              id PLUGIN-CSP-MODES v))
+     mode]))
 
 ;; Plugins that did NOT load (issue #48). One bad plugin must not stop the
 ;; server — but an instance that is quietly missing a tool, a workflow or a job
@@ -63,6 +100,12 @@
 ;; every loaded plugin's migrations, in load order, ready for `migrate!`
 (define *migrations* (box '()))
 (define (plugin-migrations) (unbox *migrations*))
+
+;; every sealed column a plugin declared, in load order, as
+;; (plugin-id table column id-columns context-template form). Written to the
+;; ledger at boot so a rotation still covers an UNINSTALLED plugin's rows.
+(define *seals* (box '()))
+(define (plugin-seals) (unbox *seals*))
 
 (define METHODS '("GET" "POST" "PUT" "PATCH" "DELETE"))
 
@@ -92,17 +135,41 @@
 ;; one is a long random token in the path rather than a guessed parameter.
 (define PLUGIN-ROUTE-AUTHS '(bearer public))
 
+;; WHOSE AUTHORITY A ROUTE'S PERMISSION IS WEIGHED AGAINST. `'role` is the
+;; default and what every route was before this existed: the dispatcher (and, for
+;; a plugin route, the wrapper) asks `require-perm` with no resource, so a role
+;; grant is the whole test. `'resource` says the HANDLER will weigh the
+;; permission against one object it names, which is the only way a grant holder
+;; on a single document is admitted — the role pre-check would refuse them,
+;; which is DSH-1's whole point. Core routes have had this distinction since
+;; #110 r2; a plugin route could not express it and `docs/integrators-guide.md`
+;; said the opposite of what the code did.
+;;
+;; A resource-scoped route must name a permission (a scope with nothing to weigh
+;; is a rule nothing enforces) and may not be public (there is no principal).
+(define PLUGIN-ROUTE-SCOPES '(role resource))
+
 (define (check-route! id r)
   (unless (and (list? r) (>= (length r) 4))
     (error 'plugins "~a: a route is (list method path perm handler [doc] [auth])" id))
   (define-values (method path perm handler) (values (list-ref r 0) (list-ref r 1) (list-ref r 2) (list-ref r 3)))
   (define doc (if (and (>= (length r) 5) (string? (list-ref r 4))) (list-ref r 4) ""))
   (define auth (if (>= (length r) 6) (list-ref r 5) 'bearer))
+  (define scope (if (>= (length r) 7) (list-ref r 6) 'role))
   (unless (member method METHODS) (error 'plugins "~a: route method must be one of ~a" id METHODS))
   (unless (and (string? path) (regexp-match? #px"^/?[A-Za-z0-9_.:*/-]+$" path))
     (error 'plugins "~a: route path ~s is not a plain path (letters, digits, :name, *rest)" id path))
   (unless (or (not perm) (string? perm)) (error 'plugins "~a: route permission must be a string or #f, not ~s" id perm))
   (unless (procedure? handler) (error 'plugins "~a: route handler must be a procedure" id handler))
+  (unless (and (memq scope PLUGIN-ROUTE-SCOPES) #t)
+    (error 'plugins "~a: the scope of route ~a ~a must be one of ~a, not ~s"
+           id method path PLUGIN-ROUTE-SCOPES scope))
+  (when (and (eq? scope 'resource) (not perm))
+    (error 'plugins "~a: route ~a ~a is resource-scoped and names no permission; a scope means nothing without one"
+           id method path))
+  (when (and (eq? scope 'resource) (eq? auth 'public))
+    (error 'plugins "~a: route ~a ~a is public and resource-scoped; a public route has no principal"
+           id method path))
   (unless (and (memq auth PLUGIN-ROUTE-AUTHS) #t)
     (error 'plugins "~a: the auth of route ~a ~a must be one of ~a, not ~s"
            id method path PLUGIN-ROUTE-AUTHS auth))
@@ -116,7 +183,7 @@
   (when (eq? auth 'bearer)
     (unless (procedure-arity-includes? handler 3)
       (error 'plugins "~a: the handler for route ~a ~a must take (conn principal args)" id method path)))
-  (hasheq 'plugin id 'method method 'path path 'perm perm 'handler handler 'auth auth 'doc doc))
+  (hasheq 'plugin id 'method method 'path path 'perm perm 'handler handler 'auth auth 'scope scope 'doc doc))
 
 ;; `dirs` is one directory or a LIST of them, searched in order (issue #45): the
 ;; built-in directory and an operator's own, rather than one replacing the other.
@@ -168,9 +235,23 @@
 (define (ddl-targets sql)
   (define s (string-downcase sql))
   (for*/list ([rx (in-list (list #px"create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
+                                 ;; the INDEX NAME is not a target: the table it is
+                                 ;; ON is. Without this second pattern
+                                 ;; `CREATE INDEX x_foo_i ON users (email)` passed the
+                                 ;; prefix check and landed an index on a platform table.
+                                 #px"create\\s+(?:unique\\s+)?index\\s+(?:if\\s+not\\s+exists\\s+)?[a-z0-9_\"\\.]+\\s+on\\s+([a-z0-9_\"\\.]+)"
                                  #px"create\\s+(?:unique\\s+)?index\\s+(?:if\\s+not\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
+                                 #px"create\\s+trigger\\s+[a-z0-9_\"\\.]+\\s+.*?\\bon\\s+([a-z0-9_\"\\.]+)"
+                                 ;; A VIEW IS A READ OVER SOMEBODY ELSE'S TABLE, so it is the
+                                 ;; same widening as an index on one: `CREATE VIEW v_all AS
+                                 ;; SELECT * FROM users` was accepted because nothing named it.
+                                 #px"create\\s+(?:or\\s+replace\\s+)?(?:materialized\\s+)?view\\s+(?:if\\s+not\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
                                  #px"alter\\s+table\\s+([a-z0-9_\"\\.]+)"
-                                 #px"drop\\s+table\\s+(?:if\\s+exists\\s+)?([a-z0-9_\"\\.]+)"))]
+                                 #px"drop\\s+table\\s+(?:if\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
+                                 ;; an INDEX is an object the plugin owns too, and dropping or
+                                 ;; renaming one it did not create is the same overreach
+                                 #px"drop\\s+index\\s+(?:if\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
+                                 #px"alter\\s+index\\s+(?:if\\s+exists\\s+)?([a-z0-9_\"\\.]+)"))]
               [m (in-list (regexp-match* rx s #:match-select cadr))])
     (regexp-replace* #rx"\"" m "")))
 
@@ -203,8 +284,13 @@
 (define (load-plugins! dirs #:log [log void] #:skip-links? [skip-links? #f])
   (set-box! *loaded* '())
   (set-box! *routes* '())
+  (set-box! *seals* '())
   (set-box! *failed* '())
   (hash-clear! *dirs*)
+  ;; a reload must not keep a mode from a manifest that has since changed: the
+  ;; second load runs in the same process (the tests do it constantly), and a
+  ;; stale entry is a page served under a policy its plugin no longer asks for.
+  (hash-clear! *csp*)
   (for ([dir (in-list (if (list? dirs) dirs (list dirs)))])
     (load-plugin-dir! dir log skip-links?))
   (unbox *loaded*))
@@ -226,6 +312,19 @@
           (define id (hash-ref m 'id sub))
           (when (hash-has-key? *dirs* id)
             (error 'plugins "a plugin with id ~a is already loaded from ~a" id (hash-ref *dirs* id)))
+          ;; A PLUGIN ID MAY NOT BE A PREFIX OF ANOTHER LOADED ID. `plugin-table-prefix`
+          ;; is `x_<id>_` and the sealed-column registry tests it with `string-prefix?`,
+          ;; so `rcnt` and `rcnt_vault` could each declare the other's tables — and the
+          ;; ledger's upsert lets the later declaration win, which would make a key
+          ;; rotation die on the GCM tag with no plaintext exposed but the rotation
+          ;; blocked. Refusing the pair at load is the one place both ids are known.
+          (for ([other (in-list (unbox *loaded*))])
+            (define oid (hash-ref other 'id))
+            (when (or (string-prefix? id oid) (string-prefix? oid id))
+              (error 'plugins
+                     (string-append "plugin id ~a and ~a: one is a prefix of the other, so the table "
+                                    "prefix x_<id>_ would let one declare the other's tables")
+                     id oid)))
           (define entry (build-path pdir (hash-ref m 'entry "main.rkt")))
           ;; A plugin may (provide tools) and/or (provide init!). init! runs with full
           ;; SDK access so a plugin can register anything (tools, an onboarding
@@ -273,6 +372,16 @@
           ;; recorded and run once instead of raced on first use.
           (define migs (check-migrations! id (dynamic-require entry 'migrations (lambda () '()))))
           (set-box! *migrations* (append (unbox *migrations*) migs))
+          ;; a plugin that sealed a column with the platform key declares it here,
+          ;; validated against its own table prefix so it cannot name anybody
+          ;; else's table; a bad entry fails THIS plugin's load
+          (define seals (check-seals! id (plugin-table-prefix id)
+                                      (dynamic-require entry 'secrets (lambda () '()))))
+          (set-box! *seals* (append (unbox *seals*) seals))
+          ;; 0.13.0: strict unless the manifest asks for the escape hatch. Recorded
+          ;; per plugin id so both bundle routes can ask without re-reading a file.
+          (define csp (check-csp! id m))
+          (hash-set! *csp* id csp)
           (set-box! *loaded*
             (append (unbox *loaded*)
                     (list (hasheq 'id id 'name (hash-ref m 'name id) 'version (hash-ref m 'version "")
@@ -283,6 +392,10 @@
                                   ;; an operator reading `\dt` should be able to
                                   ;; tell who owns what
                                   'migrations (for/list ([m (in-list migs)]) (migration-id m))
+                                  ;; the sealed columns a rotation must walk, so the
+                                  ;; operator sees who owns what before a rotation
+                                  'sealed_columns (for/list ([x (in-list seals)])
+                                                   (format "~a.~a" (list-ref x 1) (list-ref x 2)))
                                   ;; LAY-7: which content types this plugin claims
                                   ;; an extractor for. Reported for the same reason
                                   ;; job kinds are — an operator should be able to
@@ -299,6 +412,12 @@
                                   ;; on an API and the server's layout is not the
                                   ;; caller's business.
                                   'bundle (directory-exists? (build-path pdir "bundle"))
+                                  ;; 0.13.0: which policy its pages are served under.
+                                  ;; Reported because "relaxed" is a deliberate
+                                  ;; narrowing of what this instance enforces on
+                                  ;; that page, and an operator should be able to
+                                  ;; see which installed plugins chose it.
+                                  'csp (symbol->string csp)
                                   'routes (for/list ([r (in-list routes)])
                                             (string-append (hash-ref r 'method) " " (hash-ref r 'path)))
                                   ;; G13: which of those a stranger may call. Reported as

@@ -208,7 +208,7 @@
   ;; which reads as a broken transcriber.
   (configured (lambda ()
     (define-values (conn p tid) (seed!))
-    (define bob (create-user! conn #:username "bob" #:password "pw"))
+    (define bob (create-user! conn #:username "bob" #:password "pw-fixture-1"))
     (add-member! conn #:team tid #:user bob #:role "member")
     (define pb (user-principal conn bob tid))
     (repo-put! conn p #:key "notes/secret.mp3" #:port (open-input-bytes #"private")

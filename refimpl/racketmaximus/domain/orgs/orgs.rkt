@@ -26,7 +26,7 @@
          org-create! org-update! org-list org-get
          org-set-domain! org-by-domain normalize-domain
          org-set-status! tenant-read-only?
-         org-teams org-audit org-add-team! org-attach-member!
+         org-teams org-members org-audit org-add-team! org-attach-member! org-default-team
          set-org-limit! org-quota
          tenant-quota-check tenant-quota-record!
          tenant-quota-check/team tenant-quota-record!/team
@@ -98,6 +98,14 @@
 
 (define (org-create-rows! conn actor oslug name plan
                           owner-username owner-pw owner-name team-name team-slug)
+  ;; THE OWNER'S PASSWORD IS HELD TO THE OWNER FLOOR, BEFORE ANY ROW EXISTS. The account
+  ;; this creates holds `*:*` through the team, so 12 applies; `create-user!` can only ask
+  ;; the baseline here because the membership does not exist yet, and the HTTP endpoint's
+  ;; own pre-check does not cover `POST /api/admin/seed-tenants`, which calls this directly.
+  ;; Asking first also means a refusal leaves no org, no team and no user behind.
+  ;; A company created with NO owner password (the invited-owner path) is untouched: the
+  ;; floor is about a password, and `create-user!` leaves the column NULL.
+  (when owner-pw (require-password-for-role! conn "owner" owner-pw owner-username))
   (define oid (create-org! conn #:name name #:slug oslug #:plan plan))
   (apply-org-plan! conn oid plan)
   (define tid (create-team! conn #:name team-name #:slug team-slug #:org oid))
@@ -206,12 +214,22 @@
 ;; every human in the company, with their org tier and their team roles
 (define (org-members conn org-id)
   (for/list ([r (in-list (query-rows conn
-     (string-append "SELECT id, username, display_name, status, org_role_key FROM users "
-                    "WHERE org_id = ? ORDER BY username") org-id))])
+     (string-append "SELECT id, username, display_name, status, org_role_key, "
+                    "       email, email_verified_epoch, "
+                    "       EXISTS (SELECT 1 FROM email_verifications v WHERE v.user_id = users.id) "
+                    "FROM users WHERE org_id = ? ORDER BY username") org-id))])
     (define uid (vector-ref r 0))
+    ;; AN ADMIN HAS TO BE ABLE TO SEE WHY A PERSON CANNOT RESET. `users.email` is
+    ;; only ever written WITH `email_verified_epoch`, so "has an address" and
+    ;; "proved it" are one state, not two; the state production can actually
+    ;; produce is a PENDING address in `email_verifications`, which cannot receive
+    ;; a recovery link either. The address ITSELF is never in this reply.
     (hasheq 'user_id uid 'username (vector-ref r 1)
             'display_name (nz (vector-ref r 2)) 'status (vector-ref r 3)
             'org_role (nz (vector-ref r 4))
+            'email_verified (not (sql-null? (vector-ref r 6)))
+            ;; EXISTS answers 1 on SQLite and #t on PostgreSQL (db-kit/portable's db-true?).
+            'email_pending (db-true? (vector-ref r 7))
             'teams (query-list conn
               (string-append "SELECT t.slug || ':' || m.role_key FROM memberships m "
                              "JOIN teams t ON t.id = m.team_id WHERE m.user_id = ? ORDER BY t.slug") uid))))
@@ -248,15 +266,21 @@
              #:resource-type "team" #:resource-id tid)
      (hasheq 'id tid 'slug s 'name name 'org_id org-id)]))
 
+;; The team a new person joins when the caller named none: the company's oldest.
+;; One spelling, because the company plane's two ways of adding somebody —
+;; straight onto the team and by invitation — must not disagree about where a
+;; person lands.
+(define (org-default-team conn org-id)
+  (query-maybe-value conn
+    "SELECT id FROM teams WHERE org_id = ? ORDER BY created_at LIMIT 1" org-id))
+
 ;; add a person to the company (and optionally straight into one of its teams).
 ;; `add-member!` settles users.org_id, which is what seals them into this org.
 (define (org-attach-member! conn actor org-id
                             #:username username #:password [pw #f] #:display-name [dn #f]
                             #:team [team-id #f] #:role [role "member"]
                             #:org-role [org-role #f])
-  (define tid (or team-id
-                  (query-maybe-value conn
-                    "SELECT id FROM teams WHERE org_id = ? ORDER BY created_at LIMIT 1" org-id)))
+  (define tid (or team-id (org-default-team conn org-id)))
   (cond
     [(not tid) #f]
     [(not (equal? (team-org conn tid) org-id)) #f]        ; never place a user outside the org

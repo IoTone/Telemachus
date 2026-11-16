@@ -682,7 +682,9 @@ raco test test/tenancy-tests.rkt                          # the authz core, no s
 ```
 
 `POST /api/admin/seed-tenants` (superadmin) seeds Acme + Globex with **known dev
-passwords** (`admin@acme.test` / `acme-admin1`, etc.) — demo fixture only, never prod.
+passwords** (`admin@acme.test` / `acme-admin-2026`, etc.) — demo fixture only, never prod.
+The owner passwords are 12 characters because an org owner holds `members:manage`, and the
+one password floor holds that account to 12; the member passwords stay at 8.
 
 ## S3 endpoint (slice 52)
 

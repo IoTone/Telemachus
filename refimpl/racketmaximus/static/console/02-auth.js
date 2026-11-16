@@ -37,8 +37,8 @@ function authView(){
     <details class="card" style="margin-top:14px">
       <summary style="cursor:pointer" class="muted">${t('firstrun')}</summary>
       <div style="margin-top:12px">
-        <label>${t('user')}</label><input id="bu" value="alice">
-        <label>${t('pass')}</label><input id="bp" type="password" value="s3cret">
+        <label>${t('user')}</label><input id="bu" autocomplete="username">
+        <label>${t('pass')}</label><input id="bp" type="password" autocomplete="new-password">
         <button class="btn ghost" data-h-click="${H((el,ev)=>doBootstrap())}">${t('createop')}</button>
       </div>
     </details>

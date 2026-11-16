@@ -148,6 +148,56 @@
   (check-true (regexp-match? #px"(?i:no account is)" body))
   (close-db! c))
 
+(test-case "the inviter and the team are looked up when the caller does not name them"
+  ;; BOTH PLANES COMPOSE THIS MESSAGE, so the names come from the domain rather
+  ;; than from each endpoint. A company administrator inviting somebody is not a
+  ;; member of the team they are invited to, so the team plane's own helpers
+  ;; would return the caller's team and name the wrong one.
+  (define c (fresh))
+  (configure! c)
+  (define-values (aid tid) (seed! c))
+  (void (call-with-values
+         (lambda () (invite-member! c #:team tid #:role "member"
+                                    #:address "bob@example.test" #:inviter aid))
+         list))
+  (define body (format "~a" (vector-ref (car (deliveries c)) 3)))
+  (check-true (regexp-match? #px"(?i:acme)" body))
+  (check-true (regexp-match? #px"alice" body))
+  (close-db! c))
+
+(test-case "the company plane's invitation joins the company, and can carry an org role"
+  ;; `users.org_id` is what `caller-org` answers with. An invitee created without
+  ;; it would join a team in a company they do not belong to — and every org-tier
+  ;; route would then answer for the wrong tier, or for none.
+  (define c (fresh))
+  (configure! c)
+  (define-values (aid tid) (seed! c))
+  (define oid (user-org c aid))
+  (check-true (string? oid))
+  (define-values (uid o l)
+    (invite-member! c #:team tid #:role "admin" #:address "hr@acme.test"
+                    #:inviter aid #:org oid #:org-role "org_admin"))
+  (check-equal? (user-org c uid) oid)
+  (check-equal? (format "~a" (query-value c "SELECT org_role_key FROM users WHERE id = ?" uid))
+                "org_admin")
+  ;; and it is still an invitation: the org role is NOT a way in
+  (check-equal? (status-of c uid) "invited")
+  (check-false (authenticate c "hr@acme.test" "anything-at-all"))
+  (close-db! c))
+
+(test-case "the reply carries no session, and hands back the link only with no transport"
+  (define a (invite-answer "u1" "bob@example.test" "member" #f 'queued #f))
+  (check-false (hash-has-key? a 'token))
+  (check-equal? (hash-ref a 'status) "invited")
+  (check-equal? (hash-ref a 'activation_token) 'null)
+  (define b (invite-answer "u1" "bob@example.test" "member" "org_admin" 'no-transport "tk_abc"))
+  (check-equal? (hash-ref b 'activation_token) "tk_abc")
+  (check-equal? (hash-ref b 'org_role) "org_admin")
+  ;; the note says WHICH case it is: "nothing was sent" reading as success is the
+  ;; failure this avoids
+  (check-true (regexp-match? #px"(?i:no email transport)" (hash-ref b 'note)))
+  (check-true (regexp-match? #px"(?i:on its way)" (hash-ref a 'note))))
+
 (test-case "INVITE-5: with no transport the link comes back instead"
   ;; An invitation nobody can act on is worse than one delivered by hand —
   ;; `provision!`'s precedent. It is returned ONLY in that case: a token that was
@@ -208,7 +258,7 @@
     (invite-member! c #:team tid #:role "member" #:address "bob@example.test" #:inviter aid))
   (define first-tok (token-from-message c))
   (clear-deliveries! c)
-  (define-values (o2 l2) (resend-invitation! c uid #:inviter aid))
+  (define-values (o2 l2) (resend-invitation! c uid #:inviter aid #:team-id tid))
   (check-equal? o2 'queued)
   (define second-tok (token-from-message c))
   (check-true (string? second-tok))
@@ -231,14 +281,31 @@
   (void (call-with-values
          (lambda () (activate! c #:token (token-from-message c) #:password "bobs-password")) list))
   (check-equal? (status-of c uid) "active")
-  (check-equal? (resend-invitation! c uid #:inviter aid) 'not-invited)
+  (check-equal? (resend-invitation! c uid #:inviter aid #:team-id tid) 'not-invited)
+  (close-db! c))
+
+(test-case "INVITE-6: a resend names the caller's OWN team, so another team's invitee is not found"
+  ;; A user id is not a secret here, and the resend used to look the account up by id
+  ;; alone: an admin of any team could name an `invited` account in another team and,
+  ;; on an instance with no mail transport, be handed its live activation token.
+  (define c (fresh))
+  (configure! c)
+  (define-values (aid tid) (seed! c))
+  (define-values (uid o l)
+    (invite-member! c #:team tid #:role "member" #:address "bob@example.test" #:inviter aid))
+  (check-false (resend-invitation! c uid #:inviter aid #:team-id "some-other-team") "another team's id finds nothing")
+  (check-true (and (pair? (call-with-values
+                           (lambda () (resend-invitation! c uid #:inviter aid #:team-id tid))
+                           list))
+                   #t)
+              "its own team still does")
   (close-db! c))
 
 (test-case "resending an unknown member answers #f rather than raising"
   (define c (fresh))
   (configure! c)
   (define-values (aid tid) (seed! c))
-  (check-false (resend-invitation! c "no-such-user" #:inviter aid))
+  (check-false (resend-invitation! c "no-such-user" #:inviter aid #:team-id tid))
   (close-db! c))
 
 (test-case "both events are audited, and name the team"
@@ -251,7 +318,7 @@
   (define-values (uid o l)
     (invite-member! c #:team tid #:role "member" #:address "bob@example.test" #:inviter aid))
   (clear-deliveries! c)
-  (void (call-with-values (lambda () (resend-invitation! c uid #:inviter aid)) list))
+  (void (call-with-values (lambda () (resend-invitation! c uid #:inviter aid #:team-id tid)) list))
   (define acts (audit-actions c))
   (check-true (and (member "member.invited" acts) #t))
   (check-true (and (member "member.invite.resent" acts) #t))

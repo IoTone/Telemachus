@@ -8,11 +8,21 @@
 ;; holds a credential for somebody else's account, and it cannot reach anybody
 ;; who is not already sitting next to them.
 ;;
-;; THE EXISTING FORM IS UNCHANGED, deliberately. Every fixture, smoke block and
-;; demo in this tree creates members that way, and a flag day for them buys
-;; nothing — an `email` in the body is what asks for an invitation instead. The
-;; asymmetry is stated rather than discovered: the username form still answers
-;; with a token, the invitation form answers with none.
+;; An `email` in the body is what asks for an invitation instead. BOTH planes
+;; that add people have that form (`POST /api/members` and
+;; `POST /api/org/members`), and both go through this module, so "what an
+;; invitation is" has one home however the caller reached it.
+;;
+;; WHAT AN INVITATION ANSWERS WITH IS NOT A SESSION. The `email` form creates the
+;; account `invited` and answers with the address pending and, on an instance with
+;; no transport, the link, so the inviter holds no credential for the invitee.
+;;
+;; The `username` form is DIFFERENT, deliberately and still today: both planes
+;; mint a `*:*` session for the new account and return it in the reply, because
+;; every fixture, smoke block and demo in this tree provisions members that way and
+;; the invitation is additive. That is a credential for somebody else's account and
+;; it is a known gap (`INVITE-1`), not a closed one. Closing it is a flag day across
+;; those callers, and it is not part of this release.
 
 (require db-kit/portable
          racket/string
@@ -22,7 +32,7 @@
          "../mail/transport.rkt"         ; transport-configured!/mail-address-problem
          "../mail/mail.rkt")             ; mail-enqueue-invitation!
 
-(provide INVITE-TTL-HOURS invite-member! resend-invitation! invite-problem)
+(provide INVITE-TTL-HOURS invite-member! resend-invitation! invite-problem invite-answer)
 
 ;; THREE DAYS, where a reset gets an hour and a verification a day. An
 ;; invitation is the one mailed link whose recipient was not expecting it and is
@@ -37,6 +47,26 @@
     [(not (string? address)) "an email address is required"]
     [(mail-address-problem (string-trim address)) => values]
     [else #f]))
+
+;; ---- who the message says it is from, and about ------------------------------
+;;
+;; THE MESSAGE NAMES THE INVITER AND THE TEAM, and that is the ONE place this
+;; subsystem relaxes "ids, never content": an invitation that will not say who
+;; sent it or what it is for is one a careful person is right to discard as
+;; phishing. The lookup lives HERE rather than once per endpoint because both
+;; planes compose this message — a second copy is how the team plane and the
+;; company plane would come to word the same invitation differently.
+(define (display-name-of conn user-id)
+  (define r (query-maybe-row conn "SELECT display_name, username FROM users WHERE id = ?" user-id))
+  (cond
+    [(not r) "An administrator"]
+    [(and (not (sql-null? (vector-ref r 0))) (not (equal? (format "~a" (vector-ref r 0)) "")))
+     (format "~a" (vector-ref r 0))]
+    [else (format "~a" (vector-ref r 1))]))
+
+(define (team-name-of conn team-id)
+  (define v (query-maybe-value conn "SELECT name FROM teams WHERE id = ?" team-id))
+  (if (and v (not (sql-null? v))) (format "~a" v) "your team"))
 
 ;; -> (values user-id outcome link-or-#f)
 ;;
@@ -57,7 +87,8 @@
 ;; just demonstrated they can read.
 (define (invite-member! conn #:team team #:role role #:address address
                         #:username [username #f] #:inviter inviter-user-id
-                        #:inviter-name [inviter-name #f] #:team-name [team-name #f])
+                        #:inviter-name [inviter-name #f] #:team-name [team-name #f]
+                        #:org [org-id #f] #:org-role [org-role #f])
   (define addr (string-trim (format "~a" address)))
   (define p (invite-problem addr))
   (when p (raise-user-error 'invite p))
@@ -67,7 +98,12 @@
   ;; usernames are instance-global (TEN-2b) while an address may legitimately be
   ;; reused across instances.
   (define uname (if (and username (not (equal? (format "~a" username) ""))) (format "~a" username) addr))
-  (define uid (create-user! conn #:username uname))
+  ;; THE COMPANY AND ITS ORG ROLE ARE SET AT CREATION when the caller has them,
+  ;; which is the company plane's whole difference. `users.org_id` is what
+  ;; `caller-org` answers with, so an invitee created without it would join an
+  ;; org's team while belonging to no company — and every org-tier route would
+  ;; then answer for the wrong tier, or for none.
+  (define uid (create-user! conn #:username uname #:org org-id #:org-role org-role))
   ;; `create-user!` defaults the status to 'active' — the column's own default
   ;; since 0001 — so an invitation has to say otherwise EXPLICITLY. Without this
   ;; line an invited person could sign in the moment somebody set a password for
@@ -83,13 +119,32 @@
   (define sendable? (transport-configured? conn))
   (when sendable?
     (mail-enqueue-invitation! conn #:user uid #:address addr #:token tok
-                              #:team-name (or team-name "your team")
-                              #:inviter (or inviter-name "An administrator")
+                              #:team-name (or team-name (team-name-of conn team))
+                              #:inviter (or inviter-name (display-name-of conn inviter-user-id))
                               #:ttl-hours INVITE-TTL-HOURS))
   (audit! conn #:action "member.invited" #:actor-type "user" #:actor-id inviter-user-id
           #:team-id team #:resource-type "user" #:resource-id uid
           #:result (if sendable? "queued" "no-transport"))
   (values uid (if sendable? 'queued 'no-transport) (and (not sendable?) tok)))
+
+;; The reply an invitation answers with, built HERE so the two planes that add
+;; people cannot disagree about what an invitation says. NO SESSION IS IN IT
+;; (INVITE-1): the invitee proves the mailbox and chooses their own password, so
+;; the inviter holds no credential for an account they did not create for
+;; themselves.
+;;
+;; `activation_token` is present ONLY on an instance with no transport, where the
+;; link comes back so it can be handed over. The note says which case this is,
+;; because "nothing was sent" reading as success is the failure this avoids.
+(define (invite-answer uid uname role org-role outcome link)
+  (hasheq 'user_id uid 'username uname 'role role
+          'org_role (or org-role 'null)
+          'status "invited" 'invited #t
+          'queued (eq? outcome 'queued)
+          'note (if (eq? outcome 'queued)
+                    "An invitation is on its way. The account cannot sign in until it is accepted."
+                    "This instance has no email transport configured, so nothing was sent. Hand this link over yourself; it is shown once.")
+          'activation_token (or link 'null)))
 
 ;; Send it again (INVITE-6). Without this an expired invitation leaves somebody
 ;; unreachable except through an operator's password reset, which is the thing
@@ -103,13 +158,40 @@
 ;; password reset — and a reset has its own route, its own throttle, its own
 ;; shorter horizon and an enumeration-safe answer. Offering it here under a
 ;; members permission would be a second way to do it with none of those.
+;; `#:team-id` IS THE CALLER'S TEAM AND IT IS NOT OPTIONAL IN PRACTICE. A user id is
+;; not a secret on this platform (an audit actor id, an annotation owner, every org
+;; admin's own member list), and the membership lookup below had no team predicate at
+;; all: an admin of ANY team could name an `invited` account in another team, receive a
+;; live activation token because a no-transport instance hands it back, redeem it, and
+;; become that person — including an invited org_admin. The org plane already scopes its
+;; resend this way (server/api/orgs.rkt, user-org vs caller-org); this is the same rule.
+;; It also removes the multi-row raise when an invitee has two active memberships.
+;; ONE OF `#:team-id` OR `#:org-id` IS REQUIRED, and neither is a formality: with no
+;; scope the answer is #f, so a caller that forgets one cannot reach another tenant's
+;; invitation. The team plane passes its own team; the company plane passes its own org,
+;; because an org administrator is usually not a member of the team the person was
+;; invited to (server/api/orgs.rkt).
 (define (resend-invitation! conn uid #:inviter inviter-user-id
+                            #:team-id [caller-team-id #f]
+                            #:org-id [caller-org-id #f]
                             #:inviter-name [inviter-name #f] #:team-name [team-name #f])
-  (define row (query-maybe-row conn
-                (string-append "SELECT u.status, m.team_id FROM users u "
-                               "LEFT JOIN memberships m ON m.user_id = u.id AND m.status = 'active' "
-                               "WHERE u.id = ?")
-                uid))
+  (define row
+    (cond
+      [caller-team-id
+       (query-maybe-row conn
+                        (string-append "SELECT u.status, m.team_id FROM users u "
+                                       "JOIN memberships m ON m.user_id = u.id AND m.status = 'active' "
+                                       " AND m.team_id = ? "
+                                       "WHERE u.id = ?")
+                        caller-team-id uid)]
+      [caller-org-id
+       (query-maybe-row conn
+                        (string-append "SELECT u.status, m.team_id FROM users u "
+                                       "JOIN memberships m ON m.user_id = u.id AND m.status = 'active' "
+                                       "JOIN teams t ON t.id = m.team_id AND t.org_id = ? "
+                                       "WHERE u.id = ?")
+                        caller-org-id uid)]
+      [else #f]))
   (cond
     [(not row) #f]
     [(not (equal? (format "~a" (vector-ref row 0)) "invited")) 'not-invited]
@@ -131,8 +213,8 @@
         (define sendable? (transport-configured? conn))
         (when sendable?
           (mail-enqueue-invitation! conn #:user uid #:address addr #:token tok
-                                    #:team-name (or team-name "your team")
-                                    #:inviter (or inviter-name "An administrator")
+                                    #:team-name (or team-name (team-name-of conn team))
+                                    #:inviter (or inviter-name (display-name-of conn inviter-user-id))
                                     #:ttl-hours INVITE-TTL-HOURS))
         (audit! conn #:action "member.invite.resent" #:actor-type "user" #:actor-id inviter-user-id
                 #:team-id (or team sql-null) #:resource-type "user" #:resource-id uid

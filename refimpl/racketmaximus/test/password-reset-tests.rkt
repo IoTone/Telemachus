@@ -17,6 +17,7 @@
          "../domain/db/migrations.rkt"
          "db-fixture.rkt"
          "../domain/authz/authz.rkt"
+         (only-in "../domain/authz/passwords.rkt" password-problem)
          (only-in "../domain/authz/crypto.rkt" totp base32-decode)
          "../domain/authz/mailed-tokens.rkt"
          "../domain/mail/transport.rkt"
@@ -45,7 +46,7 @@
   (define-values (uid tid)
     (bootstrap! c #:username uname #:org-name "Acme" #:org-slug "acme"
                 #:team-name "Acme" #:team-slug "acme"))
-  (set-password! c uid "original-pw")
+  (set-password! c uid "original-pw-12")
   (when addr (verify-address! c uid addr))
   (values uid tid))
 
@@ -271,7 +272,7 @@
   (define-values (ruid revoked session) (reset-password! c #:token tok #:password "a-new-password"))
   (check-equal? ruid uid)
   (check-equal? (authenticate c "alice" "a-new-password") uid)
-  (check-false (authenticate c "alice" "original-pw"))
+  (check-false (authenticate c "alice" "original-pw-12"))
   (close-db! c))
 
 (test-case "RESET-9: every session is revoked"
@@ -332,7 +333,7 @@
   (check-equal? (status-of c uid) "suspended")
   ;; the password did NOT change
   (query-exec c "UPDATE users SET status = 'active' WHERE id = ?" uid)
-  (check-equal? (authenticate c "alice" "original-pw") uid)
+  (check-equal? (authenticate c "alice" "original-pw-12") uid)
   ;; and the token was spent by the attempt — it must not be presentable again
   (check-false (claim-mailed-token! c tok #:purpose "reset"))
   (close-db! c))
@@ -356,11 +357,11 @@
   (check-true (has-second-factor? c uid))
   (clear-deliveries! c)
   (check-equal? (request-password-reset! c "alice@example.test") 'queued)
-  (define-values (u2 r2 s2) (reset-password! c #:token (token-from-message c) #:password "pw-with-2fa"))
+  (define-values (u2 r2 s2) (reset-password! c #:token (token-from-message c) #:password "pw-with-2fa-12"))
   (check-false s2)                               ; a seed → sign in with the code
   ;; the password really was set, so the person is not locked out — they are
   ;; simply made to present the factor they enrolled
-  (check-equal? (authenticate c "alice" "pw-with-2fa"
+  (check-equal? (authenticate c "alice" "pw-with-2fa-12"
                               #:code (totp (base32-decode seed) (current-seconds) 30 6))
                 uid)
   (close-db! c))
@@ -379,10 +380,11 @@
   (close-db! c))
 
 (test-case "a password below the floor is named rather than stored"
-  (check-false (reset-password-problem "longenough"))
-  (check-true (string? (reset-password-problem "x")))
-  (check-true (string? (reset-password-problem 42)))
-  (check-equal? MIN-RESET-PASSWORD 6))
+  ;; the floor is ONE rule now (`password-problem`), asked with the account's own
+  ;; floor where an account is known; `test/password-floor-tests.rkt` owns it
+  (check-false (password-problem "longenough"))
+  (check-true (string? (password-problem "x")))
+  (check-true (string? (password-problem 42))))
 
 ;; ---- activation keeps its own rules -----------------------------------------
 
@@ -396,5 +398,5 @@
   (check-equal? (status-of c uid) "active")
   (check-true (string? (caddr res)))
   ;; and the same token cannot be replayed
-  (check-false (activate! c #:token tok #:password "another"))
+  (check-false (activate! c #:token tok #:password "another-pass-12"))
   (close-db! c))
