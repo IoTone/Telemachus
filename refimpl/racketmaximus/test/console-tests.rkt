@@ -2002,6 +2002,25 @@
   (check-equal? (remove* (append keys elsewhere) shipped) '()
                 "a ui.tr* string nothing asks for means a label was typed in place, or a screen was removed"))
 
+(test-case "an interpolated attribute value is double-quoted, because that is all esc covers"
+  ;; #282 item 7 (the interpolation recount). `esc` in 01-base.js escapes
+  ;; & < > and the DOUBLE quote and nothing else, so it is safe only inside a
+  ;; "…" attribute. A value interpolated into a '…' attribute is broken out of
+  ;; by a single quote, and an unquoted one by a space — and either would be
+  ;; markup a server-supplied string could reach while `esc` looked applied.
+  ;; The recount found neither anywhere; this keeps it a rule rather than luck.
+  ;; An attribute is preceded by whitespace; a URL query (`?locale=${…}`) is not.
+  (define files (sort (for/list ([p (in-list (directory-list console-dir))]
+                                 #:when (regexp-match? #px"[.]js$" (path->string p)))
+                        (path->string p)) string<?))
+  (check-true (> (length files) 20) "it scanned the console")
+  (for ([f (in-list files)])
+    (define src (console-code f))
+    (check-false (regexp-match #px"\\s[a-z-]+='[^']*[$][{]" src)
+                 (format "~a interpolates into a single-quoted attribute" f))
+    (check-false (regexp-match #px"\\s[a-z-]+=[$][{]" src)
+                 (format "~a interpolates into an unquoted attribute" f))))
+
 ;; #282 item 2: the first-run form used to ship `value="alice"` and
 ;; `value="s3cret"`, so pressing the button unedited created an operator whose
 ;; credentials were published in this repository's own deploy notes. Neither

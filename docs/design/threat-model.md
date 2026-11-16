@@ -135,6 +135,31 @@ with the numbers**, which is #110 r7's shape for its five remaining complexity
 rows. What would change the answer is an HTML-injection path turning up — and the
 enumeration above is the thing to re-run, not the attribute count.
 
+### The recount (#282 item 7, 13 Nov 2026)
+
+Re-run after the org renderer, the note links panel, the notes pager, the note
+graph and the Research tab — five new places that build markup from server
+data. **1,995 interpolations now, against 1,499.** 745 go through `esc`, `iv`
+or a handler index, 499 are catalog strings through `t()`, and 751 are
+neither. Rather than re-read all 751, the recount read the **135 of them on
+lines added since SEC‑11** (`git diff 177dec2`), because the earlier lines were
+read then and came back clean.
+
+**It is clean again.** Every server-supplied string on those lines reaches
+markup through `esc`: note titles and bodies (`bodyRender`, which escapes first
+— ORG‑3), link targets and labels, tags, graph node titles in both drawings
+(escaped once, where the label and the tooltip are written), research titles,
+URLs, notes and errors. What is interpolated raw is a coordinate, a count, a
+page number, a CSS class chosen from fixed strings, an internal editor key, or
+a uuid the server minted — the same shapes SEC‑11 accepted.
+
+**What the recount added is a rule it found holding by luck.** `esc` escapes
+`& < > "` and not the single quote, so it is safe only inside a double-quoted
+attribute. No interpolation in the console sits in a `'…'` attribute or an
+unquoted one, and nothing said it must not: `test/console-tests.rkt` now
+refuses both, positive-controlled for each. The catalog strings were the other
+open half, and #282 item 3 closes it by making `t()` escape.
+
 ## Surface 8 — outbound egress
 
 | | |
@@ -157,6 +182,50 @@ enumeration above is the thing to re-run, not the attribute count.
 | **Enforced** | entries are hash-chained per org in a sweep (never at insert, which would FORK under two writers), the digest names every column one by one so a field outside it could be edited undetected, and verify checks the hash AND the link. The external anchor is Ed25519, not an HMAC — with a shared secret the verifier could have produced the receipt — and the SERIES is itself chained, so SILENCE is detectable, which is the attack a published chain otherwise has no answer to. `verify` needs neither the server nor the database, because an anchor is worth something precisely when the instance is the suspect. |
 | **NOT enforced** | **the chain does not catch a rewrite by anybody who can WRITE the table**, who recomputes every later link — and that is the party an audit most defends against. The retained receipt is what closes it, and the platform cannot verify that somebody else kept one, so no read ever claims they did. |
 
+## Configuration posture — what the defaults leave off (#282 item 5)
+
+The ten surfaces above say what the CODE enforces. Several protections are
+switches, and this platform's standing rule is that an upgrade changes nothing
+anybody deployed (ENVN‑1, DEL‑9, PULL‑15a, MAIL‑26) — so a protection that
+would break a working instance ships OFF and is REPORTED rather than assumed.
+That makes the posture of a given instance a function of its configuration,
+and this table is the list to check it against. Each row says what the default
+is, why, and where the gap is visible.
+
+| Switch | Default | Why it is off | Where it shows |
+|---|---|---|---|
+| `TMACH_SECRET_KEY` | unset — stored secrets in plaintext | the trusted-database position is supported (#19) | boot WARNING; `secrets:` on the boot line and `GET /api/admin/status`; the mail transport read says `password_stored` per relay password |
+| the all-zeros key `compose.yaml` ships | sealed against nobody | an evaluation must start with one command | boot WARNING naming the key as published |
+| TLS on a non-loopback bind (`TMACH_TLS`) | plaintext HTTP allowed | the demo box serves across a tailnet | boot WARNING; no HSTS sent |
+| `TMACH_TOKEN_PEPPER` | a compiled-in development pepper | a first boot needs no setup | boot WARNING; rotating it signs everybody out |
+| `TMACH_STRICT_STARTUP` | off — the three rows above are advice | making them fatal breaks every existing deployment | turning it on makes them refusals |
+| `TMACH_ENCRYPT_CONTENT` | off — derived text in plaintext | sealing it removes content search (ENC‑1) | `content_search: false` on a search; switching it ON with no key is always fatal |
+| SMTP `verify_tls` | off — the relay's certificate is not checked | would stop mail on a self-signed internal relay (MAIL‑26) | `verify_tls` on every transport read |
+| `TMACH_LOGIN_LOCK_FAILURES` | no hard lock; the delay throttle still runs | a lock only an operator clears is a denial-of-service against a known username (#116) | — |
+| `TMACH_REQUIRE_NO_CONTENT_LOGGING` | hosted backends used undeclared | nothing can verify the declaration, only that somebody made it (RED‑20) | `content_logging: "undeclared"` on the request log |
+| `TMACH_WORKER_TOKEN_DAYS` | `never` | expiring tokens on an upgrade breaks third-party workers (PULL‑15a) | `GET /api/workers/token` reports the lifetime |
+| retention rules, the sensitivity policy | none configured | a real default deletes or refuses on a timer after an upgrade (DEL‑9, RED‑24) | `GET /api/retention`, `GET /api/executor-policy` |
+| `TMACH_PLUGINS_STRICT` | a plugin that fails to load is reported, not fatal | one bad plugin must not take the instance down (#48) | boot WARNING; `failed` on `GET /api/plugins` |
+
+**Two rows go the other way and are ON by default**, because nothing that
+worked depended on them being off: session timeouts (30 minutes idle, 8 hours
+absolute, SESS‑1) and the session cap (`TMACH_MAX_SESSIONS`, 10). And two
+gates have no switch at all: identity headers are honoured from loopback only
+unless `TMACH_TRUSTED_HEADER_PEERS` names a proxy, and `POST /api/bootstrap` is
+loopback-only unless `TMACH_BOOTSTRAP_SECRET` is set (#40, #41).
+
+**No credential is published as a default any more.** The deploy runbook
+printed one and the first-run form pre-filled it, so an untouched click created
+exactly the published account; both are gone and a sent password is held to the
+same six-character floor a reset uses (#282 item 2). The one remaining set of
+known passwords is `POST /api/admin/seed-tenants`, which is superadmin-only and
+documented as a demonstration fixture.
+
+**What this table does not do is tell you an instance is safe.** It lists what
+a default leaves off and where that is visible. A production instance should
+have a real key, TLS in front, a pepper of its own and strict startup on, and
+the boot log is where it says whether it has.
+
 ## What a next pass should do
 
 Ranked by what the columns above actually say, not by novelty:
@@ -171,7 +240,8 @@ Ranked by what the columns above actually say, not by novelty:
 3. ~~**Throttling the two token-redemption endpoints**~~ — **done, SEC‑13**, and
    the reason changed in the doing: not guessing, which was never feasible, but
    unbounded keyed-hash and database work for a stranger.
-4. **Re-run the console interpolation enumeration** when a renderer is added;
+4. **Re-run the console interpolation enumeration** when a renderer is added
+   (last re-run 13 Nov 2026, #282 item 7 — clean, see surface 7);
    that is what makes surface 7's answer about `style-src` still true.
 
 **That two of the four were done the same day they were ranked is the argument
