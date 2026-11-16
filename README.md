@@ -5,26 +5,233 @@
 
 **English** · [日本語](README.ja.md)
 
-A **team-oriented, self-hosted, privacy-first platform for hosting AI tools and
-applications.** Local-first, driven primarily by `llama-cpp` / `llama-server`,
-with minimal Python exposure. Open from day one.
+**Private AI for your workgroup, running on hardware you own.**
 
-The project began as **Telemachus** — Odysseus's son, who went looking for his
-father with Athena beside him disguised as Mentor — and **TMach** is the short
-form it is branded and documented under. The longer name survives in the
-repository, the environment variables and the module paths.
+TMach is a self-hosted AI workspace for teams. You install it on your own
+server, point it at a local model, and your group gets chat, an agent that can
+use tools, document processing, translation, search, and workflows, all behind
+real accounts and permissions. Your prompts and documents stay on your machines.
+It works with no internet connection at all.
 
-The generic application set is **chat**, **research**, and **document
-translation**. Beyond that, TMach is an **SDK and platform**: deployers
-extend the system with plugins — new **tools & integrations**, **datasets**, and
-**localizations** — through a stable, documented contract.
+Two things follow from that design:
 
-The first prototype is written in **Racket**. Frontend and backend are intended
-to be **swappable** — someone can supply a different frontend or a different
-backend — so the durable surface is the **SDK contract, the backend APIs, the
-security model, and the protocols**, not any one implementation. A second
-engineer is expected to provide an alternative reference implementation on the
-same contracts later.
+- **No data leaves through a public cloud or a public AI service unless you
+  decide it should.** With a local model, nothing your team types or uploads is
+  sent to a third party. If you also want a cloud model, you can connect one and
+  set rules for which documents may be sent to it.
+- **The cost of owning the stack stays low.** TMach is open source under the
+  MIT license, a short, well-understood academic license. There are no
+  per-seat fees, no usage fees, and no paid edition. You pay for the hardware
+  you choose to run it on.
+
+## Why it exists
+
+Most AI tools make you pick one of two things.
+
+Hosted assistants are easy to start with and the models are excellent, but
+everything your team types and uploads goes to somebody else's servers. For a lot
+of work (client files, contracts, medical or financial records, unreleased
+designs) that is not an option, or it takes a legal review to find out.
+
+Local tools keep the data at home, but most are built for one person at one
+computer. Once five people share the same machine, you need accounts, a way to
+decide who can see which documents, a way to stop one person's batch job from
+starving everyone else, and a record of who did what.
+
+TMach is built for that second situation: a group of people sharing private AI
+on shared hardware.
+
+## Who it is for
+
+- **Small and mid-sized teams with sensitive documents.** Engineering firms, law
+  offices, clinics, labs, consultancies, finance teams. Anyone whose work product
+  should not leave the building.
+- **The person who runs the server.** One operator can install it, add people,
+  set spending limits, watch the job queue, and see what is healthy from one
+  screen.
+- **Integrators and consultancies** who build AI products for clients and want a
+  platform they can rebrand, extend, and install on the client's own hardware.
+- **Teams that work in more than one language.** The whole interface ships in
+  English and Japanese, and translation is a built-in app, not an add-on.
+
+It is probably not for you if you are one person who wants a chat window (Ollama
+with any desktop chat app is simpler), or if you want a hosted service that
+somebody else operates.
+
+## What you get on day one
+
+- **Chat and an agent** that stream answers from your local model and can call
+  tools: create notes, search documents, look things up in the knowledge graph.
+- **A document repository** that takes any file format, with private, team, and
+  shared visibility, version history, sharing with expiry dates, and a record of
+  who read what. It also speaks the S3 protocol, so `aws s3 cp` and `rclone`
+  work against it.
+- **Document processing.** Upload a file and have it classified, have fields
+  pulled out against a schema, a form or PDF filled in, and the result
+  translated. A person can be placed in the middle to approve or correct the
+  result before it moves on. Scans and photos are read with OCR.
+- **Search** by keyword and by meaning across notes and documents, always
+  limited to what the person searching is allowed to see.
+- **Translation** with a team glossary, so agreed terms are used every time,
+  including for long documents.
+- **Notes** in Markdown or Org format, with tags, links between notes, and a
+  graph view.
+- **A knowledge graph** built from your documents, where every fact points back
+  to the document and version it came from.
+- **Research bookmarks** that save a copy of a web page so you still have it
+  after the original changes or disappears.
+- **Voice notes**, transcribed and made searchable.
+- **Workflows and schedules.** Chain steps together, run them when a document
+  arrives or at a set time, and see every run.
+- **Feeds** that pull in GitHub issues, security advisories, uptime alerts, and
+  chat messages and turn them into a work queue.
+- **Help built in.** Ask a question in the console and get an answer drawn from
+  the product documentation, with the source pages listed.
+
+## What you can build on it
+
+TMach is also a platform. The built-in apps use the same extension points that
+are open to you.
+
+- **An intake desk for paperwork.** Invoices, inspection reports, or application
+  forms arrive by upload or S3, get sorted by type, have their fields extracted,
+  go to a reviewer when the model is unsure, and come out as filled forms and
+  structured data.
+- **A private research assistant** over your own files and saved web pages that
+  answers with citations.
+- **A bilingual document service** that translates incoming documents with your
+  own terminology and keeps both versions side by side.
+- **An operations queue** that collects alerts and issues from several systems
+  and drafts a proposed response for a person to approve.
+- **Your own product.** Add tools, API routes, screens, background jobs, and
+  database tables as a plugin. Change the name, logo, and colors. Put a public
+  sign-up page in front of it. The
+  [integrator's guide](docs/integrators-guide.md) walks through all of it with a
+  working example.
+- **A shared GPU pool.** Machines with graphics cards connect as workers and
+  pull jobs from the queue. Add a machine and the team gets more capacity. See
+  the [GPU fleet runbook](docs/ops/gpu-fleet-runbook.md).
+
+## What makes it a team system
+
+- **Roles and permissions on everything.** Owner, admin, member, and viewer
+  roles; private, team, and shared visibility on every note and document; API
+  tokens limited to the permissions you choose.
+- **Budgets.** Daily limits on AI requests, tokens, storage, and more, set per
+  team. When a team reaches its limit, its jobs wait and the screen says why.
+- **A queue in front of the model.** AI work is scheduled, so a burst of
+  requests or a runaway agent cannot overload the server. Jobs can be cancelled
+  and have a time limit.
+- **A record of what happened.** Sign-ins, document reads, sharing, and admin
+  actions are logged. The log is chained so tampering can be detected, and it
+  can be exported.
+- **Controls for sensitive data.** Encryption at rest for stored secrets and,
+  optionally, extracted document text. Names, emails, and ID numbers can be
+  removed from text before it goes to a model. Documents can be labeled so they
+  are only ever sent to the models you approve.
+- **Several companies on one install.** An optional mode keeps each company's
+  teams, data, branding, and budgets separate.
+- **Sign-in protections.** Two-factor authentication, session timeouts, rate
+  limits on sign-in attempts, email invitations, and password reset.
+
+## Deployment blueprints
+
+TMach comes with [deployment blueprints](docs/ops/deployment-blueprints.md):
+step-by-step layouts that say what you need, how to set it up, and exactly what
+data leaves your network in each one. More are on the way.
+
+- **On local infrastructure.** One server in your office or data center, with
+  the model on the same machine. Nothing leaves it.
+- **Across a tailnet.** The server in one place and GPU machines in others,
+  joined by a private Tailscale network so nothing is exposed to the public
+  internet.
+- **Hybrid.** Your own hardware plus a rented GPU or a cloud model. TMach works
+  with any OpenAI-compatible endpoint, and you can label documents so that
+  sensitive ones only ever go to your local models while everything else can
+  use the larger one.
+
+In every layout the server, the database, and the stored documents stay on
+infrastructure you control.
+
+## How it compares
+
+These are good tools and several of them are a better choice for some teams.
+They also change quickly, so check their current documentation before you
+decide.
+
+| | Best at | How TMach differs |
+|---|---|---|
+| **Hosted team plans** (ChatGPT, Claude, Copilot, Gemini) | The strongest models, no setup, polished apps | Your data stays on your own hardware and it works offline. The trade is that local models are less capable than the largest hosted ones and you run the server yourself. |
+| **Self-hosted chat front ends** (Open WebUI, LibreChat) | A fast, polished chat experience over local or hosted models, with large communities | TMach puts more weight on what happens around the chat: document processing, review steps, budgets, a job queue, and an audit trail. Its chat screen is plainer. |
+| **Document chat workspaces** (AnythingLLM, PrivateGPT) | Getting from a folder of files to "ask questions about them" quickly | TMach adds per-document permissions, sharing, retention rules, structured extraction, and workflows that act on documents, not only answer questions about them. |
+| **Workflow builders** (Dify, n8n, Flowise) | Drag-and-drop flow design and a wide catalog of connectors | TMach workflows are written as data or code, not drawn. They run inside the same permission, budget, and audit system as everything else. It has far fewer connectors. |
+| **Building it yourself** (a model server plus scripts) | Total control | TMach gives you the accounts, permissions, queue, storage, and admin screens so you can start with the part that is specific to your work. |
+
+A few things are true of TMach that are worth checking for any alternative:
+
+- **MIT license for everything.** A permissive academic license that legal
+  teams already know. No enterprise edition, no features held back, no terms
+  that change with company size or branding.
+- **Runs with no outside services.** One server process, a database file, and a
+  model. PostgreSQL and S3 storage are options for when you outgrow that.
+- **Few moving parts.** The server is written in Racket with a small, pinned set
+  of dependencies, built the same way every time with Nix.
+
+And some things to know before you commit:
+
+- **It is pre-1.0.** It runs real workloads and has a large test suite, but APIs
+  can still change between releases.
+- **Local models have limits.** A 7B model on one graphics card will not match a
+  frontier hosted model. TMach can call any OpenAI-compatible endpoint, so you
+  can add a bigger cloud model for the work your privacy rules allow. See the
+  hybrid blueprint.
+- **The implementation language is uncommon.** You do not need to know Racket to
+  run it or to call its API. You do to write an in-process plugin, though
+  plugins can also run as separate programs in any language.
+- **Multi-company mode has no admin screens yet.** It is managed over the API.
+- **The Japanese edition is machine-assisted** and is being reviewed by a native
+  speaker.
+
+## Try it
+
+You need [Nix](https://nixos.org/download) and a local model server such as
+[Ollama](https://ollama.com).
+
+```sh
+git clone https://github.com/IoTone/Telemachus && cd Telemachus
+ollama pull qwen2.5:7b
+
+nix develop
+cd refimpl/racketmaximus
+raco make server/main.rkt
+
+export DATABASE_URL="sqlite:///$PWD/data/telemachus.db"
+export TMACH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
+export TMACH_MODEL=qwen2.5:7b
+racket server/main.rkt
+```
+
+Open <http://127.0.0.1:8835>, create the first operator account, and start a
+chat. Without `TMACH_MODEL_URL` the server still starts, but chat replies are a
+labeled placeholder, not real model output.
+
+To run it in a container with PostgreSQL, see
+[docs/ops/container.md](docs/ops/container.md). Every setting is listed in
+[docs/ops/configuration.md](docs/ops/configuration.md).
+
+## Documentation
+
+- [Using the console](docs/ui/README.md), screen by screen.
+- [The integrator's guide](docs/integrators-guide.md) for building on TMach.
+- [API, tools, permissions, and workflow reference](docs/reference/README.md),
+  generated from the source, including an
+  [OpenAPI description](docs/reference/openapi.json).
+- [Deployment blueprints](docs/ops/deployment-blueprints.md) for local, tailnet,
+  and hybrid setups.
+- [Operator runbooks](docs/ops/) for configuration, containers, GPU workers,
+  secrets, multi-company mode, and releases.
+- [The developer book](docs/book/), a guided tour of how the system is built.
+- [Design documents](docs/design/) and the decision log behind them.
 
 ## Feature tour
 
@@ -182,82 +389,40 @@ For teams that want total control, a plugin ships its own frontend bundle — it
 To regenerate this section — screenshots and captions both — run
 `bash refimpl/racketmaximus/test/e2e/refresh-screenshots.sh`.
 
-## Lineage & licensing
+## The name
 
-TMach succeeds an earlier self-hosted AI workspace ("Odysseus") and reuses
-its **concepts** — data-model ideas, the tool/agent contract shape, provider
-abstraction, hardware-aware local-model serving — but is a **clean MIT/X-licensed
-project**. Only code and documentation the author wrote themselves (the Racket
-implementation and owner-authored docs) are carried over; no third-party or
-borrowed source is imported. Provenance is vetted per file.
+The project began as **Telemachus**, the son of Odysseus, who set out to find
+his father with Athena beside him disguised as Mentor. **TMach** is the short
+form used for the product and its documentation. The longer name is still the
+name of the repository, the command-line tools, and the code modules.
 
-This is **pure OSS**. There is no open-core model and no plan for an "open core
-rug pull" — no held-back proprietary tier, no feature paywall. Every capability
-ships under the same MIT/X terms.
+TMach follows an earlier self-hosted AI workspace called Odysseus. It reuses
+ideas from that project but none of its third-party code. Everything here was
+written for this project and is released under the MIT license.
 
-## Design tenets
+## How the project is run
 
-1. **Team-first, RBAC at the core.** A real notion of teams/groups and
-   **role-based access control** — not a binary admin flag. Roles gate
-   capabilities, data, and management actions.
-2. **Quotas & fair use.** Per-user / per-team **quotas** are part of the team
-   design, not an afterthought.
-3. **Controlled AI concurrency — no accidental self-DDOS.** AI use and
-   multi-step application flows are **queued and rate/concurrency-limited** so a
-   runaway agent or a burst of flows cannot unintentionally DDOS or max out the
-   host or upstream model servers.
-4. **Every feature is manageable.** Each feature ships with a **strong management
-   interface** and a clear way to **activate / deactivate** it.
-5. **Local-first & privacy-first.** Runs offline against local models; user data
-   stays on the deployer's infrastructure.
-6. **Minimal Python.** Most things are driven from `llama-cpp` / `llama-server`.
-   The ML/document/native moat (embeddings, diffusion, PDF, STT/TTS) — where it
-   is needed at all — is walled behind small services with stable JSON contracts,
-   not woven through the core.
-7. **Swappable frontend/backend, contract-keyed.** The SDK contract, backend
-   APIs, security model, and protocols are the product; implementations are
-   replaceable.
-8. **Documentation is central.** As an open project, docs are a first-class
-   deliverable alongside code.
-
-## Data layer
-
-Start on **SQLite** for prototyping; design the persistence layer to **move to
-PostgreSQL** as the scale/team story requires. The data model should not assume
-SQLite-only semantics.
+- **Open source with nothing held back.** Every feature is in this repository
+  under the same license. There is no plan for a paid tier.
+- **The API is the product.** The HTTP API, the plugin contract, the security
+  model, and the worker protocol are documented and meant to outlive any one
+  implementation. The current implementation lives in `refimpl/racketmaximus/`,
+  and another could sit beside it.
+- **Every feature can be managed and switched off** by an operator, per
+  instance, per company, or per team.
+- **Documentation ships with the code.** The reference is generated from the
+  source, and the build fails if the two disagree.
+- **SQLite to start, PostgreSQL when you need it.** Both are tested on every
+  change.
 
 ## Repository layout
 
-Design docs live at the repo **root**; each backend / reference implementation
-lives under `refimpl/<name>/`.
-
-- `README.md`, `ACKNOWLEDGMENTS.md`, `docs/` — project design docs & attribution.
-- `docs/FeatureRequirements.md` — the requirements (authored from the predecessor review).
-- **`docs/integrators-guide.md` — putting your own product on TMach**: theme the
-  console, ship tools, serve your own screens and API, add background work. The
-  worked example is `refimpl/racketmaximus/plugins/integrator-demo/`.
-- `docs/reference/` — generated from the source (routes, tools, workflows,
-  permissions, plugins, the SDK) and committed; CI fails on drift.
-- `docs/ops/` — operator runbooks, one per subsystem (configuration, containers,
-  the workflow engine, multi-tenancy, the document repository, secrets at rest,
-  a GPU fleet, cutting a release). The published site indexes the directory, so
-  a new one appears with no change here.
-- `refimpl/racketmaximus/` — the first reference implementation (Racket); has its own README.
-
-Additional reference implementations (a different backend, or another engineer's
-design) slot in as sibling `refimpl/<name>/` directories against the same
-contracts — nothing about the platform is tied to any one of them.
-
-## Status
-
-Prototyping. Requirements are being derived from a feature review of the
-predecessor system; the Racket reference implementation is underway under
-`refimpl/racketmaximus/` (library seed + agent-engine nucleus landed).
-
-- `docs/FeatureRequirements.md` — the requirements for TMach (authored from
-  a review of the predecessor's feature inventory).
-- `docs/design/` — platform design (RBAC & teams, quotas, AI queue & governor):
-  proposals with data shapes and contracts, pending review.
+- `docs/` holds the guides, runbooks, generated reference, design documents,
+  and the book.
+- `refimpl/racketmaximus/` is the server, console, plugins, and tests. It has
+  its own README.
+- `deploy/` and `compose.yaml` hold example deployment files.
+- `refimpl/racketmaximus/VERSION` is the current version number.
 
 ## License
 
