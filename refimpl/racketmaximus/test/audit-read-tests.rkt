@@ -43,7 +43,7 @@
   (values (user-principal conn u team) team u))
 
 (define (member-of conn team username #:role [role "member"])
-  (define u (create-user! conn #:username username #:password "pw"))
+  (define u (create-user! conn #:username username #:password "pw-fixture-1"))
   (add-member! conn #:user u #:team team #:role role)
   (values (user-principal conn u team) u))
 

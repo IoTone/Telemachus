@@ -35,7 +35,7 @@
 (define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 (define (setup)
   (define c (fresh))
-  (define-values (uid tid) (bootstrap! c #:username "root" #:password "root-pass-1"))
+  (define-values (uid tid) (bootstrap! c #:username "root" #:password "root-pass-12"))
   (values c (user-principal c uid tid) uid tid (team-org c tid)))
 
 ;; tests MUST point the blob root at a temp dir or they write into the checkout

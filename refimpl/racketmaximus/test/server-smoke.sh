@@ -166,21 +166,21 @@ assert "bundle traversal refused"      "$(curl -s -o /dev/null -w '%{http_code}'
 # …and when the client does NOT collapse it either: a ".." segment reaches the
 # server as Racket's 'up symbol, and used to raise a 500 instead of being refused
 assert "…even unnormalized"           "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/beta/bundle/beta-onboarding/../plugin.json")" '404'
-BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"s3cret"}')
+BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"s3cret-enough"}')
 assert "bootstrap token" "$BS" '"token":"tk_'
 assert "bootstrap msg"   "$BS" 'Created operator alice'
 OP=$(printf '%s' "$BS" | grep -oP '"token":\s*"\K[^"]+')
-assert "login good"      "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret"}')" '"token":"tk_'
+assert "login good"      "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret-enough"}')" '"token":"tk_'
 assert "login bad pw"    "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"nope"}')" 'Authentication required'
 # issue #54: a password change now revokes every session it could have minted,
 # INCLUDING the one making the call, so the caller signs in again. This suite used
 # to change the password and keep using the same token.
-assert "change pw"       "$(curl -s -X POST $B/api/password -H "Authorization: Bearer $OP" -d '{"current_password":"s3cret","new_password":"newpass1"}')" '"signed_out":true'
+assert "change pw"       "$(curl -s -X POST $B/api/password -H "Authorization: Bearer $OP" -d '{"current_password":"s3cret-enough","new_password":"newpass-enough"}')" '"signed_out":true'
 assert "the change revoked the session that made it" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" 'Authentication required'
-NEWLOGIN=$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"newpass1"}')
+NEWLOGIN=$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"newpass-enough"}')
 assert "login new pw"    "$NEWLOGIN" '"token":"tk_'
 OP=$(printf '%s' "$NEWLOGIN" | grep -oP '"token":\s*"\K[^"]+')
-assert "old pw rejected" "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret"}')" 'Authentication required'
+assert "old pw rejected" "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret-enough"}')" 'Authentication required'
 assert "whoami operator" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" '"is_operator":true'
 
 # which build is this? Two instances a day apart were identical on screen, and
@@ -1907,9 +1907,20 @@ TKT=$(curl -s -X POST $B/api/x/example-tools/bundle-ticket -H "Authorization: Be
 assert "a bundle ticket is minted"           "$TKT" '"ticket":"'
 assert "…with the url to open"               "$TKT" '"url":"/api/x/example-tools/bundle/?ticket='
 TICKET=$(printf '%s' "$TKT" | grep -oP '"ticket":\s*"\K[^"]+')
-assert "the page opens with the ticket, no bearer" "$(curl -s "$B/api/x/example-tools/bundle/?ticket=$TICKET")" 'Word count'
+# 0.13.0: the ticket leaves the URL. A browser navigation to the ENTRY document is answered with a
+# 302 to the clean path, and the cookie is set on that response, so the ticket is never in the
+# address bar, in history, or in a Referer the page sends later. A sub-resource fetched WITH
+# ?ticket= is still served (a script or a rehearsal probe has no cookie jar), which is the contract
+# the route always had.
+JAR=$(mktemp)
+assert "the ticket navigation is a 302, not a page" "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/?ticket=$TICKET")" '302'
+assert "…and its Location carries no ticket"  "$(curl -s -D- -o /dev/null "$B/api/x/example-tools/bundle/?ticket=$TICKET" | tr -d '\r' | grep -i '^location:' | grep -c 'ticket=' || true)" '0'
 assert "…and sets a cookie scoped to that bundle" "$(curl -s -D- -o /dev/null "$B/api/x/example-tools/bundle/?ticket=$TICKET" | tr -d '\r' | grep -i '^set-cookie:')" 'tmx_bundle='
 assert "…HttpOnly and SameSite=Strict"        "$(curl -s -D- -o /dev/null "$B/api/x/example-tools/bundle/?ticket=$TICKET" | tr -d '\r' | grep -i '^set-cookie:')" 'HttpOnly; SameSite=Strict'
+assert "following it with the cookie jar opens the page" "$(curl -sL -c "$JAR" -b "$JAR" "$B/api/x/example-tools/bundle/?ticket=$TICKET")" 'Word count'
+assert "…and the browser ends on the clean URL" "$(curl -sL -c "$JAR" -b "$JAR" -o /dev/null -w '%{url_effective}' "$B/api/x/example-tools/bundle/?ticket=$TICKET")" "/api/x/example-tools/bundle/"
+assert "a sub-resource with ?ticket= is still served" "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/app.js?ticket=$TICKET")" '200'
+rm -f "$JAR"
 assert "a sub-resource loads on the cookie alone" "$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: tmx_bundle=$TICKET" $B/api/x/example-tools/bundle/index.html)" '200'
 assert "a made-up ticket is refused"          "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/?ticket=nope")" '401'
 assert "a ticket for one plugin is not another's" "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/integrator-demo/bundle/?ticket=$TICKET")" '401'
@@ -1977,6 +1988,45 @@ assert "…and NOT the audit export, which hands over the log" \
 # the compatibility half: the operator keeps every route they had
 assert "an operator still reads the fleet" "$(curl -s $B/api/admin/workers -H "Authorization: Bearer $OP")" '"executors":'
 assert "…and still exports the audit log"  "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $OP")" '"action":'
+
+# A SERVICE ACCOUNT'S OWN TOKEN. `POST /api/tokens` mints for the CALLER, so the only
+# way a probe, a harvest or a backup could hold a long-lived token was to hold
+# `settings:manage` itself and sign in — which is a widening nobody wants, and the
+# reason dev1's probe was handed a SESSION token that the eight-hour absolute clock
+# killed twice a day. An operator issues it instead, and the audit names both sides.
+echo
+echo "== an operator issues a machine token for a service account ===================="
+SVC=$(curl -s -X POST $B/api/admin/users/$BOBID/tokens -H "Authorization: Bearer $OP" \
+  -d '{"name":"probe","scopes":["instance:read"],"ttl":"never"}')
+SVCTOK=$(printf '%s' "$SVC" | grep -oP '"token":\s*"\K[^"]+')
+assert "the operator issues one"            "$SVC" '"user_id":"'"$BOBID"'"'
+assert "…and it is a never-expiring token"  "$SVC" '"expires_at":null'
+# THE TOKEN NARROWS AND NEVER WIDENS: its scopes cap what the ACCOUNT may do, so a
+# member's token cannot read instance status however it is scoped. That is the rule
+# worth asserting here, because the opposite would make this route a way to grant a
+# permission the account does not hold.
+assert "…and it speaks for that account" \
+  "$(curl -s $B/api/whoami -H "Authorization: Bearer $SVCTOK")" '"user_id":"'"$BOBID"'"'
+assert "…and its scopes do not widen the account" \
+  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $SVCTOK")" 'Forbidden: instance:read'
+assert "…and it cannot administer" \
+  "$(curl -s -X POST $B/api/admin/users/$CAROL_ID/password -H "Authorization: Bearer $SVCTOK" -d '{"new_password":"hijacked1"}')" 'Forbidden: instance:manage'
+# the audit names the ACCOUNT the token speaks for, not only the operator who acted
+# the export carries `meta` VERBATIM as the string it was stored as, so the quotes
+# inside it are escaped in the JSONL
+assert "…and the audit names the account it speaks for" \
+  "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $OP")" 'subject\":\"bob\"'
+# a member cannot mint for anybody, including itself through this route
+assert "a member cannot issue one" \
+  "$(curl -s -X POST $B/api/admin/users/$BOBID/tokens -H "Authorization: Bearer $BOB" -d '{"ttl":"never"}')" 'Forbidden: instance:manage'
+# an operator account is refused: this route is for a service account, and minting an
+# operator token through it would clone operator credentials somewhere the operator
+# list does not show
+OP_SELF=$(curl -s $B/api/whoami -H "Authorization: Bearer $OP" | grep -oP '"user_id":\s*"\K[^"]+')
+assert "an operator account is refused" \
+  "$(curl -s -X POST $B/api/admin/users/$OP_SELF/tokens -H "Authorization: Bearer $OP" -d '{"ttl":"never"}')" 'not for an operator'
+assert "…and an unknown user is a 404" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/admin/users/nobody/tokens -H "Authorization: Bearer $OP" -d '{"ttl":"never"}')" '404'
 assert "a plain member reaches none of it" "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:read'
 
 echo "== the external anchor (#66) =="
@@ -2235,6 +2285,22 @@ assert "plugin bundle serves index.html" "$(curl -s $B/api/x/example-tools/bundl
 assert "…the same file by name"       "$(curl -s $B/api/x/example-tools/bundle/index.html -H "Authorization: Bearer $OP")" 'Word count'
 assert "…is never publicly cached"    "$(curl -s -D- -o /dev/null $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP" | tr -d '\r' | grep -i '^cache-control:')" 'private, no-store'
 assert "…and varies by Authorization" "$(curl -s -D- -o /dev/null $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP" | tr -d '\r' | grep -i '^vary:')" 'Authorization'
+# 0.13.0: a bundle page carries the STRICT policy — no inline script, this origin
+# only — unless its manifest declares the `"csp": "relaxed"` escape hatch. The
+# header is asserted as a WHOLE directive sequence rather than a keyword, because
+# `style-src` legitimately keeps its 'unsafe-inline' in both policies and a grep
+# for that token alone would pass against the wrong one.
+PBCSP=$(curl -s -D- -o /dev/null $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP" | tr -d '\r' | grep -i '^content-security-policy:')
+assert "plugin bundle: the STRICT content policy" "$PBCSP" "script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self';"
+assert "…with object-src closed"                  "$PBCSP" "object-src 'none'"
+refute "…and no inline script in script-src"      "$PBCSP" "script-src 'self' 'unsafe-inline'"
+assert "…a sub-resource carries it too"  "$(curl -s -D- -o /dev/null $B/api/x/example-tools/bundle/app.js -H "Authorization: Bearer $OP" | tr -d '\r' | grep -i '^content-security-policy:')" "script-src 'self'; style-src"
+# …and the PUBLIC funnel bundle, which is the first page a stranger meets
+assert "landing bundle: the STRICT content policy too" \
+  "$(curl -s -D- -o /dev/null $B/beta/bundle/beta-onboarding/ | tr -d '\r' | grep -i '^content-security-policy:')" "script-src 'self'; style-src"
+assert "…and the page's own code is a file, not an inline block" "$(curl -s $B/beta/bundle/beta-onboarding/)" '<script src="./app.js"></script>'
+assert "…which is served"  "$(curl -s -o /dev/null -w '%{http_code}' $B/beta/bundle/beta-onboarding/app.js)" '200'
+assert "the plugins listing names each plugin's policy" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"csp":"strict"'
 assert "the public landing path is NOT the authenticated one" "$(curl -s -o /dev/null -w '%{http_code}' $B/beta/bundle/example-tools/index.html)" '404'
 # --path-as-is, or curl collapses the ../ itself and the server never sees it
 assert "plugin bundle: no traversal out of the directory" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/../main.rkt" -H "Authorization: Bearer $OP")" '404'
@@ -2484,7 +2550,7 @@ assert "a member may not reset another's password" \
   'Forbidden: instance:manage'
 assert "a short reset is refused" \
   "$(curl -s -X POST $B/api/admin/users/$EVE_ID/password -H "Authorization: Bearer $OP" -d '{"new_password":"x"}')" \
-  'min 6'
+  'min 8'
 assert "an operator resets a locked-out password" \
   "$(curl -s -X POST $B/api/admin/users/$EVE_ID/password -H "Authorization: Bearer $OP" -d '{"new_password":"eve-pass-333"}')" \
   '"ok":true'

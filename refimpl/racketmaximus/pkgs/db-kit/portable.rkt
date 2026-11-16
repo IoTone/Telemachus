@@ -17,9 +17,19 @@
          (rename-out [q-exec query-exec] [q-rows query-rows] [q-row query-row]
                      [q-maybe-row query-maybe-row] [q-value query-value]
                      [q-maybe-value query-maybe-value] [q-list query-list] [q-query query])
-         db-dialect pg-rewrite)
+         db-dialect db-true? pg-rewrite)
 
 (define (db-dialect conn) (dbsystem-name (connection-dbsystem conn)))
+
+;; A BOOLEAN EXPRESSION in a SELECT list is a different VALUE on each dialect: SQLite answers 1 or 0,
+;; PostgreSQL answers #t or #f. A COLUMN declared INTEGER answers 1/0 on both, so `(= 1 …)` is right for
+;; those — but `(= 1 …)` on `EXISTS (…)` or on a comparison is a SQLite-only test that silently answers
+;; #f on PostgreSQL. That is how `email_pending` would never be true on the box that runs Postgres,
+;; which is the one state an administrator has to see to explain a failed password reset.
+(define (db-true? v)
+  (cond [(boolean? v) v]
+        [(number? v) (not (zero? v))]
+        [else #f]))
 
 ;; "… ? … ? …" -> "… $1 … $2 …" (PostgreSQL), skipping quoted-string literals.
 (define (pg-rewrite sql)

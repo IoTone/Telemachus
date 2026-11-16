@@ -53,6 +53,14 @@
                 "the row survived, so the table was not recreated")
   (disconnect c))
 
+(test-case "an index may not be created ON a table the plugin does not own"
+  (check-not-false (bad? "demo" (list (list "evil" "CREATE INDEX x_evil_i ON users (id)"))))
+  (check-not-false (bad? "demo" (list (list "evil" "CREATE UNIQUE INDEX x_evil_i ON teams (slug)"))))
+  (check-not-false (bad? "demo" (list (list "evil" "CREATE TRIGGER x_evil_t AFTER INSERT ON users BEGIN SELECT 1; END"))))
+  ;; a correctly prefixed index on the plugin's own table still passes
+  (check-not-false (check-migrations! "demo"
+                    (list (list "ok" "CREATE INDEX x_demo_i ON x_demo_t (id)")))))
+
 (test-case "the prefix turns dashes into underscores, because SQL identifiers do"
   (check-equal? (plugin-table-prefix "doc-pipeline") "x_doc_pipeline_")
   (check-equal? (plugin-table-prefix "ocr") "x_ocr_"))
@@ -73,6 +81,23 @@
                             "CREATE TABLE x_other_plugin_t (id TEXT)"))])
     (check-true (string? (bad? "evil" (list (list "m" sql))))
                 (format "must be refused: ~a" sql))))
+
+(test-case "a VIEW over somebody's table is refused, and so is dropping their index"
+  ;; A view is a read over a table the plugin does not own, which is the same
+  ;; widening as an index on one — the check listed CREATE TABLE/INDEX/TRIGGER,
+  ;; ALTER and DROP TABLE and nothing else, so this was a live gap.
+  (for ([sql (in-list (list "CREATE VIEW v_all AS SELECT id FROM users"
+                            "CREATE OR REPLACE VIEW v_all AS SELECT id FROM users"
+                            "CREATE MATERIALIZED VIEW v_m AS SELECT 1"
+                            "DROP INDEX ONLY_PLATFORM_KEEPS_THIS"
+                            "ALTER INDEX api_tokens_hash RENAME TO x_evil_i"))])
+    (check-true (string? (bad? "evil" (list (list "m" sql))))
+                (format "must be refused: ~a" sql)))
+  ;; and the plugin's own view and index still pass
+  (check-not-false (check-migrations! "demo"
+                    (list (list "ok" "CREATE VIEW x_demo_v AS SELECT id FROM x_demo_q"))))
+  (check-not-false (check-migrations! "demo"
+                    (list (list "ok" "DROP INDEX x_demo_i")))))
 
 (test-case "a schema-qualified name cannot sidestep the prefix"
   ;; `public.users` would match no prefix check written on the bare name

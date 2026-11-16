@@ -19,6 +19,7 @@
 ;; a production KDF drops in. Password auth (login/2FA) is a later slice.
 
 (require racket/date db-kit/portable
+         racket/list            ; append* — one account's permissions across its teams (0.13.0)
          racket/string          ; string-join — the visibility refusal's one message
          json
          racket/random          ; crypto-random-bytes — recovery codes (issue #26)
@@ -60,6 +61,12 @@
          grant! revoke!
          audit! audit-list
          set-password! change-password! authenticate has-second-factor? enable-2fa! reset-2fa! first-team-for
+         ;; 0.13.0: the ONE password floor. `password-floor` asks about an account,
+         ;; `password-floor-for-role` about a role a caller is about to assign (the
+         ;; two forms an add-member needs, before there is a membership to ask
+         ;; about), and `require-password!` is what every write calls.
+         password-floor password-floor-for-role require-password! require-password-for-role!
+         CREDENTIAL-CHANGING-PERMS
          member-role team-owner-count set-member-role! deactivate-member!
          revoke-user-sessions!
          issue-recovery-codes! recovery-codes-remaining RECOVERY-CODE-COUNT
@@ -112,6 +119,16 @@
 (define (create-user! conn #:username username #:operator? [operator? #f]
                       #:display-name [display-name sql-null] #:password [pw #f]
                       #:org [org-id #f] #:org-role [org-role #f])
+  ;; A PASSWORD GIVEN AT CREATION IS HELD TO THE SAME FLOOR, and there was none
+  ;; here before: the operator's own bootstrap password came in through this
+  ;; argument, so the highest-privileged account on the instance was the one whose
+  ;; password nothing checked. The floor is the OPERATOR one when the flag is set
+  ;; — this account has no membership yet, so `password-floor` has nothing to ask
+  ;; — and the baseline otherwise; an add-member that assigns an admin role
+  ;; enforces the higher floor itself, from the role, before calling here.
+  (when pw
+    (define p (password-problem pw (if operator? MIN-PRIVILEGED-PASSWORD-LENGTH MIN-PASSWORD-LENGTH)))
+    (when p (raise-password-problem (format "~a: ~a" username p))))
   (define uid (new-id))
   (query-exec conn
     (string-append "INSERT INTO users (id, username, display_name, is_operator, password_hash, "
@@ -265,8 +282,107 @@
   (audit! conn #:action "bootstrap" #:actor-type "user" #:actor-id uid #:team-id tid)
   (values uid tid))
 
+;; ---- the password floor (0.13.0) ---------------------------------------------
+;;
+;; WHAT AN ACCOUNT MAY SET AS A PASSWORD DEPENDS ON WHAT THE ACCOUNT CAN DO. The
+;; platform has exactly one permission that changes somebody else's credential —
+;; `instance:manage`, which is the operator's password reset — and one that lets a
+;; person add members and set their roles, which is the same power over a
+;; colleague's access by a different route. An account holding either is a more
+;; valuable target, so its own password is held to 12 rather than 8.
+;;
+;; THE TEST IS BY PERMISSION, NOT BY ROLE NAME. Roles are rows over a permission
+;; catalog, so a deployment that builds a role granting `members:manage` gets the
+;; higher floor without a change here — and MTX-9 means a plugin cannot widen the
+;; catalog, so the two names below are the whole of the set.
+(define CREDENTIAL-CHANGING-PERMS '("instance:manage" "members:manage"))
+
+;; THE MATCH IS `perm-matches?`, NOT `member`. A role's grants are patterns, and
+;; the owner role holds `*:*` — so an exact comparison said the OWNER of a team
+;; could not add members, which is the one thing an owner can always do. The test
+;; found it on the first run: `password-floor-for-role "owner"` answered 8.
+(define (credential-changing-perms? perms)
+  (for/or ([granted (in-list perms)])
+    (for/or ([wanted (in-list CREDENTIAL-CHANGING-PERMS)])
+      (perm-matches? granted wanted))))
+
+;; THE FLOOR FOR AN ACCOUNT: the operator flag first, because an operator's
+;; permissions are not rows — `can?` answers for them separately, and the
+;; bootstrap account belongs to no team at the moment its password is set.
+;;
+;; BOTH TIERS COUNT. An account can change other people's credentials through a TEAM
+;; role (`members:manage`) or through its ORG role (`org_admin` and `org_owner` both
+;; hold it, permissions.rkt), and reading only the team memberships held an org admin's
+;; own password to 8 — the exact class this floor exists to close, missed on the tier
+;; that was added later. `org_role_key` lives on the user row, not in `memberships`.
+(define (password-floor conn user-id)
+  (define r (query-maybe-row conn "SELECT is_operator, org_role_key FROM users WHERE id = ?" user-id))
+  (define operator? (and r (equal? 1 (vector-ref r 0))))
+  (define org-role (and r (let ([v (vector-ref r 1)]) (and (not (sql-null? v)) v))))
+  (define perms
+    (if operator?
+        '()
+        (append (role-key-perms conn org-role)
+                (append* (for/list ([tid (in-list (query-list conn
+                                                              "SELECT team_id FROM memberships WHERE user_id = ? AND status = 'active'"
+                                                              user-id))])
+                           (user-permissions conn user-id tid))))))
+  (if (or operator? (credential-changing-perms? perms))
+      MIN-PRIVILEGED-PASSWORD-LENGTH
+      MIN-PASSWORD-LENGTH))
+
+;; What a BUILT-IN role key grants, team tier or org tier: both are rows in the same
+;; `roles` table with `team_id` NULL, which is why one lookup serves `password-floor`
+;; and `password-floor-for-role`.
+(define (role-key-perms conn role-key)
+  (define rid (and role-key (query-maybe-value conn "SELECT id FROM roles WHERE key = ? AND team_id IS NULL" role-key)))
+  (if rid (query-list conn "SELECT permission FROM role_permissions WHERE role_id = ?" rid) '()))
+
+;; THE FLOOR FOR A ROLE a caller is about to assign. An add-member knows the role
+;; it is granting and the account has no membership yet, so this is the only way
+;; to hold an invited admin to 12 at the moment the password is written. Only the
+;; BUILT-IN roles are consulted, because those are the only ones that exist:
+;; team-defined roles are not in v1 (RBAC-5b), so there is no team-scoped row to
+;; prefer. An unknown key answers the baseline — the write refuses the role
+;; itself, and a floor is not the place to report that.
+(define (password-floor-for-role conn role-key)
+  (if (credential-changing-perms? (role-key-perms conn role-key))
+      MIN-PRIVILEGED-PASSWORD-LENGTH
+      MIN-PASSWORD-LENGTH))
+
+;; ONE RULE, ASKED BY EVERY WRITE. `set-password!` calls this, so a path that
+;; forgets to validate still cannot store a password the platform would refuse,
+;; and a path that wants a good message calls `password-problem` with the same
+;; floor before it gets here (the endpoints do: a 400 that names the floor is
+;; friendlier than an exception).
+;; An `exn:fail:user` whose MESSAGE IS THE SENTENCE. `raise-user-error` wants a
+;; `who` and prefixes it ("password: password too short"), which is the same word
+;; twice; and #123 turns this exception into a 400 carrying exactly the message,
+;; so the wording a caller reads is the same whichever layer refused them.
+(define (raise-password-problem problem)
+  (raise (make-exn:fail:user (string->immutable-string problem) (current-continuation-marks))))
+
+(define (require-password! conn user-id pw)
+  (define problem (password-problem pw (password-floor conn user-id)))
+  (when problem (raise-password-problem problem))
+  pw)
+
+;; The same floor for a path that knows the ROLE it is about to grant and has no account
+;; yet. `org-create-rows!` needs it: the owner it creates holds `*:*` through the team, but
+;; `create-user!` can only ask the baseline there (the account has no membership when the
+;; password is written), so without this a company could be created with an owner password
+;; the same account could not later set. Asked BEFORE the org row exists, so a refusal leaves
+;; nothing half-created behind.
+(define (require-password-for-role! conn role-key pw [who #f])
+  (define problem (password-problem pw (password-floor-for-role conn role-key)))
+  (when problem (raise-password-problem (if who (format "~a: ~a" who problem) problem)))
+  pw)
+
 ;; ---- password / 2FA login ---------------------------------------------------
 (define (set-password! conn user-id pw)
+  ;; the floor is checked BEFORE the hash: hashing a password that will be
+  ;; refused is a KDF run an unauthenticated slider could otherwise ask for
+  (require-password! conn user-id pw)
   (query-exec conn "UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
               (hash-password pw) user-id))
 

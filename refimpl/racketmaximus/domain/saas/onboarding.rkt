@@ -16,6 +16,7 @@
          "../authz/authz.rkt"       ; create-user!/create-team!/add-member!/seed-builtin-roles!/set-password!/issue-token!/first-team-for/audit!
          "../authz/mailed-tokens.rkt" ; mint-mailed-token!/claim-mailed-token! — the ONE rule for a token we mail
          (only-in "../mail/addresses.rkt" address-verify-by-redemption!)
+         (only-in "../mail/transport.rkt" transport-configured?)
          "../quota/quota.rkt")      ; set-limit!
 
 (provide provision! activate! suspend! resume! team-suspended?
@@ -90,30 +91,62 @@
 ;; stops being true without anybody noticing. With a seed the caller is told the
 ;; password was set and sends them to sign in, where the code is demanded.
 (define (activate! conn #:token raw #:password pw)
-  (define uid (claim-mailed-token! conn raw #:purpose "activate"))
+  ;; THE FLOOR IS ASKED BEFORE THE CLAIM (0.13.0), because it depends on the
+  ;; ACCOUNT this link belongs to — an invited ADMIN or the provisioned owner can
+  ;; change other people's credentials and is held to 12 — and a claim is
+  ;; single-use. Refusing a weak password after spending the link would cost the
+  ;; person their invitation, which is a lockout with no self-service way out.
+  ;; `mailed-token-holder` is the read half of the claim, checked in the same
+  ;; order, so a token it answers for is one the claim accepts a moment later;
+  ;; `require-password!` raises, and the endpoint answers that as a 400.
+  (define holder (mailed-token-holder conn raw #:purpose "activate"))
   (cond
-    [(not uid) #f]
+    [(not holder) #f]
     [else
-     (set-password! conn uid pw)
-     (query-exec conn "UPDATE users SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?" uid)
-     (query-exec conn "UPDATE provisioning SET status = 'activated', updated_at = CURRENT_TIMESTAMP WHERE owner_user_id = ?" uid)
-     ;; RECEIVING THE LINK PROVED THE MAILBOX (INVITE-4), so a pending address is
-     ;; promoted here and the invitation needs no second confirmation message.
-     ;; THIS IS THE ONE CALLER, and it is the condition that function states: a
-     ;; token minted for this user has just been spent, one line above. A person
-     ;; with nothing pending is left alone, which is every activation on an
-     ;; instance with no mail.
-     (address-verify-by-redemption! conn uid)
-     (define tid (first-team-for conn uid))
-     (define tok
-       (and (not (has-second-factor? conn uid))
-            (let-values ([(t _t) (issue-token! conn #:user uid #:team tid
-                                               #:name "login" #:scopes '("*:*")
-                                               #:kind SESSION-KIND)])
-              t)))
-     (audit! conn #:action "activate" #:actor-type "user" #:actor-id uid #:team-id tid
-             #:resource-type "user" #:resource-id uid)
-     (values uid tid tok)]))
+     ;; ONLY AN `invited` ACCOUNT CAN ACCEPT. The `status` column is what suspension
+     ;; writes, and this line used to set it back to 'active' unconditionally — so a
+     ;; still-valid link revived a suspended account (non-payment, an incident, a
+     ;; contract's end), and nothing else in the tree re-checks `users.status` on a
+     ;; live session. The reset path already refuses a suspended account; this is the
+     ;; same rule, and it is asked BEFORE the claim so a refusal does not spend the
+     ;; link.
+     (define status (query-maybe-value conn "SELECT status FROM users WHERE id = ?" holder))
+     (when (equal? status "suspended")
+       (raise-user-error 'activate
+                         (string-append "this account is suspended, so the invitation cannot be accepted. "
+                                        "An operator has to resume it first")))
+     (require-password! conn holder pw)
+     (define uid (claim-mailed-token! conn raw #:purpose "activate"))
+     (cond
+       [(not uid) #f]
+       [else
+        (set-password! conn uid pw)
+        (query-exec conn "UPDATE users SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?" uid)
+        (query-exec conn "UPDATE provisioning SET status = 'activated', updated_at = CURRENT_TIMESTAMP WHERE owner_user_id = ?" uid)
+        ;; RECEIVING THE LINK PROVED THE MAILBOX (INVITE-4), so a pending address is
+        ;; promoted here and the invitation needs no second confirmation message.
+        ;; THIS IS THE ONE CALLER, and it is the condition that function states: a
+        ;; token minted for this user has just been spent, one line above. A person
+        ;; with nothing pending is left alone, which is every activation on an
+        ;; instance with no mail.
+        ;;
+        ;; ONLY WHEN THE INSTANCE ACTUALLY SENT IT. With no transport the link comes
+        ;; back to the INVITER, who redeems it for the person they invited — so
+        ;; redemption proves nothing about the mailbox, and promoting the address
+        ;; would let `user-by-verified-address` mail that address's password reset to
+        ;; somebody who never proved it.
+        (when (transport-configured? conn)
+          (address-verify-by-redemption! conn uid))
+        (define tid (first-team-for conn uid))
+        (define tok
+          (and (not (has-second-factor? conn uid))
+               (let-values ([(t _t) (issue-token! conn #:user uid #:team tid
+                                                  #:name "login" #:scopes '("*:*")
+                                                  #:kind SESSION-KIND)])
+                 t)))
+        (audit! conn #:action "activate" #:actor-type "user" #:actor-id uid #:team-id tid
+                #:resource-type "user" #:resource-id uid)
+        (values uid tid tok)])]))
 
 ;; ---- lifecycle --------------------------------------------------------------
 (define (set-tenant! conn pid team-status user-status prov-status action)

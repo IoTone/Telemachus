@@ -79,7 +79,7 @@ pj(){ curl -s -X POST "$B$1" -H "Authorization: Bearer $2" -d "${3:-{\}}"; }
 echo
 echo "== 0. bootstrap the SUPERADMIN (instance operator) =============================="
 assert "flag advertised" "$(curl -s $B/health)" '"multitenant":true'
-BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"root@instance","password":"superadmin1"}')
+BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"root@instance","password":"superadmin-1234"}')
 ROOT=$(jget 'd["token"]' <<<"$BS")
 assert "superadmin created"  "$BS" '"multitenant":true'
 assert "instance org"        "$(g /api/whoami $ROOT)" '"org_slug":"system"'
@@ -196,6 +196,54 @@ assert "…and the read is gone" "$(g /api/notes/$TV_ID $RD_TOK)" 'Forbidden'
 assert "promote back"          "$(curl -s -X PATCH $B/api/org/members/$RD_ID -H "Authorization: Bearer $ACME_OWNER" -d '{"org_role":"org_reader"}')" '"org_role":"org_reader"'
 assert "…and it is back"       "$(g /api/notes/$TV_ID $RD_TOK)" '"title":"Sprint plan"'
 assert "cannot change your own org role" "$(curl -s -X PATCH $B/api/org/members/$(jget 'd["tenants"][0]["owner"]["user_id"]' <<<"$SEED") -H "Authorization: Bearer $ACME_OWNER" -d '{"org_role":"org_reader"}')" 'your own'
+
+echo
+echo "== 7c. the company plane invites by address, and hands over no session ========"
+# AN `email` ASKS FOR AN INVITATION, exactly as on the team plane: the account is
+# created `invited`, and the reply carries NO SESSION — a caller adding somebody
+# is not that person. This instance has no mail transport, so the link comes back
+# ONCE (INVITE-5), which is also what makes the whole path assertable here.
+INVITE=$(pj /api/org/members $ACME_OWNER \
+  "{\"email\":\"hr2@acme.test\",\"org_role\":\"org_admin\",\"team_id\":\"$OPS_TEAM\",\"role\":\"admin\"}")
+assert "invite: the account is created"        "$INVITE" '"invited":true'
+assert "invite: …as invited, so it cannot sign in" "$INVITE" '"status":"invited"'
+assert "invite: …with the org role it was offered" "$INVITE" '"org_role":"org_admin"'
+assert "invite: …and no transport, so the link comes back" "$INVITE" '"queued":false'
+refute "invite: the reply carries NO session token" "$INVITE" '"token":"tk_'
+HR2_ID=$(jget 'd["user_id"]' <<<"$INVITE")
+HR2_TOK=$(jget 'd["activation_token"]' <<<"$INVITE")
+if [ "$HR2_TOK" != "None" ]; then echo "  ok   invite: the activation link was handed over"
+else echo "  FAIL invite: no activation link came back on an instance with no transport"; fail=1; fi
+refute "invite: an unaccepted invitation cannot sign in" \
+  "$(curl -s -X POST $B/api/login -d '{"username":"hr2@acme.test","password":"anything-at-all"}')" '"token"'
+# Redeeming it activates the account and proves the address, and the NEW ACCOUNT
+# then signs in with a credential of its own — which is the whole point.
+curl -s -X POST $B/api/activate -d "{\"token\":\"$HR2_TOK\",\"password\":\"hr2-acme-pass-2026\"}" >/dev/null
+HR2=$(jget 'd["token"]' <<<"$(curl -s -X POST $B/api/login -d '{"username":"hr2@acme.test","password":"hr2-acme-pass-2026"}')")
+assert "invite: once accepted, the company plane answers for the new org admin" \
+  "$(g /api/org $HR2)" '"slug":"acme"'
+assert "invite: …and it is NOT an instance operator" "$(g /api/admin/status $HR2)" 'Forbidden: instance:read'
+
+# Sending it again, and the two refusals around it. An org administrator is
+# usually not a member of the team the person was invited to, so the team route
+# is unreachable for exactly the caller who manages the company's people.
+INV2=$(pj /api/org/members $ACME_OWNER \
+  "{\"email\":\"aud2@acme.test\",\"team_id\":\"$OPS_TEAM\",\"role\":\"viewer\"}")
+AUD2_ID=$(jget 'd["user_id"]' <<<"$INV2")
+RS=$(curl -s -X POST $B/api/org/members/$AUD2_ID/invite -H "Authorization: Bearer $ACME_OWNER")
+assert "invite: it can be sent again"             "$RS" '"queued":false'
+refute "invite: …and still hands back no session token" "$RS" '"token":"tk_'
+assert "invite: resending to an accepted member is a 409" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/org/members/$HR2_ID/invite -H "Authorization: Bearer $ACME_OWNER")" '409'
+# ANOTHER COMPANY'S MEMBER IS A 404, before any work: whether a user id exists
+# elsewhere on the instance is not this plane's question.
+assert "invite: another company's member is not found" \
+  "$(curl -s -X POST $B/api/org/members/$HR2_ID/invite -H "Authorization: Bearer $GLBX_OWNER")" 'not found'
+# and the act is in the COMPANY's trail, not only the team's: an org
+# administrator looks in /api/org/audit, and an entry written without a team is
+# invisible there (QUOTA-3's rule, met again).
+assert "invite: the company's trail records it" \
+  "$(g /api/org/audit $ACME_OWNER)" 'org.member.invited'
 
 echo
 echo "== 8. the org quota caps the company above its teams ==========================="
@@ -501,7 +549,7 @@ tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$((PORT+1))) 2>/dev/null; do
 done; exec 3>&- 2>/dev/null || true
 
 assert "flag off advertised" "$(curl -s $B2/health)" '"multitenant":false'
-BS2=$(curl -s -X POST $B2/api/bootstrap -d '{"username":"alice","password":"s3cret"}')
+BS2=$(curl -s -X POST $B2/api/bootstrap -d '{"username":"alice","password":"s3cret-enough"}')
 OP2=$(jget 'd["token"]' <<<"$BS2")
 assert "single-tenant bootstrap" "$BS2" '"multitenant":false'
 assert "orgs plane is 404"  "$(curl -s $B2/api/orgs -H "Authorization: Bearer $OP2")"  'not enabled'

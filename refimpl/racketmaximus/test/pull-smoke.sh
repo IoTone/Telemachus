@@ -59,7 +59,7 @@ jq_(){ python3 -c 'import sys,json;print(eval(sys.argv[1],{"d":json.load(sys.std
 # shape in this tree.
 refute(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  FAIL $1 — did NOT expect: $3 — got: $2"; fail=1; else echo "  ok   $1"; fi; }
 B="localhost:$PORT"
-TOK=$(curl -s -X POST $B/api/bootstrap -d '{"username":"ops","password":"pw-pw-pw1"}' | jq_ 'd["token"]')
+TOK=$(curl -s -X POST $B/api/bootstrap -d '{"username":"ops","password":"pw-pw-pw-1234"}' | jq_ 'd["token"]')
 G(){ curl -s "$B$1" -H "Authorization: Bearer $TOK"; }
 P(){ curl -s -X POST "$B$1" -H "Authorization: Bearer $TOK" -d "${2:-{\}}"; }
 curl -s -X POST $B/api/quota -H "Authorization: Bearer $TOK" -d '{"dimension":"ai.tokens.total","limit":1000000,"window":"day"}' >/dev/null
@@ -198,7 +198,7 @@ P /api/ai/chat '{"prompt":"to the echo","executor":"local"}' >/dev/null
 AFTER=$(G /api/model-requests | grep -c '"transport"' || true)
 assert "the simulated echo is not logged" "$BEFORE/$AFTER" "$BEFORE/$BEFORE"
 # RED-22: it is the team's audit trail, so a plain member does not read it
-MEM=$(P /api/members '{"username":"mia","password":"pw-pw-pw1","role":"member"}' | jq_ 'd["token"]')
+MEM=$(P /api/members '{"username":"mia","password":"pw-pw-pw-1234","role":"member"}' | jq_ 'd["token"]')
 assert "a member cannot read the log" \
   "$(curl -s $B/api/model-requests -H "Authorization: Bearer $MEM")" 'Forbidden: audit:read'
 assert "the filter narrows to one executor" "$(G '/api/model-requests?executor=laptop-gpu')" '"transport":"pull"'
@@ -735,7 +735,7 @@ env TMACH_DATA_DIR="$ROT_DIR" DATABASE_URL="sqlite:///$ROT_DIR/t.db" \
     racket server/main.rkt >"$ROT_DIR/server.log" 2>&1 & SRV2=$!
 until (exec 3<>/dev/tcp/127.0.0.1/$ROT_PORT) 2>/dev/null; do :; done; exec 3>&- 2>/dev/null || true
 B2="localhost:$ROT_PORT"
-TOK2=$(curl -s -X POST $B2/api/bootstrap -d '{"username":"ops","password":"pw-pw-pw1"}' | jq_ 'd["token"]')
+TOK2=$(curl -s -X POST $B2/api/bootstrap -d '{"username":"ops","password":"pw-pw-pw-1234"}' | jq_ 'd["token"]')
 curl -s -X POST $B2/api/quota -H "Authorization: Bearer $TOK2" -d '{"dimension":"ai.tokens.total","limit":1000000,"window":"day"}' >/dev/null
 EX2=$(curl -s -X POST $B2/api/executors -H "Authorization: Bearer $TOK2" \
        -d '{"name":"rotator","mode":"pull","model":"mock","capabilities":{"kinds":["infer.chat"]}}')

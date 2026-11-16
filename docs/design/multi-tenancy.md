@@ -211,10 +211,13 @@ complete companies with **known dev passwords**:
 | account | password | role |
 |---|---|---|
 | `root@instance` | `superadmin1` | superadmin (created by bootstrap) |
-| `admin@acme.test` | `acme-admin1` | Acme **org owner** |
+| `admin@acme.test` | `acme-admin-2026` | Acme **org owner** |
 | `dev@acme.test` | `acme-dev1` | Acme `engineering` member |
-| `admin@globex.test` | `globex-admin1` | Globex **org owner** |
+| `admin@globex.test` | `globex-admin-2026` | Globex **org owner** |
 | `dev@globex.test` | `globex-dev1` | Globex `engineering` member |
+
+The two owner passwords are 12 characters because an org owner holds `members:manage`, and the
+one password floor (0.13.0) holds an account that can change somebody else's credential to 12.
 
 Both companies get a team slugged `engineering` — which is itself the proof that
 per-org slug uniqueness landed. Each team gets a private note, so cross-org read

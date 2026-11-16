@@ -62,7 +62,7 @@
   (define conn (fresh))
   (define-values (uid tid) (bootstrap! conn #:username "alice"))
   (define alice (user-principal conn uid tid))
-  (define bob-id (create-user! conn #:username "bob" #:password "pw"))
+  (define bob-id (create-user! conn #:username "bob" #:password "pw-fixture-1"))
   (add-member! conn #:user bob-id #:team tid #:role "member")
   (define bob (user-principal conn bob-id tid))
   (register-plugin-workflow! "doc-pipeline" (car pipeline:workflows))
