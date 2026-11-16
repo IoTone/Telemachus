@@ -4243,6 +4243,41 @@ assert "trjob: and a stranger gets 401" \
       -d '{"text":"hi","target_lang":"ja"}')" 'Authentication required'
 rm -f /tmp/tmx-trlong.json /tmp/tmx-trhuge.json
 
+echo "== request shapes: a declared body is held to it (#227 slice 2b) =="
+# Five routes declare their body's shape in server/routes.rkt and the DISPATCHER
+# holds a request to it before the handler runs. Each refusal below is one that
+# used to reach a handler with the wrong kind of value: `limit` as a string went
+# to a BIGINT bind, `scopes` as a string silently became "*:read" — a WIDER token
+# than the caller asked for — and a non-string password reached the KDF.
+# It sits above the body-shape sweep only because both are about bodies; it
+# changes no state anything later reads (the quota dimension is its own).
+rs(){ curl -s -w '\n%{http_code}' -X "$1" "$B$2" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' --data-binary "$3"; }
+RS1="$(rs POST /api/quota '{"dimension":"x.shape.probe","limit":"lots"}')"
+assert "shape: a string limit is a 400"                      "$RS1" '400'
+assert "shape: …naming the field and the type it got"        "$RS1" '$.limit: expected integer, got string'
+refute "shape: …and never quoting the value"                 "$RS1" 'lots'
+RS2="$(rs POST /api/quota '{"dimension":"x.shape.probe","limit":5}')"
+assert "shape: the same route with a conforming body works"  "$RS2" '"limit":5'
+RS3="$(rs POST /api/quota '{"dimension":"x.shape.probe","limit":5')"
+assert "shape: a body that is not JSON is refused as that"   "$RS3" '$: the body is not JSON'
+RS4="$(rs POST /api/tokens '{"name":"narrow","scopes":"files:read"}')"
+assert "shape: scopes as a string is refused, not widened"   "$RS4" '$.scopes: expected array, got string'
+refute "shape: …and no token was minted"                     "$RS4" '"token":'
+RS5="$(rs POST /api/notes '{"title":"shape probe","body":"x","tags":"oops"}')"
+assert "shape: tags as a string is refused by path"          "$RS5" '$.tags: expected array, got string'
+RS6="$(rs POST /api/notes '{"title":"shape probe","body":"x","some_client_field":1}')"
+assert "shape: a declared object is OPEN — an extra field is ignored" "$RS6" '"title":"shape probe"'
+# public, so the shape is checked with no credential at all — and before the
+# sign-in throttle, so a malformed sign-in costs neither a KDF nor an attempt
+RS7="$(curl -s -w '\n%{http_code}' -X POST $B/api/login -H 'Content-Type: application/json' -d '{"username":"alice","password":12345}')"
+assert "shape: a numeric password is a 400 naming it"        "$RS7" '$.password: expected string, got integer'
+RS8="$(curl -s -w '\n%{http_code}' -X POST $B/api/login -H 'Content-Type: application/json' -d '[1]')"
+assert "shape: an array body on a declared route says so"    "$RS8" '$: expected object, got array'
+# AN UNDECLARED ROUTE IS UNTOUCHED: the share route declares nothing, so a
+# non-object body still reads as {} and gets the handler's own refusal
+RS9="$(rs POST /api/notes/none/share '[1]')"
+assert "shape: an undeclared route still answers with its own 400" "$RS9" 'user_id required'
+
 echo '== body shape: a JSON body that is not an object is never a 500 =='
 # EVERY write route in the table, read from server/routes.rkt rather than listed
 # here, so a route added later is swept the day it lands. Each is sent a string,

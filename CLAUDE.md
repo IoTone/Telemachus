@@ -1556,6 +1556,47 @@ bash scripts/build-site.sh                 # + the workflow's own link check
 - **`member` ANSWERS A TAIL, NOT `#t`** — `check-true` fails while printing the
   list that proves it right. Fifth appearance; `(and … #t)`.
 
+### …and a route may declare its request body (DOCGEN‑12…18, #227 slice 2b)
+
+`#:body` on an `R` entry in `server/routes.rkt`, built with `body-object` /
+`of` / `array-of`; `body-problems` in `server/body.rkt`; one check in
+`dispatch`. **Declared on five routes so far** (`POST /api/login`,
+`POST /api/notes`, `PUT /api/notes/:id`, `POST /api/quota`,
+`POST /api/tokens`). No migration, no permission, no catalog string.
+
+```sh
+raco test test/route-shape-tests.rkt test/openapi-tests.rkt   # the check, the schemas, both directions
+bash test/server-smoke.sh                                     # the "request shapes" block, 12 assertions
+```
+
+- **A DECLARED SHAPE IS ENFORCED, AND THE CONTROL SAYS WHAT IT WAS LETTING
+  THROUGH.** With the dispatcher's check removed: `{"limit":"lots"}` was STORED
+  as a quota limit (`ok: true`, SQLite), `{"scopes":"files:read"}` minted a
+  **`*:read`** token — wider than asked for, because a non-list fell back to the
+  default — and a numeric password was a 500.
+- **THE ORDER**: auth (401), feature, role permission (403), THEN the shape
+  (400), then the handler. On `/api/login` that puts it before the sign-in
+  throttle, so a malformed attempt costs no KDF and no attempt.
+- **OPEN UNLESS `#:closed? #t`**, which is the opposite of jsonschema.rkt's own
+  default. Every route these went onto ignored unknown fields; closing one is a
+  per-route behaviour change, never a side effect of declaring.
+- **TYPES AND `required` ONLY — NEVER AN `enum`.** Visibilities, note formats and
+  quota windows have homes in the domain, which refuses a bad value by name; a
+  second copy here drifts.
+- **AN UNDECLARED ROUTE IS UNTOUCHED** and its operation carries no
+  `requestBody`; `openapi-tests.rkt` checks both directions (every declared body
+  is emitted, none is invented), and `info.description` says an absence is
+  unknown.
+- **Responses are NOT declared** (DOCGEN‑18): a handler returns a `response`, so
+  there is nothing for the dispatcher to check yet.
+- **Adding a field to `rt` breaks every compiled importer**: "expected a
+  struct-type value with 8 fields". `raco make server/main.rkt cli/*.rkt
+  test/*-tests.rkt plugins/*/*.rkt`.
+- **To declare the next route**: read the handler AND its callers (the console's
+  `api(…, {body})`, the smokes) before choosing a type — `limit` is an integer
+  because the console sends `parseInt`, `ttl` is number/string/null because
+  `"never"` is a value.
+
 ## Knowledge graph (slice 61)
 
 Entities and relations from the team's documents, every fact bound to the
