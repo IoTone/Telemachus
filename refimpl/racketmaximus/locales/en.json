@@ -2627,6 +2627,10 @@
       "text": "Place or release a legal hold on an object: `{\"hold\": true|false}`. While held, deletion BY RULE is refused — a retention sweep skips it and says how many it skipped. This is the flag r4 will build a prefix-level surface on; it ships with the rules because a schedule that deletes is a one-way door and a hold is the only thing that can stop one.",
       "hash": "c571267be0e2aa366a173a800e261cbeb9b57829"
     },
+    "ui.mlcons_bounces": {
+      "text": "Read bounce reports",
+      "hash": "e669018545c297adf8a88506d8fbad11a7abd829"
+    },
     "doc.tool.doc_redact.text": {
       "text": "The text to redact (default: extracted from the document)",
       "hash": "bc9c214cdd7be95926687368818eae49655666eb"
@@ -2894,6 +2898,10 @@
     "doc.route.get.api.org.branding": {
       "text": "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.",
       "hash": "ed143a926240ffabe318645984be613401b30646"
+    },
+    "ui.mlfolder": {
+      "text": "Folder",
+      "hash": "30baa24967e08965d1594408031f0324ae11ccac"
     },
     "doc.route.get.api.org.retention": {
       "text": "The company's own retention rules (#86 r3). An org may SHORTEN what the instance allows for its own data and may never extend it.",
@@ -4227,6 +4235,10 @@
       "text": "{n} drawn of {total} notes, {e} links",
       "hash": "4c34463118bdb05e43928a95d19a545eac99e3bb"
     },
+    "ui.mlinboundhint": {
+      "text": "One optional mailbox, read for two things: bounce reports, which suppress an address that no longer exists, and replies, which arrive as an inbox item. A bounce and a reply are both mail that comes back, so they share one mailbox. Nothing is read until this is configured.",
+      "hash": "9589de0c852ab0dab5103d1fd53dacedd5c73676"
+    },
     "doc.route.get.beta-sdk.js": {
       "text": "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).",
       "hash": "11f604b88c96ad7f4101c2867e7df5b9eb051380"
@@ -4475,6 +4487,14 @@
       "text": "Delete a feed's configuration. Anything it already pulled is an ordinary repository document and is untouched — deleting the feed is not a retraction of its items.",
       "hash": "c9df0d8c31f26321241f7ba3b658661fe6138cc6"
     },
+    "doc.route.post.api.l10n.discard": {
+      "text": "Remove a locale's machine drafts (never a human's work).",
+      "hash": "6cd563b71dcf816676f66108dd48970be53285c1"
+    },
+    "ui.mlinbound": {
+      "text": "Inbound mail",
+      "hash": "996bfe98fe4a12ca0ab2b800d9163d248d66cb2a"
+    },
     "doc.route.post.api.activate": {
       "text": "Hosted mode: redeem an activation token and set the owner's password.",
       "hash": "4abf505567758f834dd33521715f9792cffaebac"
@@ -4490,10 +4510,6 @@
     "ui.qvwindow": {
       "text": "last {h}h",
       "hash": "cd66cdaf1149abea4ee263ebcc7a3cbdfe87c70a"
-    },
-    "doc.route.post.api.l10n.discard": {
-      "text": "Remove a locale's machine drafts (never a human's work).",
-      "hash": "6cd563b71dcf816676f66108dd48970be53285c1"
     },
     "ui.workflows": {
       "text": "Workflows",
@@ -4583,6 +4599,10 @@
       "text": "Everything at the instance tier; the operator (superadmin).",
       "hash": "5957c7a87ad3f05d89db595d3267a61bee7d7b74"
     },
+    "ui.mlmode": {
+      "text": "Mode",
+      "hash": "a7b93d2128e820f861fc8dfccd9f5521e89ad21f"
+    },
     "doc.tool.doc_render.data": {
       "text": "The data to fill in, e.g. the extracted fields",
       "hash": "92e78b4a50fac07647cf4d491ef3909265beb400"
@@ -4595,13 +4615,17 @@
       "text": "Sent back",
       "hash": "784f79a850955807e6a9c2610522ad187f5cf14e"
     },
-    "doc.route.put.api.i18n": {
-      "text": "Set the instance default locale and whether users may switch.",
-      "hash": "3ceb223bf235f7f52e4001672cb5ed6276472812"
-    },
     "doc.perm.files:read": {
       "text": "Open, download and search repository documents; read provenance and the knowledge graph.",
       "hash": "2efb78bec3b8ff4d1b71b73d0a5d3106dbb524e2"
+    },
+    "ui.mlcons_messages": {
+      "text": "Read replies",
+      "hash": "b5fe6a2279cd60f5f2fecb6dfaebb6a215dde17a"
+    },
+    "doc.route.put.api.i18n": {
+      "text": "Set the instance default locale and whether users may switch.",
+      "hash": "3ceb223bf235f7f52e4001672cb5ed6276472812"
     },
     "doc.perm.documents:read": {
       "text": "Read text documents.",

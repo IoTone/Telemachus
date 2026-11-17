@@ -2628,6 +2628,10 @@
       "text": "オブジェクトにリーガルホールドを設定または解除します：`{\"hold\": true|false}`。ホールド中は「ルールによる」削除が拒否され、保持スイープはそのオブジェクトを飛ばし、件数を報告します。これは r4 がプレフィックス単位の操作を構築する土台となるフラグであり、保持ルールと同時に提供されます。削除をともなうスケジュールは一方通行であり、それを止められるのはホールドだけだからです。",
       "hash": "c571267be0e2aa366a173a800e261cbeb9b57829"
     },
+    "ui.mlcons_bounces": {
+      "text": "不達報告を読む",
+      "hash": "e669018545c297adf8a88506d8fbad11a7abd829"
+    },
     "doc.tool.doc_redact.text": {
       "text": "伏せる対象のテキスト（既定では文書から抽出します）",
       "hash": "bc9c214cdd7be95926687368818eae49655666eb"
@@ -2895,6 +2899,10 @@
     "doc.route.get.api.org.branding": {
       "text": "会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。",
       "hash": "ed143a926240ffabe318645984be613401b30646"
+    },
+    "ui.mlfolder": {
+      "text": "フォルダ",
+      "hash": "30baa24967e08965d1594408031f0324ae11ccac"
     },
     "doc.route.get.api.org.retention": {
       "text": "会社自身の保持ルール（#86 r3）。組織は自社のデータについてインスタンスが許す期間を短縮できますが、延長はできません。",
@@ -4228,6 +4236,10 @@
       "text": "{total} 件のノートのうち {n} 件、リンク {e} 本を描画しました",
       "hash": "4c34463118bdb05e43928a95d19a545eac99e3bb"
     },
+    "ui.mlinboundhint": {
+      "text": "任意で 1 つのメールボックスを読み、2 つのことに使います。1 つは不達報告で、存在しなくなったアドレスを抑止します。もう 1 つは返信で、受信トレイの項目として届きます。不達報告も返信も「戻ってくるメール」なので、同じメールボックスを共有します。設定するまで何も読みません。",
+      "hash": "9589de0c852ab0dab5103d1fd53dacedd5c73676"
+    },
     "doc.route.get.beta-sdk.js": {
       "text": "Tier-B オンボーディングバンドルが読み込むブラウザ SDK（window.Telemachus.beta）。",
       "hash": "11f604b88c96ad7f4101c2867e7df5b9eb051380"
@@ -4476,6 +4488,14 @@
       "text": "フィードの設定を削除します。すでに取得済みの項目は通常のリポジトリ文書であり、影響を受けません — フィードの削除は、その項目の取り消しではありません。",
       "hash": "c9df0d8c31f26321241f7ba3b658661fe6138cc6"
     },
+    "doc.route.post.api.l10n.discard": {
+      "text": "ロケールの機械翻訳の下書きを削除する（人の作業には触れません）。",
+      "hash": "6cd563b71dcf816676f66108dd48970be53285c1"
+    },
+    "ui.mlinbound": {
+      "text": "受信メール",
+      "hash": "996bfe98fe4a12ca0ab2b800d9163d248d66cb2a"
+    },
     "doc.route.post.api.activate": {
       "text": "ホストモード：アクティベーショントークンを交換し、所有者のパスワードを設定します",
       "hash": "4abf505567758f834dd33521715f9792cffaebac"
@@ -4491,10 +4511,6 @@
     "ui.qvwindow": {
       "text": "直近 {h} 時間",
       "hash": "cd66cdaf1149abea4ee263ebcc7a3cbdfe87c70a"
-    },
-    "doc.route.post.api.l10n.discard": {
-      "text": "ロケールの機械翻訳の下書きを削除する（人の作業には触れません）。",
-      "hash": "6cd563b71dcf816676f66108dd48970be53285c1"
     },
     "ui.workflows": {
       "text": "ワークフロー",
@@ -4584,6 +4600,10 @@
       "text": "インスタンス層のすべて；オペレーター（スーパー管理者）。",
       "hash": "5957c7a87ad3f05d89db595d3267a61bee7d7b74"
     },
+    "ui.mlmode": {
+      "text": "モード",
+      "hash": "a7b93d2128e820f861fc8dfccd9f5521e89ad21f"
+    },
     "doc.tool.doc_render.data": {
       "text": "埋め込むデータ。例：抽出されたフィールド。",
       "hash": "92e78b4a50fac07647cf4d491ef3909265beb400"
@@ -4596,13 +4616,17 @@
       "text": "差し戻し済み",
       "hash": "784f79a850955807e6a9c2610522ad187f5cf14e"
     },
-    "doc.route.put.api.i18n": {
-      "text": "インスタンスのデフォルト言語と、ユーザーが切り替える可否を設定します。",
-      "hash": "3ceb223bf235f7f52e4001672cb5ed6276472812"
-    },
     "doc.perm.files:read": {
       "text": "リポジトリの文書を開く・ダウンロードする・検索する；由来と知識グラフを読む。",
       "hash": "2efb78bec3b8ff4d1b71b73d0a5d3106dbb524e2"
+    },
+    "ui.mlcons_messages": {
+      "text": "返信を読む",
+      "hash": "b5fe6a2279cd60f5f2fecb6dfaebb6a215dde17a"
+    },
+    "doc.route.put.api.i18n": {
+      "text": "インスタンスのデフォルト言語と、ユーザーが切り替える可否を設定します。",
+      "hash": "3ceb223bf235f7f52e4001672cb5ed6276472812"
     },
     "doc.perm.documents:read": {
       "text": "文書を読みます。",

@@ -84,6 +84,84 @@ function emailTransportCard(){
     </div>`:''}</div>`;
 }
 
+// ---- the inbound mailbox ------------------------------------------------------
+// ONE OPTIONAL MAILBOX, TWO CONSUMERS. A bounce report and a reply are both "mail
+// that comes back", so they share one mailbox; the two switches say which of them
+// this instance reads. `none` is the shipped state, and the card says so rather
+// than looking like an empty form.
+// THE CONSUMER LABELS ARE LITERALS IN A MAP, not a key composed at runtime: a
+// composed key cannot be scanned for, and #184's lesson is that a catalog test has
+// to run in BOTH directions or a hard-coded English literal goes through unnoticed.
+const CONSLABEL = {bounces:'mlcons_bounces', messages:'mlcons_messages'};
+
+function emailInboundCard(){
+  const I = (S.mailI && S.mailI.inbound) || null;
+  const modes = (S.mailI && S.mailI.modes) || ['none','imap','maildir','webhook'];
+  const cons = (S.mailI && S.mailI.consumers) || ['bounces','messages'];
+  const mode = (I && I.mode) || 'none';
+  const C = (I && I.consumers) || {};
+  const needsHost = mode === 'imap' || mode === 'webhook';
+  const poll = I && I.last_poll_epoch
+    ? `<p class="muted" style="font-size:12px;margin:6px 0 0">${t('mltested')}: ${esc(new Date(I.last_poll_epoch*1000).toLocaleString())} — ${
+         I.last_poll_ok === true ? `<span class="badge ok">${t('mlok')}</span>`
+       : I.last_poll_ok === false ? `<span class="badge bad">${esc(I.last_error||tRaw('error'))}</span>` : '—'}</p>`
+    : '';
+  return `<div class="card" id="mibcard" style="margin-top:14px"><h3>${t('mlinbound')}</h3>
+    <p class="muted" style="margin-top:0">${t('mlinboundhint')}</p>
+    <div class="row">
+      <div><label>${t('mlmode')}</label><select id="mim" data-h-change="${H((el)=>mailInboundMode(el))}">${modes.map(m=>`<option value="${esc(m)}"${mode===m?' selected':''}>${esc(m)}</option>`).join('')}</select></div>
+      <div><label>${t('mlfolder')}</label><input id="mif" value="${esc((I&&I.folder)||'INBOX')}"></div>
+    </div>
+    <div class="row"${needsHost?'':' style="display:none"'}>
+      <div><label>${t('mlhost')}</label><input id="mih" value="${esc((I&&I.host)||'')}" placeholder="imap.example.com"></div>
+      <div><label>${t('mlport')}</label><input id="mip" type="number" min="1" max="65535" value="${esc(String((I&&I.port)||993))}"></div>
+      <div><label>${t('mlsec')}</label><select id="mis">${['tls','starttls','none'].map(m=>`<option value="${esc(m)}"${((I&&I.security)||'tls')===m?' selected':''}>${esc(m)}</option>`).join('')}</select></div>
+    </div>
+    <div class="row"${needsHost?'':' style="display:none"'}>
+      <div><label>${t('mluser')}</label><input id="miu" value="${esc((I&&I.username)||'')}" autocomplete="off"></div>
+      <div><label>${t('mlpass')}</label><input id="miw" type="password" autocomplete="new-password" placeholder="${I&&I.has_password?t('mlpasskeep'):''}"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      ${cons.map(c=>`<div><label class="muted" style="display:flex;align-items:center;gap:8px;font-weight:normal">
+        <input type="checkbox" data-cons="${esc(c)}"${C[c]===true?' checked':''}> ${esc(tRaw(CONSLABEL[c]||c))}</label></div>`).join('')}
+    </div>
+    <label class="muted" style="display:flex;align-items:center;gap:8px;font-weight:normal;margin-top:8px">
+      <input type="checkbox" id="mia"${I && I.active ? ' checked':''}> ${t('mlactive')}</label>
+    ${poll}
+    <div style="margin-top:10px">
+      <button class="btn" data-h-click="${H((el,ev)=>doInboundSave())}">${t('save')}</button>
+      ${I?`<button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>doInboundClear())}">${t('mlremove')}</button>`:''}
+    </div></div>`;
+}
+
+// The host and credential rows are hidden for a mode that reads no mailbox, so the
+// card does not ask for an IMAP host when the answer is `none` or `maildir`.
+function mailInboundMode(sel){
+  const show = sel.value === 'imap' || sel.value === 'webhook';
+  document.querySelectorAll('#mibcard .row').forEach((r,i)=>{ if(i===1||i===2) r.style.display = show ? '' : 'none'; });
+}
+
+async function doInboundSave(){
+  const mode = val('mim');
+  const body = {mode, folder:val('mif')||'INBOX', active:document.getElementById('mia').checked,
+                consumers:{}};
+  document.querySelectorAll('input[type=checkbox][data-cons]').forEach(b=>{ body.consumers[b.dataset.cons] = b.checked; });
+  if(mode === 'imap' || mode === 'webhook'){
+    body.host = val('mih'); body.port = parseInt(val('mip'),10); body.security = val('mis');
+    body.username = val('miu')||null;
+    // AN ABSENT PASSWORD LEAVES THE STORED ONE ALONE, the rule the transport card
+    // follows: a blank box sends NO field rather than an empty string.
+    const pw = val('miw'); if(pw) body.password = pw;
+  }
+  const r = await api('/api/email-inbound',{method:'PUT',body});
+  if(r.ok){ toast(tRaw('saved'),true); renderTab(); } else toast((r.json&&r.json.error)||tRaw('error'));
+}
+async function doInboundClear(){
+  if(!confirm(tRaw('mlremoveask'))) return;
+  const r = await api('/api/email-inbound',{method:'DELETE'});
+  if(r.ok){ toast(tRaw('saved'),true); renderTab(); } else toast((r.json&&r.json.error)||tRaw('error'));
+}
+
 // ---- the operator's categories ------------------------------------------------
 // ABSENCE MEANS OFF here, which is the opposite of the instance feature card, so
 // the copy says so: an operator NAMES the categories their instance sends. A

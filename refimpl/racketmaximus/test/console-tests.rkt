@@ -356,6 +356,28 @@
   (check-true (string-contains? toggle "disabled")
               "the control is disabled when there is no handshake to verify"))
 
+(test-case "the inbound mailbox card sends the consumers as a document, and no empty password"
+  ;; The same two traps the transport card has, in a second card: a blank password
+  ;; box must send NO field (or an edit to the folder clears the credential), and
+  ;; the consumers are one document rather than a per-switch route.
+  (define body (or (fn-body "doInboundSave") ""))
+  (check-true (string-contains? body "if(pw) body.password = pw")
+              "a blank box sends NO password field rather than an empty string")
+  (check-true (string-contains? body "querySelectorAll")
+              "every consumer checkbox is read, not just the one that changed")
+  (check-true (string-contains? body "'/api/email-inbound'"))
+  ;; A MODE THAT READS NO MAILBOX MUST NOT SEND A HOST, or the server refuses a
+  ;; `none` document that carries one.
+  (check-true (string-contains? body "mode === 'imap' || mode === 'webhook'")
+              "the host and credential are only sent for a mode that reads a mailbox")
+  (define card (or (fn-body "emailInboundCard") ""))
+  (check-true (string-contains? card "data-cons=")
+              "the card draws the consumer switches")
+  ;; the labels are literals in a map, because a key composed at runtime cannot be
+  ;; scanned for and would go untranslated for ever
+  (check-true (string-contains? (file->string (build-path console-dir "20-mail.js")) "CONSLABEL")
+              "the consumer labels are literals, not a composed key"))
+
 (test-case "the instance category card sends the WHOLE document"
   ;; FEAT-7's recorded trap: there is no per-category route at this tier, so a
   ;; request carrying only the switch that moved would wipe the others silently
