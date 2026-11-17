@@ -11557,6 +11557,20 @@ TMACH_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org layer
   time). Before this, a fresh instance on a LAN belonged to whoever called first.
   The refusal names both paths — a bare 403 on a fresh instance reads as a broken
   build.
+- **A loopback peer is only the box itself when nothing FORWARDED the request.**
+  A reverse proxy on the same host (`tailscale serve`, nginx, caddy) connects
+  from 127.0.0.1 for whoever called it, so behind one every request had a
+  loopback peer and anyone who could reach the proxy could name a user in a
+  header, or bootstrap a fresh instance. Found while rewriting
+  `docs/deploy-tailnet.md`, which recommended exactly that arrangement. Two
+  rules in `peer.rkt`: a request carrying any of `FORWARDING-HEADERS` is never
+  local (the caller cannot remove what the proxy appends), and
+  `TMACH_LOOPBACK_TRUST=off` withdraws loopback's standing altogether for a
+  proxy that adds none. A peer NAMED in `TMACH_TRUSTED_HEADER_PEERS` is exempt
+  from the first rule on purpose — it is a proxy trusted to assert identity.
+  Not fixed: the per-address sign-in and redemption throttles see one address
+  behind a proxy; trusting `X-Forwarded-For` for that needs a trusted-proxy
+  setting of its own.
 - The smokes run on localhost, so they exercise the ALLOWED side; the refusal is
   pinned in `test/peer-tests.rkt` instead. A smoke on the same host can never be
   a stranger, which is exactly why the gap survived so long.

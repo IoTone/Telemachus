@@ -173,9 +173,16 @@
 (define (client-ip-of req)
   (or (with-handlers ([exn:fail? (lambda (_) #f)]) (request-client-ip req)) "?"))
 
+;; Did a proxy hand this request on? See peer.rkt: a loopback peer is only the
+;; box itself when nothing forwarded the request.
+(define (forwarded-request? req)
+  (for/or ([h (in-list FORWARDING-HEADERS)]) (and (req-header req h) #t)))
+
 (define (header-identity-allowed? req)
   (define ip (with-handlers ([exn:fail? (lambda (_) #f)]) (request-client-ip req)))
-  (peer-trusted? ip (parse-peer-allowlist (tmach-env "TRUSTED_HEADER_PEERS"))))
+  (peer-trusted? ip (parse-peer-allowlist (tmach-env "TRUSTED_HEADER_PEERS"))
+                 #:forwarded? (forwarded-request? req)
+                 #:loopback? (loopback-trust-on? (tmach-env "LOOPBACK_TRUST"))))
 
 (define (current-principal req)
   (define auth (req-header req #"authorization"))
