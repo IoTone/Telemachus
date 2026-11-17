@@ -278,7 +278,14 @@
 ;; for every event, for ever — and `mail_deliveries` would fill with them. The
 ;; caller is told by the answer being #f.
 (define (mail-enqueue! conn #:recipient recipient #:category category #:subject subject
-                       #:body body #:team [team #f] #:user [user #f] #:event [event #f])
+                       #:body body #:team [team #f] #:user [user #f] #:event [event #f]
+                       ;; THE EXTERNAL FOUR. A notification leaves all of them #f, so
+                       ;; the one INSERT keeps one shape and a reader of a delivery
+                       ;; row does not have to know which kind it is to find the
+                       ;; company, the template or the dedupe key.
+                       #:org [org #f] #:template [template #f]
+                       #:dedupe [dedupe #f] #:contact [contact #f]
+                       #:reply-to [reply-to #f])
   (cond
     [(not (transport-configured? conn)) #f]
     [(mail-address-problem recipient) #f]
@@ -286,10 +293,13 @@
      (define id (new-id))
      (query-exec conn
        (string-append "INSERT INTO email_deliveries (id, team_id, user_id, recipient, category, "
-                      "event, subject, body, status, attempts, next_attempt_epoch, created_epoch) "
-                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)")
+                      "event, subject, body, status, attempts, next_attempt_epoch, created_epoch, "
+                      "org_id, template, dedupe_key, contact_id, reply_to) "
+                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)")
        id (or team sql-null) (or user sql-null) recipient category (or event sql-null)
-       subject body (now) (now))
+       subject body (now) (now)
+       (or org sql-null) (or template sql-null) (or dedupe sql-null) (or contact sql-null)
+       (or reply-to sql-null))
      id]))
 
 ;; ---- who gets it --------------------------------------------------------------
@@ -752,8 +762,8 @@
 ;; the test isolates; #110 r1's rule is about a guard that duplicates the next
 ;; one, and this one does not.
 (define MAIL-SELECT
-  (string-append "SELECT id, team_id, user_id, recipient, category, event, subject, body, attempts "
-                 "FROM email_deliveries WHERE id = ? AND status = 'pending'"))
+  (string-append "SELECT id, team_id, user_id, recipient, category, event, subject, body, attempts, "
+                 "reply_to FROM email_deliveries WHERE id = ? AND status = 'pending'"))
 
 (define (claim-mail! conn id row)
   (define was (vector-ref row 8))
@@ -784,12 +794,28 @@
     [else
      (define attempts (add1 (vector-ref r 8)))
      (define t0 (current-inexact-milliseconds))
+     ;; AN EXTERNAL MESSAGE IS COMPOSED DIFFERENTLY AND SENT FROM A DIFFERENT
+     ;; ENVELOPE. `Auto-Submitted: auto-generated` is the header that says "do not
+     ;; reply", which is wrong for a message a broker is expected to act on, so the
+     ;; mode drops it and carries the stored `Reply-To` instead. The envelope sender
+     ;; is the VERP address, so a bounce comes back naming the delivery rather than
+     ;; the instance's own From address.
+     (define external? (equal? (vector-ref r 4) "external"))
+     (define reply-to (let ([v (vector-ref r 9)]) (and (not (sql-null? v)) v)))
+     (define envelope
+       (and external?
+            (let* ([from (hash-ref t 'from_address)]
+                   [m (regexp-match #px"@(.+)$" from)])
+              (format "bounce+~a@~a" id (if m (cadr m) "localhost")))))
      (define-values (err permanent?)
        (with-handlers ([exn:fail:mail? (lambda (e) (values (clip-error (exn-message e))
                                                            (exn:fail:mail-permanent? e)))]
                        [exn:fail? (lambda (e) (values (clip-error (exn-message e)) #f))])
          (smtp-deliver! t (vector-ref r 3) (vector-ref r 6) (vector-ref r 7)
-                        #:password pw #:message-id id)
+                        #:password pw #:message-id id
+                        #:mode (if external? 'external 'notification)
+                        #:reply-to reply-to
+                        #:envelope-from envelope)
          (values #f #f)))
      (define ms (inexact->exact (round (- (current-inexact-milliseconds) t0))))
      (cond

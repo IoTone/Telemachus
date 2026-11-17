@@ -45,7 +45,7 @@ bash test/server-smoke.sh
 
 # 4. Localization gate — fails on bare literals and missing/stale required strings
 racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt \
-  static/ui-strings.json ../../docs/reference/strings.json --required en,ja
+  domain/mail/templates.rkt static/ui-strings.json ../../docs/reference/strings.json --required en,ja
 ```
 
 If you touched the UI, also run the end-to-end feature tour (it boots a throwaway

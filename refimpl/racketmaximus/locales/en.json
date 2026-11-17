@@ -599,6 +599,10 @@
       "text": "Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again.",
       "hash": "2eca165a43b26e72f8c6702f56b853671c7797c6"
     },
+    "doc.perm.org:mail": {
+      "text": "Send a message to somebody outside the company: a broker, a supplier, a customer. The message is composed from a template and ids, never free text, and the From address is this instance's own identity.",
+      "hash": "5ea6a2bcef1391df88ddee3d3908307eb2391bf1"
+    },
     "ui.qage": {
       "text": "waiting",
       "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
@@ -631,6 +635,14 @@
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "doc.route.post.api.org.contacts": {
+      "text": "Add an external party: {address, name?, org_name?, locale?}. The address is unique within the company, compared case-insensitively, and a duplicate is refused rather than merged — adding a supplier twice is a mistake, and merging it silently would hide that somebody typed a different name for the same address.",
+      "hash": "5e40dbced47d2136b2d1d36611580b0e60a6f38d"
+    },
+    "doc.route.get.api.email-notify": {
+      "text": "Which notification categories this instance sends, the closed category list, the events each one covers, and what they resolve to for the caller. ABSENCE MEANS OFF at this layer, unlike a feature switch: a notification governs whether the instance sends mail to people, and the behaviour that already existed is sending none — so an operator names the categories their instance sends.",
+      "hash": "445fa835aa9c2be83ddd9dbfe74f4a24fec5260b"
+    },
     "doc.route.get.api.x.feeds.queue": {
       "text": "The team's feed work queue, ordered by priority then soonest due date. ?status= open|claimed|done|dropped|all (default: the actionable two), ?feed= a feed slug, ?skill= one skill, ?limit=/?offset=. Every row is re-authorized on the document it points at, so the count is what the caller may read rather than what is there.",
       "hash": "cfadd1e60a39c8c5785a921b25b0867d4b1086b6"
@@ -642,10 +654,6 @@
     "doc.tool.kg_query.type": {
       "text": "Restrict a name lookup to one entity type, e.g. organization",
       "hash": "bf3b06e97454031c475151174af5ebabf873a414"
-    },
-    "doc.route.get.api.email-notify": {
-      "text": "Which notification categories this instance sends, the closed category list, the events each one covers, and what they resolve to for the caller. ABSENCE MEANS OFF at this layer, unlike a feature switch: a notification governs whether the instance sends mail to people, and the behaviour that already existed is sending none — so an operator names the categories their instance sends.",
-      "hash": "445fa835aa9c2be83ddd9dbfe74f4a24fec5260b"
     },
     "ui.hoff": {
       "text": "off",
@@ -694,6 +702,10 @@
     "doc.route.get.api.runs": {
       "text": "The team's runs, newest first.",
       "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
+    },
+    "mail.document_request.subject": {
+      "text": "Document request: {what}",
+      "hash": "a82fa3542593d0494b3c4a0358618bc3977a408a"
     },
     "doc.route.put.api.timezone": {
       "text": "Set the instance default timezone: {timezone}. It is a FALLBACK and not a floor — a company or a person may each choose their own, because a timezone is not a control and nobody is protected by being forced into the wrong clock.",
@@ -1191,6 +1203,14 @@
       "text": "Enable",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
     },
+    "ui.edexportfail": {
+      "text": "the download was refused",
+      "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
+    },
+    "doc.route.get.api.org.contacts": {
+      "text": "The company's external parties, newest first, with their suppression state. `?status=active` or `?status=suppressed` narrows it. The address is in this reply because this is the company's own record of who it corresponds with, and the route is the company plane.",
+      "hash": "a2a3f8cc7d55db468a973bd8a79fe71762fcfaf2"
+    },
     "doc.plugin.doc-pipeline": {
       "text": "Process an uploaded document: extract its text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
       "hash": "c9b9762ad18d537059b785fffcd94955ff92dd45"
@@ -1298,10 +1318,6 @@
     "ui.nonotes": {
       "text": "No notes yet. Write the first one above.",
       "hash": "0d8510bd34b33506905680504e7bbe7159af85b5"
-    },
-    "ui.edexportfail": {
-      "text": "the download was refused",
-      "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
     },
     "doc.route.get.api.translate": {
       "text": "The team's translation history.",
@@ -1634,6 +1650,10 @@
     "doc.tool.feed_queue_put.skills": {
       "text": "Routing hints in the team's own words, e.g. [\"racket\",\"ops\"]",
       "hash": "e8d5c44545ccca3af2573bc5fe383aff33e54a28"
+    },
+    "mail.document_request.reply": {
+      "text": "Reply to this message to reach {from_name} directly.",
+      "hash": "f0921b692a106a5e6dc9b4809bd7faa7236ffc73"
     },
     "doc.perm.instance:read": {
       "text": "Read-only instance operations: status, metrics, the worker fleet, the queue, and verifying the audit chain. Not the audit EXPORT, which hands over the log itself.",
@@ -2043,6 +2063,10 @@
       "text": "The new status",
       "hash": "22dad84c7f9e73b5959e03bd54fd9e4bdd67f15c"
     },
+    "mail.document_request.body": {
+      "text": "{from_name} at {org_name} has asked for a document.",
+      "hash": "5895b9c21641381cd8e5ba1949659317c9c9f17c"
+    },
     "ui.qvclaims": {
       "text": "Claims",
       "hash": "06e8db2dfd69dc1703edf9418fb7533fa5d026de"
@@ -2339,6 +2363,10 @@
       "text": "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache.",
       "hash": "bf8d94c14199e90c07c97c82400f54b2317e8fea"
     },
+    "mail.document_request.link": {
+      "text": "Open this link to send it: {link}",
+      "hash": "05d31ccc4bca72e452f1a0c429610dbbcf132195"
+    },
     "ui.nodefs": {
       "text": "No workflows are published for this team yet. A plugin that ships one appears here on first use; otherwise POST a spec to /api/workflows.",
       "hash": "a326f7ace2f357a8bc110f10e47a258716abbf40"
@@ -2534,6 +2562,10 @@
     "doc.route.delete.api.notes.id": {
       "text": "Delete a note.",
       "hash": "edadf3ea6746bb44145806818cfca51cc6e85140"
+    },
+    "doc.route.get.api.org.contacts.id": {
+      "text": "One external party. Another company's id answers 404, because the scope is in the statement.",
+      "hash": "7f69e2dcd582d6a378e6b15258722839946ac99d"
     },
     "ui.qvauto": {
       "text": "Refresh",
@@ -3167,6 +3199,10 @@
       "text": "Leases",
       "hash": "45c6034dee3192e14bc2c94fe6ebc276c007d29c"
     },
+    "mail.document_request.what": {
+      "text": "Requested: {what}",
+      "hash": "37a4651ec85f704b492d4cac976b038b4ef4aa5e"
+    },
     "ui.quotaraiseop": {
       "text": "You can raise it below.",
       "hash": "fcf24e7c78cf03fabbab4d6d138fc343406ee1b9"
@@ -3607,13 +3643,17 @@
       "text": "An operator can raise it.",
       "hash": "5a5414bdc24f0f0ed674ea06fec55db68b668ef3"
     },
-    "doc.route.post.api.jobs.id.cancel": {
-      "text": "Cancel a job. Your own, queued or running; somebody else's needs jobs:cancel. A queued job is canceled outright; a running one goes to `canceling` — its result is discarded at once, and it stops holding its team's concurrency slot when the handler actually stops.",
-      "hash": "04ae85238b4668c1a2d014a249527a78fa1a7a28"
+    "mail.document_request.footer": {
+      "text": "Sent on behalf of {org_name}.",
+      "hash": "5e9f1651dfb981031c82f04afc9c7d1efc43b1b8"
     },
     "ui.localize": {
       "text": "Localize",
       "hash": "856ae94430567b78d47f89dd136d96687ff5caee"
+    },
+    "doc.route.post.api.jobs.id.cancel": {
+      "text": "Cancel a job. Your own, queued or running; somebody else's needs jobs:cancel. A queued job is canceled outright; a running one goes to `canceling` — its result is discarded at once, and it stops holding its team's concurrency slot when the handler actually stops.",
+      "hash": "04ae85238b4668c1a2d014a249527a78fa1a7a28"
     },
     "ui.mltestto": {
       "text": "Test message to",
@@ -3851,6 +3891,14 @@
       "text": "The workflow step id, for provenance",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
+    "doc.route.post.api.org.mail": {
+      "text": "Send a message to an external party: {contact, template, data, link}. The words come from a closed template registry and `data` carries ids, never prose — an email API a caller can hand arbitrary text and an arbitrary recipient is a spam cannon with the instance's own From identity behind it. A suppressed contact, a missing transport and a duplicate answer `{queued: 0, reason}` rather than an error, because all three are ordinary states.",
+      "hash": "420095a5d2a8300ccc86cb5d774f2959cc894561"
+    },
+    "ui.vis_shared": {
+      "text": "Shared — only the people below",
+      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
+    },
     "doc.route.post.api.uploads.id.complete": {
       "text": "Assemble the parts in ASCENDING order into a repository object and finish the upload. The client does not name the order — a streamed capture has one writer and ascending IS the order, where the S3 surface must take a list because its parts arrive concurrently. Written through the ordinary `repo-put!`, so the object is versioned, quota-checked, audited and evaluated by triggers.",
       "hash": "98b01cc00f9ac1c65c8f7471bc72401d53b37add"
@@ -3858,10 +3906,6 @@
     "doc.perm.settings:manage": {
       "text": "Team settings: tokens, feature flags, tool activation, the glossary, seeding, the audit trail.",
       "hash": "0062da01a09f0649738228059fa7da1360bbf57c"
-    },
-    "ui.vis_shared": {
-      "text": "Shared — only the people below",
-      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
     },
     "doc.route.post.api.features.name": {
       "text": "Enable or disable a feature for the team; a team may tighten what a layer above allows, never loosen it.",
@@ -4667,6 +4711,10 @@
       "text": "Target language",
       "hash": "f137c97e3de044babb50524619905eefd5aa79dd"
     },
+    "doc.route.patch.api.org.contacts.id": {
+      "text": "Suppress or unsuppress: {status, reason?}. A suppression refuses every send to that address before a quota is spent, and it is reversible because a single failure report is evidence of an attempt rather than proof of non-delivery (RFC 3464).",
+      "hash": "cbcae3dcfde08acd161cbcaa60a4de634eabbbcf"
+    },
     "doc.route.put.api.org.session-policy": {
       "text": "Set the company's session timeouts. Only tightening takes effect: a value looser than the instance's is answered with the instance's.",
       "hash": "23fd5bd1c7e8fee805e5dd4078b9fd51b7cf2030"
@@ -4759,13 +4807,17 @@
       "text": "Retune a schedule: `cadence`, `interval_seconds`, `at_minute`, `days_of_week`, `timezone`, `paused`, `payload`, `priority`, `name`. The schedule is validated AS IT WOULD BE, so switching to `daily` in the same request that supplies `at_minute` is accepted and switching without one is refused — a patch cannot reach a state a create could not. Any change to WHEN recomputes the next firing, rather than firing once at the old time and only then obeying the edit. The PRINCIPAL cannot be patched: changing whose authority a timer spends is a new schedule, not an edit. Resuming a paused schedule moves its next firing forward instead of catching up on every tick it missed.",
       "hash": "ee5d997d17b098a4fbd4c77017676b1039f131fd"
     },
-    "doc.route.post.api.l10n.draft": {
-      "text": "Queue AI drafts for a locale's missing strings, in batches of 20 scheduler jobs, quota-metered.",
-      "hash": "742d6ecb83ed152c1255676ccadbf17b2ad7034b"
-    },
     "doc.plugin.research": {
       "text": "A workflow that distils bookmarked pages: find the archives that are still behind, extract their text for search, then take facts out of them into the knowledge graph. Re-run it any time; it only touches what is behind.",
       "hash": "e7229c1e3aa372ef7ee2d0fc4e131858cfda0e76"
+    },
+    "doc.route.delete.api.org.contacts.id": {
+      "text": "Erase an external party: the contact, its action tokens and its delivery rows. The audit log keeps the fact that sends happened and never the address, because that log is chained, exported and kept through an erasure.",
+      "hash": "cd0691ef670b022ab814cc272d4eaf64921359a7"
+    },
+    "doc.route.post.api.l10n.draft": {
+      "text": "Queue AI drafts for a locale's missing strings, in batches of 20 scheduler jobs, quota-metered.",
+      "hash": "742d6ecb83ed152c1255676ccadbf17b2ad7034b"
     },
     "doc.route.get.api.s3.credentials": {
       "text": "The caller's S3 access keys (secrets never shown again) and the endpoint/bucket to use them with.",

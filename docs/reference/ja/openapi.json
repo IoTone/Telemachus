@@ -3051,6 +3051,120 @@
         "x-tmach-permission-checked": "role"
       }
     },
+    "/api/org/contacts": {
+      "get": {
+        "description": "The company's external parties, newest first, with their suppression state. `?status=active` or `?status=suppressed` narrows it. The address is in this reply because this is the company's own record of who it corresponds with, and the route is the company plane.",
+        "operationId": "get.api.org.contacts",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "org"
+        ],
+        "x-tmach-auth": "org-admin",
+        "x-tmach-handler": "my-org-contacts",
+        "x-tmach-permission": "org:read",
+        "x-tmach-permission-checked": "role"
+      },
+      "post": {
+        "description": "Add an external party: {address, name?, org_name?, locale?}. The address is unique within the company, compared case-insensitively, and a duplicate is refused rather than merged — adding a supplier twice is a mistake, and merging it silently would hide that somebody typed a different name for the same address.",
+        "operationId": "post.api.org.contacts",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "org"
+        ],
+        "x-tmach-auth": "org-admin",
+        "x-tmach-handler": "my-org-contact-add",
+        "x-tmach-permission": "org:manage",
+        "x-tmach-permission-checked": "role"
+      }
+    },
+    "/api/org/contacts/{id}": {
+      "delete": {
+        "description": "Erase an external party: the contact, its action tokens and its delivery rows. The audit log keeps the fact that sends happened and never the address, because that log is chained, exported and kept through an erasure.",
+        "operationId": "delete.api.org.contacts.id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "org"
+        ],
+        "x-tmach-auth": "org-admin",
+        "x-tmach-handler": "my-org-contact-delete",
+        "x-tmach-permission": "org:manage",
+        "x-tmach-permission-checked": "role"
+      },
+      "get": {
+        "description": "One external party. Another company's id answers 404, because the scope is in the statement.",
+        "operationId": "get.api.org.contacts.id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "org"
+        ],
+        "x-tmach-auth": "org-admin",
+        "x-tmach-handler": "my-org-contact",
+        "x-tmach-permission": "org:read",
+        "x-tmach-permission-checked": "role"
+      },
+      "patch": {
+        "description": "Suppress or unsuppress: {status, reason?}. A suppression refuses every send to that address before a quota is spent, and it is reversible because a single failure report is evidence of an attempt rather than proof of non-delivery (RFC 3464).",
+        "operationId": "patch.api.org.contacts.id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "org"
+        ],
+        "x-tmach-auth": "org-admin",
+        "x-tmach-handler": "my-org-contact-update",
+        "x-tmach-permission": "org:manage",
+        "x-tmach-permission-checked": "role"
+      }
+    },
     "/api/org/email-notify": {
       "get": {
         "description": "この会社が自社の利用者向けに無効にしたカテゴリと、インスタンスの文書（読み取り専用）。組織は厳しくすることはできても緩めることはできません。会社の管理者がインスタンスで有効になっていないものを有効にすることはできないため、そこに提示できるものはありません。",
@@ -3184,6 +3298,24 @@
         "x-tmach-auth": "bearer",
         "x-tmach-handler": "org-features-put",
         "x-tmach-permission": "org:manage",
+        "x-tmach-permission-checked": "role"
+      }
+    },
+    "/api/org/mail": {
+      "post": {
+        "description": "Send a message to an external party: {contact, template, data, link}. The words come from a closed template registry and `data` carries ids, never prose — an email API a caller can hand arbitrary text and an arbitrary recipient is a spam cannon with the instance's own From identity behind it. A suppressed contact, a missing transport and a duplicate answer `{queued: 0, reason}` rather than an error, because all three are ordinary states.",
+        "operationId": "post.api.org.mail",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "org"
+        ],
+        "x-tmach-auth": "org-admin",
+        "x-tmach-handler": "my-org-mail",
+        "x-tmach-permission": "org:mail",
         "x-tmach-permission-checked": "role"
       }
     },

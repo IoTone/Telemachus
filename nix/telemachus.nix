@@ -75,7 +75,12 @@ stdenv.mkDerivation (finalAttrs: {
     # TMACH_MODEL_URL is unset). The HTTP smoke binds a port, so it lives in
     # `checks.smoke` instead of the build sandbox.
     raco test test/*-tests.rkt
-    racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt --required en
+    # `domain/mail/templates.rkt` is a surface too: an external message is
+    # composed in the delivery path with no request, so its words live in a domain
+    # module rather than in `surface/`. The linter has to scan it or those strings
+    # are invisible to the Localization Manager and untranslated for ever.
+    racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt \
+      domain/mail/templates.rkt --required en
     runHook postCheck
   '';
 

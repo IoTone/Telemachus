@@ -162,6 +162,7 @@
          "api/annotations.rkt"
          "api/localization.rkt"
          "api/orgs.rkt"
+         "api/contacts.rkt"
          "api/policy.rkt"
          "api/repo.rkt"
          "api/reviews.rkt"
@@ -311,6 +312,9 @@
    'my-org-members ep-my-org-members
    'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role
    'my-org-member-resend ep-my-org-member-resend 'my-org-audit ep-my-org-audit
+   'my-org-contacts ep-my-org-contacts 'my-org-contact-add ep-my-org-contact-add
+   'my-org-contact ep-my-org-contact 'my-org-contact-update ep-my-org-contact-update
+   'my-org-contact-delete ep-my-org-contact-delete 'my-org-mail ep-my-org-mail
    'email-transport-get ep-email-transport-get 'email-transport-put ep-email-transport-put
    'email-transport-delete ep-email-transport-delete 'email-transport-test ep-email-transport-test
    'email-notify-get ep-email-notify-get 'email-notify-put ep-email-notify-put

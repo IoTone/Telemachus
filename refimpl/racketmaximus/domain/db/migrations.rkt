@@ -2683,6 +2683,36 @@
       (exec* conn "ALTER TABLE email_deliveries ADD COLUMN contact_id TEXT")
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_contact ON email_deliveries (contact_id)"))))
 
+(define m-0078-email-external
+  (migration "0078-email-external"
+    (lambda (conn)
+      ;; AN EXTERNAL MESSAGE IS A DELIVERY ROW WITH THREE MORE FACTS: which company
+      ;; spent it, which template composed it, and what makes it the same message
+      ;; as one already queued.
+      ;;
+      ;; `org_id` is the budget holder and the erasure subject, and it is NOT
+      ;; derivable from `team_id` at read time without a join that every list would
+      ;; have to remember.
+      ;;
+      ;; `template` is the closed registry id, so a dead letter says which message
+      ;; kind failed rather than only its subject.
+      ;;
+      ;; `dedupe_key` is what stops a double-click or a retry queueing the same
+      ;; message twice. The claim already prevents a double SEND of one row; this
+      ;; prevents a second ROW. The index is PARTIAL — only pending rows — because
+      ;; a settled row must not block a legitimate later send of the same kind.
+      (exec* conn "ALTER TABLE email_deliveries ADD COLUMN org_id TEXT")
+      (exec* conn "ALTER TABLE email_deliveries ADD COLUMN template TEXT")
+      (exec* conn "ALTER TABLE email_deliveries ADD COLUMN dedupe_key TEXT")
+      ;; THE REPLY ADDRESS IS PART OF THE MESSAGE, so it is stored with it. It
+      ;; cannot be derived at send time: the token is hashed at rest, and a header
+      ;; composed from a hash is a header nobody can reply to.
+      (exec* conn "ALTER TABLE email_deliveries ADD COLUMN reply_to TEXT")
+      (exec* conn (string-append
+                   "CREATE UNIQUE INDEX IF NOT EXISTS idx_email_dedupe ON email_deliveries (dedupe_key) "
+                   "WHERE dedupe_key IS NOT NULL AND status = 'pending'"))
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_org ON email_deliveries (org_id, created_epoch)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2695,4 +2725,4 @@
                              m-0070-token-purpose m-0071-research-sources
                              m-0072-mail-verify-tls m-0073-note-format
                              m-0074-note-links m-0075-job-progress m-0076-plugin-seals
-                             m-0077-email-contacts))
+                             m-0077-email-contacts m-0078-email-external))

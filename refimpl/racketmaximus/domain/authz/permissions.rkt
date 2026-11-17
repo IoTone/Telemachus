@@ -130,6 +130,13 @@
    ;; WF-7: `workflows:read` and NOT `workflows:run` — running someone's workflow
    ;; is reading their data by proxy, which is exactly what TEN-2a forbids.
    "org_admin" '("org:read" "org:manage"
+                 ;; org:mail (MAIL-EXT): send a message to somebody outside the
+                 ;; company. At the ORG tier because the From identity is the
+                 ;; instance's, so the thing being spent is the company's standing
+                 ;; with the relays — one resource however many teams use it. A
+                 ;; team owner's `*:*` cannot reach it: `can?` checks an `org:`
+                 ;; permission only against the caller's org role.
+                 "org:mail"
                  "team:read" "team:write" "team:create"
                  "members:manage" "roles:manage" "roles:read"
                  "quota:manage" "quota:read"
@@ -225,6 +232,7 @@
    "org:read"   "See the company, its teams, members and audit trail."
    "org:manage" "Administer the company: teams and members. Manages, does not read, team data (TEN-2a)."
    "org:read-data" "Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role."
+   "org:mail"   "Send a message to somebody outside the company: a broker, a supplier, a customer. The message is composed from a template and ids, never free text, and the From address is this instance's own identity."
    "instance:*"      "Everything at the instance tier; the operator (superadmin)."
    "instance:manage" "Instance administration: branding, localization policy, quotas, orgs, metrics."
    ;; issue #124: the operational READS, so a monitoring credential need not be

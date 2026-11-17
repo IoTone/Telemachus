@@ -600,6 +600,10 @@
       "text": "呼び出し元自身の TOTP を無効化します。古いシードとそのリカバリコードは使えなくなり、再登録が必要です。",
       "hash": "2eca165a43b26e72f8c6702f56b853671c7797c6"
     },
+    "doc.perm.org:mail": {
+      "text": "会社外の相手（通関業者、サプライヤー、顧客）にメッセージを送信します。メッセージはテンプレートと ID から構成され、自由文は使えません。From アドレスはこのインスタンス自身の識別情報です。",
+      "hash": "5ea6a2bcef1391df88ddee3d3908307eb2391bf1"
+    },
     "ui.qage": {
       "text": "待機時間",
       "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
@@ -632,6 +636,14 @@
       "text": "ワークフロー実行 ID（由来の記録用）。",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "doc.route.post.api.org.contacts": {
+      "text": "会社外の相手を追加します: {address, name?, org_name?, locale?}。アドレスは会社内で一意で、大文字小文字を区別せずに比較します。重複は統合せず拒否します。同じサプライヤーを二度追加するのは誤りであり、黙って統合すると同じアドレスに別の名前を入力した事実が隠れるためです。",
+      "hash": "5e40dbced47d2136b2d1d36611580b0e60a6f38d"
+    },
+    "doc.route.get.api.email-notify": {
+      "text": "このインスタンスが送る通知カテゴリ、固定されたカテゴリ一覧、各カテゴリが対象とするイベント、および呼び出し元にとっての解決結果。この層では不在は無効を意味します。機能スイッチとは異なる点です。通知はインスタンスが人にメールを送るかどうかを決めるものであり、これまでの挙動は「送らない」だったからです。そのためオペレーターが送るカテゴリを指定します。",
+      "hash": "445fa835aa9c2be83ddd9dbfe74f4a24fec5260b"
+    },
     "doc.route.get.api.x.feeds.queue": {
       "text": "チームのフィード作業キュー。優先度の高い順、次に期限の近い順。?status= は open|claimed|done|dropped|all（既定：対応中の 2 つ）、?feed= はフィードのスラッグ、?skill= は 1 つのスキル、?limit= と ?offset= でページングします。各行は参照先のドキュメントに対してあらためて権限確認されるので、件数は「そこにある数」ではなく「呼び出し側が読める数」です。",
       "hash": "cfadd1e60a39c8c5785a921b25b0867d4b1086b6"
@@ -643,10 +655,6 @@
     "doc.tool.kg_query.type": {
       "text": "名前検索を1つのエンティティ種別に絞る。例：organization",
       "hash": "bf3b06e97454031c475151174af5ebabf873a414"
-    },
-    "doc.route.get.api.email-notify": {
-      "text": "このインスタンスが送る通知カテゴリ、固定されたカテゴリ一覧、各カテゴリが対象とするイベント、および呼び出し元にとっての解決結果。この層では不在は無効を意味します。機能スイッチとは異なる点です。通知はインスタンスが人にメールを送るかどうかを決めるものであり、これまでの挙動は「送らない」だったからです。そのためオペレーターが送るカテゴリを指定します。",
-      "hash": "445fa835aa9c2be83ddd9dbfe74f4a24fec5260b"
     },
     "ui.hoff": {
       "text": "オフ",
@@ -695,6 +703,10 @@
     "doc.route.get.api.runs": {
       "text": "チームの実行、新しい順。",
       "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
+    },
+    "mail.document_request.subject": {
+      "text": "書類のご依頼: {what}",
+      "hash": "a82fa3542593d0494b3c4a0358618bc3977a408a"
     },
     "doc.route.put.api.timezone": {
       "text": "インスタンス既定のタイムゾーンを設定する: {timezone}。これは下限ではなくフォールバックです — タイムゾーンは制御ではなく、間違った時計を強制して守られる人はいないため、会社も個人もそれぞれ自分のものを選べます。",
@@ -1192,6 +1204,14 @@
       "text": "有効化",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
     },
+    "ui.edexportfail": {
+      "text": "ダウンロードが拒否されました",
+      "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
+    },
+    "doc.route.get.api.org.contacts": {
+      "text": "会社外の相手を新しい順に、抑止状態とともに返します。`?status=active` または `?status=suppressed` で絞り込めます。アドレスがこの応答に含まれるのは、これが会社自身の取引先の記録であり、このルートが会社の管理面だからです。",
+      "hash": "a2a3f8cc7d55db468a973bd8a79fe71762fcfaf2"
+    },
     "doc.plugin.doc-pipeline": {
       "text": "アップロードされた文書を処理：テキストを抽出し、JSONスキーマに従って構造化フィールドを取得（適合しない場合は拒否）、フォームテンプレートに埋め込み、結果をチームの言語に翻訳します。すべての出力はソースと共にレポジトリ文書で、元情報が示されます。",
       "hash": "c9b9762ad18d537059b785fffcd94955ff92dd45"
@@ -1299,10 +1319,6 @@
     "ui.nonotes": {
       "text": "ノートはまだありません。上の欄から最初の 1 件を書いてください。",
       "hash": "0d8510bd34b33506905680504e7bbe7159af85b5"
-    },
-    "ui.edexportfail": {
-      "text": "ダウンロードが拒否されました",
-      "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
     },
     "doc.route.get.api.translate": {
       "text": "チームの翻訳履歴",
@@ -1635,6 +1651,10 @@
     "doc.tool.feed_queue_put.skills": {
       "text": "チーム自身の言葉による振り分けの手がかり。例：[\"racket\",\"ops\"]",
       "hash": "e8d5c44545ccca3af2573bc5fe383aff33e54a28"
+    },
+    "mail.document_request.reply": {
+      "text": "このメッセージに返信すると {from_name} に直接届きます。",
+      "hash": "f0921b692a106a5e6dc9b4809bd7faa7236ffc73"
     },
     "doc.perm.instance:read": {
       "text": "読み取り専用のインスタンス運用操作 — ステータス、メトリクス、ワーカーフリート、キュー、監査チェーンの検証。監査ログそのものを渡すエクスポートは含まない。",
@@ -2044,6 +2064,10 @@
       "text": "新しい状態",
       "hash": "22dad84c7f9e73b5959e03bd54fd9e4bdd67f15c"
     },
+    "mail.document_request.body": {
+      "text": "{org_name} の {from_name} が書類を依頼しています。",
+      "hash": "5895b9c21641381cd8e5ba1949659317c9c9f17c"
+    },
     "ui.qvclaims": {
       "text": "取得",
       "hash": "06e8db2dfd69dc1703edf9418fb7533fa5d026de"
@@ -2340,6 +2364,10 @@
       "text": "読み込まれたプラグインの認証付きバンドル（plugins/<id>/bundle/）内のファイル。ベアラートークン、または bundle-ticket が発行したチケット（?ticket= か、それが設定するクッキー）が必要で、応答が共有キャッシュに保存されることはありません。",
       "hash": "bf8d94c14199e90c07c97c82400f54b2317e8fea"
     },
+    "mail.document_request.link": {
+      "text": "次のリンクから送信してください: {link}",
+      "hash": "05d31ccc4bca72e452f1a0c429610dbbcf132195"
+    },
     "ui.nodefs": {
       "text": "このチームにはまだワークフローが公開されていません。ワークフローを同梱するプラグインは初回利用時にここへ表示されます。それ以外の場合は /api/workflows に仕様をPOSTしてください。",
       "hash": "a326f7ace2f357a8bc110f10e47a258716abbf40"
@@ -2535,6 +2563,10 @@
     "doc.route.delete.api.notes.id": {
       "text": "ノートを削除します。",
       "hash": "edadf3ea6746bb44145806818cfca51cc6e85140"
+    },
+    "doc.route.get.api.org.contacts.id": {
+      "text": "会社外の相手を 1 件返します。他社の ID は 404 になります。スコープは SQL 文の中にあるためです。",
+      "hash": "7f69e2dcd582d6a378e6b15258722839946ac99d"
     },
     "ui.qvauto": {
       "text": "更新",
@@ -3168,6 +3200,10 @@
       "text": "リース",
       "hash": "45c6034dee3192e14bc2c94fe6ebc276c007d29c"
     },
+    "mail.document_request.what": {
+      "text": "依頼内容: {what}",
+      "hash": "37a4651ec85f704b492d4cac976b038b4ef4aa5e"
+    },
     "ui.quotaraiseop": {
       "text": "下の設定で引き上げられます。",
       "hash": "fcf24e7c78cf03fabbab4d6d138fc343406ee1b9"
@@ -3608,13 +3644,17 @@
       "text": "オペレーターが引き上げられます。",
       "hash": "5a5414bdc24f0f0ed674ea06fec55db68b668ef3"
     },
-    "doc.route.post.api.jobs.id.cancel": {
-      "text": "ジョブをキャンセルする。自分のものであればキュー内でも実行中でも可能で、他人のものには jobs:cancel が必要です。キュー内のジョブは直ちにキャンセルされ、実行中のジョブは `canceling` に移ります — 結果は即座に破棄され、ハンドラが実際に停止した時点でチームの同時実行枠が解放されます。",
-      "hash": "04ae85238b4668c1a2d014a249527a78fa1a7a28"
+    "mail.document_request.footer": {
+      "text": "{org_name} の代理で送信しています。",
+      "hash": "5e9f1651dfb981031c82f04afc9c7d1efc43b1b8"
     },
     "ui.localize": {
       "text": "翻訳管理",
       "hash": "856ae94430567b78d47f89dd136d96687ff5caee"
+    },
+    "doc.route.post.api.jobs.id.cancel": {
+      "text": "ジョブをキャンセルする。自分のものであればキュー内でも実行中でも可能で、他人のものには jobs:cancel が必要です。キュー内のジョブは直ちにキャンセルされ、実行中のジョブは `canceling` に移ります — 結果は即座に破棄され、ハンドラが実際に停止した時点でチームの同時実行枠が解放されます。",
+      "hash": "04ae85238b4668c1a2d014a249527a78fa1a7a28"
     },
     "ui.mltestto": {
       "text": "テストの宛先",
@@ -3852,6 +3892,14 @@
       "text": "ワークフローステップ ID（由来の記録用）。",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
+    "doc.route.post.api.org.mail": {
+      "text": "会社外の相手にメッセージを送信します: {contact, template, data, link}。文言は固定のテンプレート登録から取得し、`data` は ID のみを運び、文章は運びません。呼び出し側が任意の本文と任意の宛先を渡せるメール API は、インスタンス自身の From 識別情報を背負ったスパム送信装置になるためです。抑止された連絡先、送信経路の未設定、重複は、いずれも通常の状態なのでエラーではなく `{queued: 0, reason}` を返します。",
+      "hash": "420095a5d2a8300ccc86cb5d774f2959cc894561"
+    },
+    "ui.vis_shared": {
+      "text": "限定共有 — 下記の相手のみ",
+      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
+    },
     "doc.route.post.api.uploads.id.complete": {
       "text": "パートを昇順に組み立ててリポジトリオブジェクトにし、アップロードを完了します。クライアントは順序を指定しません — ストリーム取り込みには書き手が一人しかおらず昇順が順序そのものであり、一方 S3 の面はパートが並行して届くためリストを取らなければなりません。通常の `repo-put!` を通して書かれるので、オブジェクトはバージョン管理され、クォータが確認され、監査され、トリガーに評価されます。",
       "hash": "98b01cc00f9ac1c65c8f7471bc72401d53b37add"
@@ -3859,10 +3907,6 @@
     "doc.perm.settings:manage": {
       "text": "チーム設定：トークン、機能フラグ、ツールの有効化、用語集、シード投入、監査ログ。",
       "hash": "0062da01a09f0649738228059fa7da1360bbf57c"
-    },
-    "ui.vis_shared": {
-      "text": "限定共有 — 下記の相手のみ",
-      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
     },
     "doc.route.post.api.features.name": {
       "text": "チームの機能を有効または無効にする。チームは上位の層が許可する範囲で厳しくできるが、緩めることはできない。",
@@ -4668,6 +4712,10 @@
       "text": "翻訳先の言語",
       "hash": "f137c97e3de044babb50524619905eefd5aa79dd"
     },
+    "doc.route.patch.api.org.contacts.id": {
+      "text": "抑止または抑止の解除: {status, reason?}。抑止は、クォータを消費する前にそのアドレスへの送信をすべて拒否します。また、1 回の失敗報告は配信されなかった証明ではなく試行の証拠にすぎないため（RFC 3464）、抑止は解除できます。",
+      "hash": "cbcae3dcfde08acd161cbcaa60a4de634eabbbcf"
+    },
     "doc.route.put.api.org.session-policy": {
       "text": "会社のセッションタイムアウトを設定する。厳しくする変更だけが有効になる：インスタンスより緩い値を指定すると、インスタンスの値が返されます。",
       "hash": "23fd5bd1c7e8fee805e5dd4078b9fd51b7cf2030"
@@ -4760,13 +4808,17 @@
       "text": "スケジュールを調整する: `cadence`、`interval_seconds`、`at_minute`、`days_of_week`、`timezone`、`paused`、`payload`、`priority`、`name`。検証は変更後の状態に対して行われるため、`daily` への切り替えと `at_minute` を同じリクエストで送るのは受け付けられ、`at_minute` なしの切り替えは拒否されます — パッチで作成できない状態に到達することはありません。実行タイミングに関わる変更は次回実行を再計算します。古い時刻で一度実行してから編集に従う、という挙動にはなりません。プリンシパルは変更できません: タイマーが誰の権限を使うかを変えることは編集ではなく新しいスケジュールです。一時停止を解除すると、見送ったティックをまとめて実行するのではなく次回実行が先に進みます。",
       "hash": "ee5d997d17b098a4fbd4c77017676b1039f131fd"
     },
-    "doc.route.post.api.l10n.draft": {
-      "text": "ロケールの未翻訳文字列に対して AI の下書きを、20件ずつのスケジューラジョブでキューに入れる。クォータで計量されます。",
-      "hash": "742d6ecb83ed152c1255676ccadbf17b2ad7034b"
-    },
     "doc.plugin.research": {
       "text": "ブックマークしたページを蒸留するワークフロー。まだ処理が追いついていない保存済みページを見つけ、検索用にテキストを抽出し、そこから事実をナレッジグラフへ取り出す。いつ再実行してもよく、追いついていないものだけに触れる。",
       "hash": "e7229c1e3aa372ef7ee2d0fc4e131858cfda0e76"
+    },
+    "doc.route.delete.api.org.contacts.id": {
+      "text": "会社外の相手を消去します: 連絡先、そのアクショントークン、その配送行です。監査ログは送信が行われた事実を保持し、アドレスは保持しません。そのログは連鎖され、外部に出力され、消去後も保持されるためです。",
+      "hash": "cd0691ef670b022ab814cc272d4eaf64921359a7"
+    },
+    "doc.route.post.api.l10n.draft": {
+      "text": "ロケールの未翻訳文字列に対して AI の下書きを、20件ずつのスケジューラジョブでキューに入れる。クォータで計量されます。",
+      "hash": "742d6ecb83ed152c1255676ccadbf17b2ad7034b"
     },
     "doc.route.get.api.s3.credentials": {
       "text": "呼び出し元の S3 アクセスキー（シークレットは二度と表示されません）と、それを使うエンドポイント／バケット。",

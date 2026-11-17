@@ -54,7 +54,7 @@
          (only-in "../authz/secretbox.rkt" wrapped-secret?)
          "../db/nulls.rkt")
 
-(provide SECURITY-MODES TRANSPORT-ID SMTP-TIMEOUT
+(provide SECURITY-MODES COMPOSE-MODES compose-mode? TRANSPORT-ID SMTP-TIMEOUT
          transport-ref transport-configured? transport-set! transport-clear!
          transport-problem transport-record-test!
          transport-from-header transport-base-url transport-password printable clip
@@ -410,7 +410,20 @@
 ;; -> (values header body-lines). SEPARATED FROM THE SEND so a test can assert
 ;; what would go on the wire without a mail server, which is where the injection
 ;; rules are actually worth checking.
-(define (compose-message t recipient subject body #:message-id [mid #f])
+;; TWO MODES, AND THE DIFFERENCE IS WHO IS EXPECTED TO READ IT (MAIL-9's
+;; neighbour). A NOTIFICATION is machine-generated and says so: `Auto-Submitted:
+;; auto-generated` is what tells a filter not to auto-reply and what tells a
+;; reader the message is not from a person. An EXTERNAL message is addressed to a
+;; broker or a supplier who is expected to act on it, so that header is wrong —
+;; it is the header that says "do not reply" — and the message carries a
+;; `Reply-To` of the person who sent it instead, so a reply reaches a human
+;; mailbox rather than the instance's own From address.
+(define COMPOSE-MODES '(notification external))
+(define (compose-mode? m) (and (member m COMPOSE-MODES) #t))
+
+(define (compose-message t recipient subject body #:message-id [mid #f]
+                         #:mode [mode 'notification] #:reply-to [reply-to #f])
+  (unless (compose-mode? mode) (error 'compose-message "unknown mode: ~a" mode))
   (define from (transport-from-header t))
   (define base (standard-message-header from (list recipient) '() '() (encode-subject subject)))
   ;; `standard-message-header` ends the header with a blank line; `insert-field`
@@ -428,14 +441,25 @@
   (define domain
     (let ([m (regexp-match #px"@(.+)$" (hash-ref t 'from_address))])
       (if m (cadr m) "localhost")))
+  (define with-id
+    (if mid (insert-field "Message-ID" (format "<~a@~a>" mid domain) base) base))
+  ;; `Reply-To` is checked by the same function a recipient is, because it is
+  ;; interpolated into a header this instance composes — the reason
+  ;; `transport-problem` holds `from_address` to it.
+  (define with-reply
+    (cond
+      [(not reply-to) with-id]
+      [else
+       (define bad (mail-address-problem reply-to))
+       (when bad (error 'compose-message "reply-to: ~a" bad))
+       (insert-field "Reply-To" reply-to with-id)]))
   (define hdr
     (insert-field "MIME-Version" "1.0"
       (insert-field "Content-Transfer-Encoding" "base64"
         (insert-field "Content-Type" "text/plain; charset=utf-8"
-          (insert-field "Auto-Submitted" "auto-generated"
-            (if mid
-                (insert-field "Message-ID" (format "<~a@~a>" mid domain) base)
-                base))))))
+          (if (eq? mode 'external)
+              with-reply
+              (insert-field "Auto-Submitted" "auto-generated" with-reply))))))
   (values hdr (encode-body body)))
 
 ;; ---- the deadline -------------------------------------------------------------
@@ -469,13 +493,22 @@
 ;; and so a test can hand it one that is not in any database.
 (define (smtp-deliver! t recipient subject body #:password [password #f]
                        #:message-id [mid #f]
+                       #:mode [mode 'notification] #:reply-to [reply-to #f]
+                       ;; THE ENVELOPE SENDER IS NOT THE FROM HEADER, and for an
+                       ;; external message it is the VERP address a bounce comes
+                       ;; back to: `bounce+<delivery-id>@<domain>`. A relay that
+                       ;; refuses the recipient answers the envelope sender, so
+                       ;; this is what makes a report identify the delivery
+                       ;; without parsing a body.
+                       #:envelope-from [envelope-from #f]
                        #:timeout [secs SMTP-TIMEOUT])
   (define bad (mail-address-problem recipient))
   ;; PERMANENT: an address that is not an address now will not be one later, and
   ;; this check is also the last line of defence against the header injection
   ;; `valid-address?` is written for.
   (when bad (mail-error! #t "~a: ~a" (clip (printable recipient) 200) bad))
-  (define-values (hdr lines) (compose-message t recipient subject body #:message-id mid))
+  (define-values (hdr lines) (compose-message t recipient subject body #:message-id mid
+                                              #:mode mode #:reply-to reply-to))
   (define security (hash-ref t 'security))
   ;; `hash-ref` with a DEFAULT, not a bare lookup: `smtp-deliver!` is handed a
   ;; transport hash and the unit suite builds one by hand, so a missing key here
@@ -524,7 +557,7 @@
             (define m (exn-message e))
             (mail-error! (and (regexp-match? #px"\\b5[0-9][0-9]\\b" m) #t) "~a" m))])
         (smtp-send-message
-         (hash-ref t 'host) (hash-ref t 'from_address) (list recipient) hdr lines
+         (hash-ref t 'host) (or envelope-from (hash-ref t 'from_address)) (list recipient) hdr lines
          #:port-no (hash-ref t 'port)
          #:auth-user user
          #:auth-passwd (and user password)
