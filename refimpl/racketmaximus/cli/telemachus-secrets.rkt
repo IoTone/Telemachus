@@ -72,7 +72,11 @@
         ;; and the same cost if it is forgotten: `rewrap` would not walk it, so
         ;; every poll would fail at the first key rotation with an authentication
         ;; error that names the relay rather than the rotation.
-        (list "inbound_mailbox"   "password"    "id" "inbound_mailbox.password")))
+        (list "inbound_mailbox"   "password"    "id" "inbound_mailbox.password")
+        ;; The DKIM private key. A replayable credential in the strongest sense:
+        ;; whoever holds it can sign as this domain, so it is sealed whenever a key
+        ;; is configured and `rewrap` rotates it unconditionally.
+        (list "email_transport"   "dkim_key"    "id" "email_transport.dkim_key")))
 
 ;; Document-derived CONTENT (issue #83), which is a different kind of thing and
 ;; is therefore conditional. The three above are replayable credentials: if a key

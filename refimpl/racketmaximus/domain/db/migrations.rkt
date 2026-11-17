@@ -2757,6 +2757,26 @@
                    "  updated_by TEXT,"
                    "  updated_epoch BIGINT)")))))
 
+(define m-0080-dkim
+  (migration "0080-dkim"
+    (lambda (conn)
+      ;; DKIM IS WHAT MAKES DMARC ALIGNMENT POSSIBLE FOR AN EXTERNAL MESSAGE. SPF
+      ;; authenticates the ENVELOPE sender, and an external message's envelope
+      ;; sender is the VERP bounce address, so SPF alone cannot carry DMARC for it.
+      ;; A signature with `d=<the From domain>` aligns whatever the envelope says.
+      ;;
+      ;; `dkim_key` IS A SEALED COLUMN and is listed in `CREDENTIAL-SECRETS` in the
+      ;; same commit as this table, or `rewrap` cannot rotate it and every message
+      ;; stops being signed at the first key rotation with nothing failing.
+      ;;
+      ;; `dkim_domain` is nullable and defaults to the From address's domain, which
+      ;; is the only domain the instance may honestly claim. It exists so a
+      ;; deployment that sends from a subdomain can sign as the parent, which is
+      ;; what relaxed alignment allows and what a DMARC record on the parent needs.
+      (exec* conn "ALTER TABLE email_transport ADD COLUMN dkim_selector TEXT")
+      (exec* conn "ALTER TABLE email_transport ADD COLUMN dkim_key TEXT")
+      (exec* conn "ALTER TABLE email_transport ADD COLUMN dkim_domain TEXT"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2770,4 +2790,4 @@
                              m-0072-mail-verify-tls m-0073-note-format
                              m-0074-note-links m-0075-job-progress m-0076-plugin-seals
                              m-0077-email-contacts m-0078-email-external
-                             m-0079-inbound-mailbox))
+                             m-0079-inbound-mailbox m-0080-dkim))

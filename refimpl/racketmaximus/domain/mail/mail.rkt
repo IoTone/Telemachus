@@ -817,7 +817,8 @@
                         #:password pw #:message-id id
                         #:mode (if external? 'external 'notification)
                         #:reply-to reply-to
-                        #:envelope-from envelope)
+                        #:envelope-from envelope
+                        #:dkim-key (transport-dkim-key conn))
          (values #f #f)))
      (define ms (inexact->exact (round (- (current-inexact-milliseconds) t0))))
      (cond

@@ -51,13 +51,14 @@
          net/base64
          openssl
          (only-in "../authz/sealed.rkt" define-sealed-column)
+         (only-in "./dkim.rkt" dkim-configured? dkim-sign-header)
          (only-in "../authz/secretbox.rkt" wrapped-secret?)
          "../db/nulls.rkt")
 
 (provide SECURITY-MODES COMPOSE-MODES compose-mode? TRANSPORT-ID SMTP-TIMEOUT
          transport-ref transport-configured? transport-set! transport-clear!
          transport-problem transport-record-test!
-         transport-from-header transport-base-url transport-password printable clip
+         transport-from-header transport-base-url transport-password transport-dkim-key printable clip
          smtp-deliver! mail-address-problem valid-address?
          encode-subject encode-body
          ;; exported FOR the tests: the header composition and the deadline are
@@ -77,6 +78,11 @@
 ;; otherwise. An SMTP password is a replayable credential; it seals whenever a key
 ;; is configured.
 (define-sealed-column "email_transport.password" (seal-password unseal-password) (id) #:credential)
+
+;; THE DKIM PRIVATE KEY IS THE STRONGEST CREDENTIAL THIS TABLE HOLDS: whoever has
+;; it can sign as this domain. Sealed whenever a key is configured, and listed in
+;; `CREDENTIAL-SECRETS` in the same commit as its column.
+(define-sealed-column "email_transport.dkim_key" (seal-dkim unseal-dkim) (id) #:credential)
 
 ;; A CLOSED vocabulary, like `WORKER-STATES` and `ANNOTATION-KINDS`. The mode is
 ;; STORED rather than inferred from the port, because 587-with-implicit-TLS and
@@ -180,7 +186,10 @@
                             ;; stored password keeps its meaning. A column inserted
                             ;; in the middle of this list is a silent off-by-one in
                             ;; two functions, and the password is one of them.
-                            "verify_tls"))
+                            "verify_tls, "
+                            ;; APPENDED for the same reason `verify_tls` was: every
+                            ;; existing index keeps its meaning.
+                            "dkim_selector, dkim_key, dkim_domain"))
 
 ;; THE PASSWORD IS NEVER IN A READ. `transport-ref` answers `has_password` and
 ;; nothing else — #19's rule for a token, and `webhook-list`'s. An operator who
@@ -218,7 +227,13 @@
           ;; REPORTED, which is the half that makes a default of `false` honest
           ;; rather than quiet (RED-20's "undeclared" field): an operator can see
           ;; that their TLS is unverified without reading this module.
-          'verify_tls (= 1 (vector-ref r 15))))
+          'verify_tls (= 1 (vector-ref r 15))
+          ;; THE KEY IS NEVER IN A READ, the rule the password follows. An operator
+          ;; sees that signing is configured and which selector it uses; the key
+          ;; itself is only ever read by the signer.
+          'dkim_selector (nz (vector-ref r 16))
+          'has_dkim_key (not (sql-null? (vector-ref r 17)))
+          'dkim_domain (nz (vector-ref r 18))))
 
 (define (transport-row conn)
   (query-maybe-row conn (string-append "SELECT " COLS " FROM email_transport WHERE id = ?") TRANSPORT-ID))
@@ -248,6 +263,10 @@
   (define r (query-maybe-value conn "SELECT password FROM email_transport WHERE id = ?" TRANSPORT-ID))
   (and r (not (sql-null? r)) (unseal-password TRANSPORT-ID r)))
 
+(define (transport-dkim-key conn)
+  (define r (query-maybe-value conn "SELECT dkim_key FROM email_transport WHERE id = ?" TRANSPORT-ID))
+  (and r (not (sql-null? r)) (unseal-dkim TRANSPORT-ID r)))
+
 (define (transport-base-url conn)
   (define t (transport-ref conn))
   (and t (let ([u (hash-ref t 'base_url)]) (and (string? u) (not (string=? u "")) u))))
@@ -256,7 +275,8 @@
 ;; mode: a setting that silently does nothing is how an operator concludes the
 ;; feature is broken — the call an unknown theme token, an unknown retention field
 ;; and an unknown feature all make.
-(define KNOWN-FIELDS '(host port security username password from_address from_name base_url active verify_tls))
+(define KNOWN-FIELDS '(host port security username password from_address from_name base_url active
+                       verify_tls dkim_selector dkim_key dkim_domain))
 
 (define (transport-problem doc)
   (cond
@@ -296,6 +316,25 @@
      => values]
     [(let ([v (hash-ref doc 'active #t)]) (and (not (boolean? v)) "active must be true or false")) => values]
     [(let ([v (hash-ref doc 'verify_tls #f)]) (and (not (boolean? v)) "verify_tls must be true or false")) => values]
+    ;; A SELECTOR IS A DNS LABEL, so it is held to the same rule a hostname is: a
+    ;; selector with a dot or a space in it produces a record nobody can publish.
+    [(let ([v (hash-ref doc 'dkim_selector #f)])
+       (and v (not (eq? v 'null))
+            (not (and (string? v) (regexp-match? #px"^[A-Za-z0-9][A-Za-z0-9_-]*$" v)))
+            "dkim_selector must be a DNS label"))
+     => values]
+    [(let ([v (hash-ref doc 'dkim_domain #f)])
+       (and v (not (eq? v 'null))
+            (not (and (string? v) (regexp-match? #px"^[A-Za-z0-9][A-Za-z0-9._-]*$" v)))
+            "dkim_domain must be a hostname"))
+     => values]
+    ;; A KEY THAT IS NOT A PEM IS REFUSED HERE rather than at the first send, where
+    ;; it would be a dead letter with openssl's own words in it.
+    [(let ([v (hash-ref doc 'dkim_key #f)])
+       (and v (not (eq? v 'null))
+            (not (and (string? v) (regexp-match? #px"-----BEGIN [A-Z ]*PRIVATE KEY-----" v)))
+            "dkim_key must be a PEM private key"))
+     => values]
     ;; VERIFICATION WITH NO TLS IS REFUSED RATHER THAN STORED INERT (MAIL-28).
     ;; With `security: "none"` there is no handshake to verify, so the field
     ;; would be a setting that silently does nothing — the call the unknown
@@ -327,11 +366,20 @@
         [(eq? v 'absent) (if cur (vector-ref cur 5) sql-null)]
         [(or (eq? v 'null) (and (string? v) (string=? v ""))) sql-null]
         [else (seal-password TRANSPORT-ID v)])))
+  ;; AN ABSENT DKIM KEY LEAVES THE STORED ONE ALONE, the rule the password follows:
+  ;; an edit to the selector must not silently stop every message being signed.
+  (define dkim
+    (let ([v (hash-ref doc 'dkim_key 'absent)])
+      (cond
+        [(eq? v 'absent) (if cur (vector-ref cur 17) sql-null)]
+        [(or (eq? v 'null) (and (string? v) (string=? v ""))) sql-null]
+        [else (seal-dkim TRANSPORT-ID v)])))
   (define args
     (list (f 'host) (f 'port) (hash-ref doc 'security "starttls") (f 'username)
           pw (f 'from_address) (f 'from_name) (f 'base_url)
           (if (hash-ref doc 'active #t) 1 0)
           (if (hash-ref doc 'verify_tls #f) 1 0)
+          (f 'dkim_selector) dkim (f 'dkim_domain)
           (or by sql-null) (now)))
   ;; No ON CONFLICT: the dialects spell upsert differently and this is one row —
   ;; settings.rkt's own reason.
@@ -339,13 +387,14 @@
       (apply query-exec conn
              (string-append "UPDATE email_transport SET host = ?, port = ?, security = ?, username = ?, "
                             "password = ?, from_address = ?, from_name = ?, base_url = ?, active = ?, "
-                            "verify_tls = ?, updated_by = ?, updated_epoch = ? WHERE id = '" TRANSPORT-ID "'")
+                            "verify_tls = ?, dkim_selector = ?, dkim_key = ?, dkim_domain = ?, "
+                            "updated_by = ?, updated_epoch = ? WHERE id = '" TRANSPORT-ID "'")
              args)
       (apply query-exec conn
              (string-append "INSERT INTO email_transport (host, port, security, username, password, "
-                            "from_address, from_name, base_url, active, verify_tls, updated_by, "
-                            "updated_epoch, id) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '" TRANSPORT-ID "')")
+                            "from_address, from_name, base_url, active, verify_tls, dkim_selector, "
+                            "dkim_key, dkim_domain, updated_by, updated_epoch, id) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '" TRANSPORT-ID "')")
              args))
   (transport-ref conn))
 
@@ -501,14 +550,36 @@
                        ;; this is what makes a report identify the delivery
                        ;; without parsing a body.
                        #:envelope-from [envelope-from #f]
+                       ;; THE DKIM KEY IS PASSED IN, like the password: this
+                       ;; function is handed a transport hash and has no
+                       ;; connection, and a key read from the database here would
+                       ;; be a second place the credential is fetched.
+                       #:dkim-key [dkim-key #f]
                        #:timeout [secs SMTP-TIMEOUT])
   (define bad (mail-address-problem recipient))
   ;; PERMANENT: an address that is not an address now will not be one later, and
   ;; this check is also the last line of defence against the header injection
   ;; `valid-address?` is written for.
   (when bad (mail-error! #t "~a: ~a" (clip (printable recipient) 200) bad))
-  (define-values (hdr lines) (compose-message t recipient subject body #:message-id mid
-                                              #:mode mode #:reply-to reply-to))
+  (define-values (hdr0 lines) (compose-message t recipient subject body #:message-id mid
+                                               #:mode mode #:reply-to reply-to))
+  ;; SIGNED WHEN A KEY AND A SELECTOR ARE CONFIGURED, and the signature covers the
+  ;; header block as composed plus the body as it will be transmitted. The domain
+  ;; defaults to the From address's, which is the only domain the instance may
+  ;; honestly claim; `dkim_domain` exists for a deployment that sends from a
+  ;; subdomain and signs as the parent.
+  (define hdr
+    (if (and dkim-key (dkim-configured? t))
+        (let* ([from (hash-ref t 'from_address)]
+               [m (regexp-match #px"@(.+)$" from)]
+               [d (let ([v (hash-ref t 'dkim_domain #f)])
+                    (if (and (string? v) (not (string=? v ""))) v (if m (cadr m) "localhost")))])
+          (insert-field "DKIM-Signature"
+                        (dkim-sign-header hdr0 lines #:domain d
+                                          #:selector (hash-ref t 'dkim_selector)
+                                          #:key dkim-key)
+                        hdr0))
+        hdr0))
   (define security (hash-ref t 'security))
   ;; `hash-ref` with a DEFAULT, not a bare lookup: `smtp-deliver!` is handed a
   ;; transport hash and the unit suite builds one by hand, so a missing key here

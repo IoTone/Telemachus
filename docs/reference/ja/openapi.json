@@ -1384,7 +1384,7 @@
     },
     "/api/email-inbound": {
       "delete": {
-        "description": "Remove the inbound mailbox, which is the only way back to the state the instance shipped in. A `PUT` with `active: false` is still a configured mailbox.",
+        "description": "受信メールボックスを削除します。インスタンスの初期状態に戻る唯一の方法です。`active: false` を指定した `PUT` でも、設定済みのメールボックスは残ります。",
         "operationId": "delete.api.email-inbound",
         "security": [
           {
@@ -1400,7 +1400,7 @@
         "x-tmach-permission-checked": "role"
       },
       "get": {
-        "description": "The inbound mailbox: its mode (`none`, `imap`, `maildir` or `webhook`), the two consumer switches, the last poll and its error, and the closed vocabularies beside the row so a console card holds no second copy. The password is never in this reply.",
+        "description": "受信メールボックスを返します: モード（`none`、`imap`、`maildir`、`webhook`）、2 つの消費側スイッチ、最後のポーリングとそのエラー、および閉じた語彙。コンソールのカードがコアの所有する一覧の複製を持たないよう、語彙は行と並べて返します。パスワードはこの応答に含まれません。",
         "operationId": "get.api.email-inbound",
         "security": [
           {
@@ -1416,7 +1416,7 @@
         "x-tmach-permission-checked": "role"
       },
       "put": {
-        "description": "Configure the inbound mailbox as a whole document: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}. An absent password leaves the stored one alone, so an edit to the folder cannot silently clear the credential. `consumers` is `{bounces, messages}` and both default to off.",
+        "description": "受信メールボックスを文書全体として設定します: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}。パスワードを省略すると保存済みの値が維持されるため、フォルダの変更が資格情報を黙って消すことはありません。`consumers` は `{bounces, messages}` で、どちらも既定では無効です。",
         "operationId": "put.api.email-inbound",
         "security": [
           {
