@@ -1723,6 +1723,10 @@
       "text": "edit",
       "hash": "9ead47a82a0d25985f22f10651d1f93b3abba317"
     },
+    "ui.mlverifyhint": {
+      "text": "Refuses a certificate that does not chain to a trusted authority, or that does not match the host name. Off by default, because an internal relay often uses a self-signed certificate.",
+      "hash": "cc4c970f3750a4ea67fbf595149f11d5a4dc4fcb"
+    },
     "doc.tool.kg_query": {
       "text": "What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too.",
       "hash": "d6dc9485ecac2f80742e0ddea83e96860cd52f49"
@@ -2554,6 +2558,10 @@
     "ui.praddr": {
       "text": "Email address",
       "hash": "c94d3175a6560565410511df2cebab9cda96027e"
+    },
+    "ui.mlverify": {
+      "text": "Verify the relay's certificate",
+      "hash": "cd968a977cafd690b28bd69298f46eb5a05b21b8"
     },
     "doc.route.post.api.repo-obj.id.legal-hold": {
       "text": "Place or release a legal hold on an object: `{\"hold\": true|false}`. While held, deletion BY RULE is refused — a retention sweep skips it and says how many it skipped. This is the flag r4 will build a prefix-level surface on; it ships with the rules because a schedule that deletes is a one-way door and a hold is the only thing that can stop one.",

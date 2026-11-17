@@ -334,6 +334,28 @@
   (check-true (regexp-match? #px"if\\(pw\\) body\\.password = pw" body)
               "a blank box sends NO password field rather than an empty string"))
 
+(test-case "the transport card sends verify_tls, and shows it"
+  ;; THE FIELD WAS ABSENT AND THE SERVER WRITES 0 FOR AN ABSENT FIELD, so every
+  ;; save from this card turned certificate verification off while the card showed
+  ;; nothing about it — a silent downgrade on the one surface an operator uses.
+  ;; The API reports the flag precisely so it can be seen (transport.rkt's
+  ;; `row->transport`), so the card has to both draw it and send it.
+  (define body (or (fn-body "doMailSave") ""))
+  (check-true (string-contains? body "verify_tls")
+              "the save body carries verify_tls, or the server writes 0")
+  (check-true (string-contains? body "getElementById('mlv')")
+              "the value comes from the card's own control")
+  (define card (or (fn-body "emailTransportCard") ""))
+  (check-true (string-contains? card "id=\"mlv\"")
+              "the card draws the control")
+  (check-true (string-contains? card "T.verify_tls")
+              "and it reflects the stored value rather than defaulting to off")
+  ;; The server refuses verification with `security: none` (MAIL-28), so the
+  ;; control is disabled there rather than offering a 400.
+  (define toggle (or (fn-body "mailVerifyToggle") ""))
+  (check-true (string-contains? toggle "disabled")
+              "the control is disabled when there is no handshake to verify"))
+
 (test-case "the instance category card sends the WHOLE document"
   ;; FEAT-7's recorded trap: there is no per-category route at this tier, so a
   ;; request carrying only the switch that moved would wipe the others silently

@@ -26,6 +26,19 @@ function catLabel(c){ return CATLABEL[c] ? tRaw(CATLABEL[c]) : c; }
 function emailPendingDraft(){ return (document.getElementById('mlad')||{}).value ?? S.mailDraft ?? ''; }
 
 // ---- the operator's transport -------------------------------------------------
+// THE VERIFICATION SWITCH IS ON THE CARD BECAUSE THE API REPORTS IT, and a control
+// absent from the only surface an operator uses is a setting nobody turns on. It is
+// disabled while the security mode is `none`, because the server refuses
+// verification with no handshake to verify (MAIL-28) and a checkbox whose only
+// outcome is a 400 is worse than a disabled one.
+function mailVerifyToggle(sel){
+  const box = document.getElementById('mlv');
+  if (!box) return;
+  const off = sel.value === 'none';
+  box.disabled = off;
+  if (off) box.checked = false;
+}
+
 function emailTransportCard(){
   const T = (S.mailT && S.mailT.transport) || null;
   const modes = (S.mailT && S.mailT.security_modes) || ['none','starttls','tls'];
@@ -41,8 +54,11 @@ function emailTransportCard(){
     <div class="row">
       <div><label>${t('mlhost')}</label><input id="mlh" value="${esc((T&&T.host)||'')}" placeholder="smtp.example.com"></div>
       <div><label>${t('mlport')}</label><input id="mlp" type="number" min="1" max="65535" value="${esc(String((T&&T.port)||587))}"></div>
-      <div><label>${t('mlsec')}</label><select id="mls">${modes.map(m=>`<option value="${esc(m)}"${sel===m?' selected':''}>${esc(m)}</option>`).join('')}</select></div>
+      <div><label>${t('mlsec')}</label><select id="mls" data-h-change="${H((el)=>mailVerifyToggle(el))}">${modes.map(m=>`<option value="${esc(m)}"${sel===m?' selected':''}>${esc(m)}</option>`).join('')}</select></div>
     </div>
+    <label class="muted" style="display:flex;align-items:center;gap:8px;font-weight:normal;margin-top:8px">
+      <input type="checkbox" id="mlv"${T && T.verify_tls ? ' checked':''}${sel==='none'?' disabled':''}> ${t('mlverify')}</label>
+    <p class="muted" style="font-size:12px;margin:4px 0 0">${t('mlverifyhint')}</p>
     <div class="row">
       <div><label>${t('mluser')}</label><input id="mlu" value="${esc((T&&T.username)||'')}" autocomplete="off"></div>
       <div><label>${t('mlpass')}</label><input id="mlw" type="password" autocomplete="new-password" placeholder="${T&&T.has_password?t('mlpasskeep'):''}"></div>
@@ -125,9 +141,13 @@ function myNotifyCard(){
 
 // ---- the handlers -------------------------------------------------------------
 async function doMailSave(){
+  // `verify_tls` IS SENT EXPLICITLY, and its absence was a silent downgrade: the
+  // server writes 0 for an absent field, so every save from this card turned
+  // verification off while the card showed nothing about it.
   const body = {host:val('mlh'), port:parseInt(val('mlp'),10), security:val('mls'),
                 from_address:val('mlf'), from_name:val('mln')||null,
                 base_url:val('mlb')||null, active:document.getElementById('mla').checked,
+                verify_tls:document.getElementById('mlv').checked,
                 username:val('mlu')||null};
   // AN ABSENT PASSWORD LEAVES THE STORED ONE ALONE, which is why a blank box
   // sends NO field rather than an empty string: otherwise saving a changed port
