@@ -72,6 +72,9 @@ done
 mkdir -p "$OUT/docs/screenshots/beta"
 cp "$ROOT"/docs/screenshots/*.png      "$OUT/docs/screenshots/"
 cp "$ROOT"/docs/screenshots/beta/*.png "$OUT/docs/screenshots/beta/"
+# The topology diagrams the README and the blueprints page show, same rule.
+mkdir -p "$OUT/docs/diagrams"
+cp "$ROOT"/docs/diagrams/*.svg "$OUT/docs/diagrams/"
 
 # ---- the prose pages ---------------------------------------------------------
 page "$ROOT/README.md"        "readme.html"      "TMach"

@@ -24,6 +24,11 @@ Two things follow from that design:
   per-seat fees, no usage fees, and no paid edition. You pay for the hardware
   you choose to run it on.
 
+> **Want the full picture?** Read
+> [*TMach for Developers*](https://iotone.github.io/Telemachus/docs/book/), the
+> free e-book that walks through the whole system
+> ([PDF](docs/book/telemachus-for-developers.pdf)).
+
 ## Why it exists
 
 Most AI tools make you pick one of two things.
@@ -58,7 +63,7 @@ It is probably not for you if you are one person who wants a chat window (Ollama
 with any desktop chat app is simpler), or if you want a hosted service that
 somebody else operates.
 
-## What you get on day one
+## Highlights
 
 - **Chat and an agent** that stream answers from your local model and can call
   tools: create notes, search documents, look things up in the knowledge graph.
@@ -134,63 +139,226 @@ are open to you.
 - **Sign-in protections.** Two-factor authentication, session timeouts, rate
   limits on sign-in attempts, email invitations, and password reset.
 
-## Deployment blueprints
+## How a deployment fits together
 
-TMach comes with [deployment blueprints](docs/ops/deployment-blueprints.md):
-step-by-step layouts that say what you need, how to set it up, and exactly what
-data leaves your network in each one. More are on the way.
+A TMach installation has three kinds of parts:
 
-- **On local infrastructure.** One server in your office or data center, with
-  the model on the same machine. Nothing leaves it.
-- **Across a tailnet.** The server in one place and GPU machines in others,
-  joined by a private Tailscale network so nothing is exposed to the public
-  internet.
-- **Hybrid.** Your own hardware plus a rented GPU or a cloud model. TMach works
-  with any OpenAI-compatible endpoint, and you can label documents so that
-  sensitive ones only ever go to your local models while everything else can
-  use the larger one.
+- **The server.** One process that serves the console and the API, checks
+  permissions, stores documents, and holds the job queue. It is the only part
+  your team talks to.
+- **Models.** Any program that serves a model over the OpenAI-compatible API,
+  such as Ollama or `llama-server`.
+- **Workers.** A worker is a small program that runs next to a model on a GPU
+  machine. It connects to the server, asks for the next job it is able to run,
+  hands the job to its local model, and sends the result back. Workers are how
+  you add capacity.
 
-In every layout the server, the database, and the stored documents stay on
-infrastructure you control.
+The smallest setup puts all of it on one machine:
+
+![One-box deployment: a team connects to one server running TMach, its database, and a local model](docs/diagrams/topology-one-box.svg)
+
+When one graphics card is not enough, add GPU machines as workers. Each worker
+takes one job at a time, so four workers run four jobs at once. Workers make
+outbound connections only, which means a GPU machine needs no open ports and can
+sit anywhere on your private network: the next rack, another office, or a
+workstation that is idle at night. From the Workers screen an operator can see
+what each one is doing, pause one for maintenance, and take one out of service.
+
+![Deployment with workers: GPU machines pull jobs from the server's queue over a private network](docs/diagrams/topology-workers.svg)
+
+If you also want a large cloud model, connect it next to your local ones and
+set rules for which documents may be sent to it:
+
+![Hybrid deployment: sensitive work goes to local models, other work may go to a cloud model when the rules allow](docs/diagrams/topology-hybrid.svg)
+
+The [deployment blueprints](docs/ops/deployment-blueprints.md) give
+step-by-step instructions for each of these layouts and say exactly what data
+leaves your network in each one. More blueprints are on the way.
+
+## Ways to install it
+
+| Method | Status | Notes |
+|---|---|---|
+| Nix | 🟢 | The reference build. `nix build`, or `nix profile install github:IoTone/Telemachus` for a server or a worker-only machine. |
+| Container image | 🟢 | A small OCI image that runs as a non-root user and ships a list of everything inside it. Runs under Docker or Podman. See the [container guide](docs/ops/container.md). |
+| Docker Compose | 🟢 | [`compose.yaml`](compose.yaml) starts the server with PostgreSQL, once the image is built. |
+| Kubernetes | 🟢 | Example manifest in [`deploy/k8s/`](deploy/k8s/). |
+| systemd | 🟢 | Unit files for GPU workers and model servers in [`deploy/gpu-fleet/`](deploy/gpu-fleet/). |
+| From source | 🟢 | Racket, inside the Nix development shell. See [Try it](#try-it). |
+
+| Host | Status | Notes |
+|---|---|---|
+| Linux | 🟢 | x86-64 is tested on every change. ARM64 builds from the same recipe and is tested less. |
+| macOS | 🟢 | From Nix or from source. Apple Silicon is the main development platform. Container images are Linux only. |
+| Windows | 🟡 | Not tested yet. Nothing in the design rules it out; Docker Desktop or WSL2 is the likely route. |
+
+The database is SQLite to start and PostgreSQL when you need it. Documents are
+stored on local disk or in any S3-compatible bucket.
 
 ## How it compares
 
-These are good tools and several of them are a better choice for some teams.
-They also change quickly, so check their current documentation before you
-decide.
+TMach is built for a team that shares private AI and needs to control who sees
+what, how much gets used, and where the data goes. The table compares it with
+four well-known open source projects you can also host yourself.
 
-| | Best at | How TMach differs |
-|---|---|---|
-| **Hosted team plans** (ChatGPT, Claude, Copilot, Gemini) | The strongest models, no setup, polished apps | Your data stays on your own hardware and it works offline. The trade is that local models are less capable than the largest hosted ones and you run the server yourself. |
-| **Self-hosted chat front ends** (Open WebUI, LibreChat) | A fast, polished chat experience over local or hosted models, with large communities | TMach puts more weight on what happens around the chat: document processing, review steps, budgets, a job queue, and an audit trail. Its chat screen is plainer. |
-| **Document chat workspaces** (AnythingLLM, PrivateGPT) | Getting from a folder of files to "ask questions about them" quickly | TMach adds per-document permissions, sharing, retention rules, structured extraction, and workflows that act on documents, not only answer questions about them. |
-| **Workflow builders** (Dify, n8n, Flowise) | Drag-and-drop flow design and a wide catalog of connectors | TMach workflows are written as data or code, not drawn. They run inside the same permission, budget, and audit system as everything else. It has far fewer connectors. |
-| **Building it yourself** (a model server plus scripts) | Total control | TMach gives you the accounts, permissions, queue, storage, and admin screens so you can start with the part that is specific to your work. |
+🟢 yes  ·  🟡 partly  ·  🔴 no  ·  ⚪ not found in that project's documentation
 
-A few things are true of TMach that are worth checking for any alternative:
+| | TMach | Open WebUI | AnythingLLM | LibreChat | Dify |
+|---|---|---|---|---|---|
+| License | MIT | Custom, with branding terms | MIT | MIT | Apache 2.0 with added conditions |
+| Runs offline with local models | 🟢 | 🟢 | 🟢 | 🟢 | ⚪ |
+| Accounts with roles | 🟢 | 🟢 | 🟢 | 🟢 | 🟢 |
+| Access control on documents | 🟢 per document | 🟡 per knowledge base | 🟡 per workspace | ⚪ | 🟡 per knowledge base |
+| Budgets for AI use | 🟢 per team and company | 🔴 | ⚪ | 🟢 per user | ⚪ |
+| Job queue in front of the model | 🟢 | ⚪ | ⚪ | 🟡 rate limits | ⚪ |
+| GPU machines as managed workers | 🟢 | ⚪ | ⚪ | ⚪ | ⚪ |
+| Document search (RAG) | 🟢 | 🟢 | 🟢 | 🟢 | 🟢 |
+| Classify documents and extract fields | 🟢 | ⚪ | ⚪ | ⚪ | 🟢 |
+| Fill forms and PDFs from extracted data | 🟢 | ⚪ | ⚪ | ⚪ | ⚪ |
+| Human review step in a workflow | 🟢 | ⚪ | ⚪ | ⚪ | 🟢 |
+| Workflows with triggers and schedules | 🟢 defined as data | 🟡 scheduled prompts | 🟡 flows and schedules | ⚪ | 🟢 visual builder |
+| Knowledge graph from documents | 🟢 | ⚪ | ⚪ | ⚪ | ⚪ |
+| Audit log | 🟢 tamper-evident | 🟡 off by default | 🟡 event log | ⚪ | ⚪ |
+| Remove personal data before a model sees it | 🟢 | ⚪ | ⚪ | ⚪ | ⚪ |
+| Rules for which model a document may go to | 🟢 | ⚪ | ⚪ | ⚪ | ⚪ |
+| S3-compatible API for documents | 🟢 | ⚪ | ⚪ | ⚪ | ⚪ |
+| Several companies on one install | 🟢 over the API | ⚪ | ⚪ | ⚪ | 🔴 not allowed by license |
+| Plugins and extensions | 🟢 | 🟢 | 🟢 | 🟡 | 🟢 |
+| Single sign-on (OIDC, LDAP) | 🟡 through a reverse proxy | 🟢 | 🟡 | 🟢 | 🔴 paid edition |
+| Console languages | 2 | 64 | 32 | 32 | 25 |
+| Install methods | Nix, container, Compose, Kubernetes, source | Docker, Compose, Helm, pip, desktop app | Docker, Kubernetes, desktop app | Docker, Compose, Helm | Compose, source |
 
-- **MIT license for everything.** A permissive academic license that legal
-  teams already know. No enterprise edition, no features held back, no terms
-  that change with company size or branding.
-- **Runs with no outside services.** One server process, a database file, and a
-  model. PostgreSQL and S3 storage are options for when you outgrow that.
-- **Few moving parts.** The server is written in Racket with a small, pinned set
-  of dependencies, built the same way every time with Nix.
+The other columns were checked against each project's own documentation and
+repository on 16 November 2026, for the free self-hosted edition. A white
+circle means we did not find the feature documented, not that we know it is
+missing. These projects move fast. If a cell is out of date, please open an
+issue and we will fix it.
 
-And some things to know before you commit:
+**A note on hosted AI.** TMach does not compete with Claude, ChatGPT, Gemini, or
+the other hosted models, and we think there is a strong place for them. Our
+view is that privacy and data security are best managed inside the walls of an
+organization. TMach gives you that control, and it can still connect to a hosted
+model for the work your own rules allow.
 
-- **It is pre-1.0.** It runs real workloads and has a large test suite, but APIs
-  can still change between releases.
-- **Local models have limits.** A 7B model on one graphics card will not match a
-  frontier hosted model. TMach can call any OpenAI-compatible endpoint, so you
-  can add a bigger cloud model for the work your privacy rules allow. See the
-  hybrid blueprint.
-- **The implementation language is uncommon.** You do not need to know Racket to
-  run it or to call its API. You do to write an in-process plugin, though
-  plugins can also run as separate programs in any language.
-- **Multi-company mode has no admin screens yet.** It is managed over the API.
+### Current limits
+
+- **Pre-1.0.** It runs real workloads and has a large test suite, but APIs can
+  still change between releases.
+- **Several-company mode has no admin screens yet.** It is managed over the API.
+- **No built-in single sign-on.** A reverse proxy can supply the signed-in
+  identity today.
 - **The Japanese edition is machine-assisted** and is being reviewed by a native
   speaker.
+
+## Everything it does
+
+The full list, by area. Each item is in the current release and is covered in
+the [console guide](docs/ui/README.md), the
+[reference](docs/reference/README.md), or the [runbooks](docs/ops/).
+
+**Chat and agents**
+- Streaming chat with a stop button, text or image input, and replies checked
+  against a JSON schema when you ask for structured output
+- An agent that plans and calls tools, with tools switchable per team
+- Tools from four sources: built in, plugins, external MCP servers, and
+  sandboxed programs in any language
+- Any OpenAI-compatible model endpoint, several named model backends, and a
+  per-team choice of which backend does bulk work
+- Timeouts and retries on every model call
+
+**Documents**
+- A repository for any file format with version history and folders
+- Private, team, and shared visibility; sharing with view, edit, or manage
+  rights and an expiry date
+- An S3-compatible API with multipart upload, ranged download, and presigned
+  links, plus resumable chunked upload over the regular API
+- Team-defined metadata fields with filtering
+- Notes and highlights attached to regions of a document
+- Retention rules, legal hold, and deletion that follows a document through
+  everything derived from it
+- Text extraction from PDF, Word, HTML, Markdown, and plain text; optional OCR for
+  scans and photos in over 100 languages
+
+**Document processing**
+- Classification by rules, by a model, or by nearest label, with a tool to
+  measure accuracy against your own labeled examples
+- Field extraction checked against a JSON schema
+- Filled templates in Markdown, HTML, Word, and PDF; branded, paged PDFs from
+  HTML and CSS, including archival PDF/A; filling of existing PDF forms
+- Translation of documents and of generated forms
+- Removal of names, emails, phone numbers, and ID numbers before text reaches
+  a model, with the values put back in the result
+- Triggers that start a workflow when a document arrives or its type is set
+- A review queue where a person approves, corrects, or rejects a result, with
+  an optional rule that the reviewer cannot be the author
+
+**Search and knowledge**
+- Keyword search and search by meaning across notes and documents
+- A knowledge graph of people, organizations, and other entities, with each
+  fact tied to its source document and version, and a graph view
+- Research bookmarks that archive web pages and keep each fetched version
+- Questions answered from the product documentation, with sources
+
+**Notes**
+- Markdown or Org format with live preview
+- Tags, with suggestions from the model
+- Links between notes, backlinks, and a graph of how notes connect
+- Import and export of `.org` files
+
+**Translation and languages**
+- A translation app with a per-team glossary; long documents run as background
+  jobs with progress
+- The console in English and Japanese, with a per-instance default language
+- A Localization Manager for translating the product itself, with model drafts
+  and human review
+
+**Voice**
+- Transcription of uploaded or streamed recordings, searchable like any other
+  document
+
+**Workflows and automation**
+- Workflows defined as data, with tool steps, branches, fan-out over a list,
+  and human review steps; runs survive a restart
+- Schedules at an interval or at a set local time on chosen days
+- Signed webhooks with retries; notifications by email and Matrix
+- Feeds from GitHub issues, the NVD vulnerability database, Uptime Kuma,
+  Discord, and Prometheus Alertmanager, with a work queue and drafted proposals
+
+**Teams, limits, and security**
+- Owner, admin, member, and viewer roles; API tokens limited by scope and
+  lifetime
+- Two-factor sign-in with recovery codes, session timeouts, sign-in rate
+  limits, a list of your own sessions, email invitations, and password reset
+- Per-team and per-company budgets for AI requests, tokens, storage, mail, and
+  more; a cap on how many AI jobs a team runs at once
+- Feature switches at the instance, company, and team level
+- Several companies on one install, each with its own teams, branding, and
+  hostname
+- An audit log of sign-ins, document reads, and admin actions, chained to
+  detect tampering, exportable, and optionally signed for outside safekeeping
+- Encryption at rest for stored credentials and, optionally, for extracted
+  document text and job data
+- Rules for which models a labeled document may be sent to, and a log of every
+  model request that never stores the prompt
+
+**Workers and operations**
+- GPU workers that pull jobs, on any number of machines
+- A fleet screen showing each worker's health, current job, and recent results;
+  pause, resume, and retire controls
+- A queue screen showing every job, how long it has waited, and why it is
+  waiting; charts of arrivals and completions
+- A health screen and a read-only monitoring permission for dashboards
+- Job cancellation, time limits, and automatic recovery when a worker goes away
+- Clean shutdown that hands running jobs back to the queue
+
+**Building on it**
+- Plugins that add tools, API routes, public routes, screens, background job
+  types, database tables, file readers, storage backends, feeds, and workflows
+- Plugins in other languages as sandboxed programs
+- Theming of names, logo, colors, and fonts, per instance or per company
+- A public sign-up page with spam protection and model-assisted screening of
+  applicants
+- A generated API reference and an OpenAPI description
 
 ## Try it
 
