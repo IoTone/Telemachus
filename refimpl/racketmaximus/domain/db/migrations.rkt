@@ -2616,6 +2616,73 @@
                    "  PRIMARY KEY (tbl, col))"))
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_plugin_seals_plugin ON plugin_seals (plugin_id)"))))
 
+(define m-0077-email-contacts
+  (migration "0077-email-contacts"
+    (lambda (conn)
+      ;; AN EXTERNAL PARTY IS NOT A USER, and the difference is the whole reason
+      ;; this table exists. `users` is a person who can sign in; a broker, a
+      ;; supplier and a customer cannot, and giving them a user row to hold an
+      ;; address would hand them a credential they must never have.
+      ;;
+      ;; THE ADDRESS IS THE ERASURE SUBJECT, so it lives here and on the delivery
+      ;; row and nowhere else. The audit log is chained, exported and kept through
+      ;; an erasure (DEL-7), so no entry about a contact carries the address —
+      ;; only the contact id, which is what `contact-delete!` removes.
+      ;;
+      ;; THE UNIQUE INDEX IS ON `lower(address)`, because an address is compared
+      ;; case-insensitively in practice and the platform already lowercases for
+      ;; the reset limiter. Both dialects support an expression index, and storing
+      ;; a lowercased copy would change the address the operator typed.
+      ;;
+      ;; `status` is the suppression, and it is a column rather than a second
+      ;; table: a suppression is a fact about this contact, and a separate list
+      ;; would need its own erasure path and its own join.
+      (exec* conn (string-append
+                   "CREATE TABLE email_contacts ("
+                   "  id TEXT PRIMARY KEY,"
+                   "  org_id TEXT NOT NULL,"
+                   "  address TEXT NOT NULL,"
+                   "  name TEXT,"
+                   "  org_name TEXT,"
+                   "  locale TEXT NOT NULL DEFAULT 'en',"
+                   "  status TEXT NOT NULL DEFAULT 'active',"
+                   "  suppressed_reason TEXT,"
+                   "  suppressed_epoch BIGINT,"
+                   "  created_by TEXT,"
+                   "  created_epoch BIGINT NOT NULL,"
+                   "  updated_epoch BIGINT NOT NULL)"))
+      (exec* conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_email_contacts_addr ON email_contacts (org_id, lower(address))")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_contacts_org ON email_contacts (org_id, created_epoch)")
+
+      ;; A LINK THAT LETS SOMEBODY WITHOUT AN ACCOUNT ACT. It cannot live in
+      ;; `activation_tokens`, which is keyed on `user_id` and whose purposes are
+      ;; `activate` and `reset`: a token that names a user is a token that can be
+      ;; redeemed into a session, and an external party must never have one.
+      ;;
+      ;; `purpose` is a closed vocabulary checked by the writer, and it is what
+      ;; stops a reply token being spent as an action token — the same defect
+      ;; migration 0070 fixed for the two mailed-token purposes.
+      (exec* conn (string-append
+                   "CREATE TABLE email_action_tokens ("
+                   "  id TEXT PRIMARY KEY,"
+                   "  contact_id TEXT NOT NULL,"
+                   "  org_id TEXT NOT NULL,"
+                   "  purpose TEXT NOT NULL,"
+                   "  token_hash TEXT NOT NULL,"
+                   "  subject_id TEXT,"
+                   "  expires_at BIGINT NOT NULL,"
+                   "  used_at BIGINT,"
+                   "  created_epoch BIGINT NOT NULL)"))
+      (exec* conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_email_action_tokens_hash ON email_action_tokens (token_hash)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_action_tokens_contact ON email_action_tokens (contact_id, created_epoch)")
+
+      ;; THE ERASURE LINK. A contact's deliveries are found through this column,
+      ;; and `contact-delete!` removes them: the delivery row is about that person,
+      ;; so a request to be forgotten takes it. The audit log keeps the fact that
+      ;; sends happened, without the address.
+      (exec* conn "ALTER TABLE email_deliveries ADD COLUMN contact_id TEXT")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_contact ON email_deliveries (contact_id)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2627,4 +2694,5 @@
                              m-0068-note-tags m-0069-email
                              m-0070-token-purpose m-0071-research-sources
                              m-0072-mail-verify-tls m-0073-note-format
-                             m-0074-note-links m-0075-job-progress m-0076-plugin-seals))
+                             m-0074-note-links m-0075-job-progress m-0076-plugin-seals
+                             m-0077-email-contacts))
