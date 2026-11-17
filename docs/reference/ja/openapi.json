@@ -3353,7 +3353,7 @@
     },
     "/api/org/inbound": {
       "get": {
-        "description": "The replies that arrived in the company's inbound mailbox, newest first: who they came from, the subject, the body and when. The platform stores them and does not try to understand the prose; showing them is the product's job, because the inbox is a plugin and core may not require one.",
+        "description": "会社の受信メールボックスに届いた返信を新しい順に返します。差出人、件名、本文、受信時刻を含みます。プラットフォームは保存するだけで文章を解釈しません。表示は製品側の仕事です。受信トレイはプラグインであり、コアはプラグインを要求できないためです。",
         "operationId": "get.api.org.inbound",
         "security": [
           {

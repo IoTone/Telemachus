@@ -47,7 +47,7 @@
 
 (provide INBOUND-MODES inbound-mode? INBOUND-CONSUMERS inbound-consumer?
          inbound-ref inbound-set! inbound-clear! inbound-problem inbound-password
-         inbound-configured? inbound-consumer-on? inbound-reply-address
+         inbound-configured? inbound-consumer-on?
          inbound-record-poll! inbound-classify inbound-poll! inbound-messages
          inbound-delivery-id inbound-reply-token)
 
@@ -215,15 +215,9 @@
   (and m (hash-ref m 'active)
        (eq? (hash-ref (hash-ref m 'consumers) (string->symbol consumer) #f) #t) #t))
 
-;; THE REPLY ADDRESS, AND WHY IT DEPENDS ON THE MAILBOX. A reply token is only
-;; worth minting when something reads the mailbox it points at: a token nothing
-;; redeems sends a supplier's answer to an address nobody opens, which is worse
-;; than no token at all. So with no inbound mailbox the reply goes to the person
-;; who sent the message, and with one it goes to `reply+<token>@<domain>`.
-(define (inbound-reply-address conn from-domain raw-token sender-address)
-  (if (inbound-consumer-on? conn "messages")
-      (format "reply+~a@~a" raw-token from-domain)
-      sender-address))
+;; THE REPLY ADDRESS IS DECIDED IN `external.rkt`, beside the token it names: the
+;; row and the address have to be decided together, or a token is written that
+;; nothing redeems. `inbound-consumer-on?` is the question it asks.
 
 ;; The poller's own record, so an operator can see that it ran and what it said.
 (define (inbound-record-poll! conn ok? err)

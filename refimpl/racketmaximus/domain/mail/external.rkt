@@ -44,7 +44,7 @@
          "./inbound.rkt")
 
 (provide MAIL-EXTERNAL-DIM EXTERNAL-CATEGORY REPLY-TTL
-         mail-external! external-reply-address)
+         mail-external!)
 
 ;; Its own dimension, because a message is not a token and the abuse is not the
 ;; same: `mail.notifications` bounds a fan-out to a team's own people, and this
@@ -90,10 +90,6 @@
   (define from (hash-ref t 'from_address))
   (define m (regexp-match #px"@(.+)$" from))
   (if m (cadr m) "localhost"))
-
-;; -> the address a reply should go to, for a token that was just minted.
-(define (external-reply-address t raw-token)
-  (format "reply+~a@~a" raw-token (from-domain t)))
 
 ;; -> (hasheq 'queued 0|1 'reason <symbol> 'id <id or 'null>)
 ;;

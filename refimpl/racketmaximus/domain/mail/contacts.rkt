@@ -36,7 +36,7 @@
          (only-in "./transport.rkt" mail-address-problem))
 
 (provide CONTACT-STATUSES contact-status?
-         contact-add! contact-get contact-list contact-by-address
+         contact-add! contact-get contact-list
          contact-suppress! contact-unsuppress! contact-delete!
          contact-address contact-locale contact-suppressed?)
 

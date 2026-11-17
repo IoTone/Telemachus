@@ -120,23 +120,6 @@
   (check-false (inbound-configured? c))
   (close-db! c))
 
-;; ---- the reply address ------------------------------------------------------
-(test-case "the reply address is the token only when something reads the mailbox"
-  (define c (fresh))
-  ;; no mailbox: the person
-  (check-equal? (inbound-reply-address c "example.test" "tk_abc" "person@example.test")
-                "person@example.test")
-  ;; a mailbox with the message consumer on: the token
-  (void (inbound-set! c (imap-doc #:consumers (hasheq 'bounces #t 'messages #t))))
-  (check-equal? (inbound-reply-address c "example.test" "tk_abc" "person@example.test")
-                "reply+tk_abc@example.test")
-  ;; the bounce consumer alone does not read replies, so the token would be a
-  ;; dead end and the person's address is still the answer
-  (void (inbound-set! c (imap-doc #:consumers (hasheq 'bounces #t 'messages #f))))
-  (check-equal? (inbound-reply-address c "example.test" "tk_abc" "person@example.test")
-                "person@example.test")
-  (close-db! c))
-
 ;; ---- what a message is ------------------------------------------------------
 (define (dsn-raw #:to [to "bounce+00000000-0000-4000-8000-000000000000@example.test"])
   (string-append

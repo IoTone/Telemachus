@@ -32,7 +32,7 @@
          "../i18n/i18n.rkt"
          "../../config.rkt")
 
-(provide EXTERNAL-TEMPLATES template? template-keys template-render with-locale
+(provide EXTERNAL-TEMPLATES template? template-render with-locale
          notification-subject notification-body)
 
 ;; id -> (list required-keys builder), where builder : (hashof symbol string) -> (values subject body).
@@ -76,10 +76,6 @@
 
 (define (template? id)
   (and (string? id) (assoc id EXTERNAL-TEMPLATES) #t))
-
-(define (template-keys id)
-  (define e (assoc id EXTERNAL-TEMPLATES))
-  (and e (cadr e)))
 
 ;; -> (values subject body). Refuses an unknown id and a missing key, because both
 ;; are programming errors rather than conditions a recipient should ever see.
