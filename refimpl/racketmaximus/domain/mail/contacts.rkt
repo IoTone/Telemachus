@@ -32,7 +32,7 @@
          json
          "../db/id.rkt"
          "../db/nulls.rkt"
-         (only-in "../authz/authz.rkt" audit! principal-org-id principal-user-id)
+         (only-in "../authz/authz.rkt" audit! principal-org-id principal-user-id principal-team-id)
          (only-in "./transport.rkt" mail-address-problem))
 
 (provide CONTACT-STATUSES contact-status?
@@ -68,7 +68,7 @@
 ;; domain's reputation, which is one resource however many teams spend it.
 (define (caller-org p)
   (or (principal-org-id p)
-      (error 'email-contacts "a contact belongs to a company, and this caller has none")))
+      (raise-user-error 'email-contacts "a contact belongs to a company, and this caller has none")))
 
 ;; -> the new contact's id. Refuses a bad address, an unknown locale shape, and a
 ;; duplicate within the company.
@@ -80,15 +80,19 @@
                       #:name [name #f] #:org-name [org-name #f]
                       #:locale [locale "en"])
   (define org (caller-org p))
+  ;; A USER ERROR, not a bare `error`: the dispatcher maps `exn:fail:user?` to a
+  ;; 400 with the message and everything else to an opaque 500. A catch-all handler
+  ;; in the route would turn a driver failure into a 400 carrying the database's own
+  ;; words, which is #123's closed defect.
   (define problem (mail-address-problem address))
-  (when problem (error 'email-contacts "~a" problem))
+  (when problem (raise-user-error 'email-contacts "~a" problem))
   (when (and locale (not (regexp-match? #px"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$" locale)))
-    (error 'email-contacts "locale must look like en, ja or es-419"))
+    (raise-user-error 'email-contacts "locale must look like en, ja or es-419"))
   (define existing (query-maybe-value conn
                      "SELECT id FROM email_contacts WHERE org_id = ? AND lower(address) = lower(?)"
                      org address))
   (when existing
-    (error 'email-contacts "this company already has a contact at that address"))
+    (raise-user-error 'email-contacts "this company already has a contact at that address"))
   (define id (new-id))
   (define t (now))
   (query-exec conn
@@ -98,8 +102,11 @@
     (or (principal-user-id p) sql-null) t t)
   ;; THE ADDRESS IS NOT IN THE META. The log outlives an erasure, and a list of the
   ;; outside parties a company corresponds with is exactly what an erasure is for.
+  ;; THE TEAM IS PASSED, because `audit-list` filters `WHERE team_id = ?` and an
+  ;; entry with no team is invisible in every trail — the shape this tree has
+  ;; recorded eight times.
   (audit! conn #:action "email.contact.added" #:actor-type "user"
-          #:actor-id (principal-user-id p) #:org-id org
+          #:actor-id (principal-user-id p) #:org-id org #:team-id (principal-team-id p)
           #:resource-type "email_contact" #:resource-id id #:result "ok")
   id)
 
@@ -146,7 +153,7 @@
          (or reason "suppressed by an operator") t t id org)
        (begin
          (audit! conn #:action "email.contact.suppressed" #:actor-type "user"
-                 #:actor-id (principal-user-id p) #:org-id org
+                 #:actor-id (principal-user-id p) #:org-id org #:team-id (principal-team-id p)
                  #:resource-type "email_contact" #:resource-id id #:result "ok")
          #t)))
 
@@ -162,7 +169,7 @@
          (now) id org)
        (begin
          (audit! conn #:action "email.contact.unsuppressed" #:actor-type "user"
-                 #:actor-id (principal-user-id p) #:org-id org
+                 #:actor-id (principal-user-id p) #:org-id org #:team-id (principal-team-id p)
                  #:resource-type "email_contact" #:resource-id id #:result "ok")
          #t)))
 
@@ -182,14 +189,20 @@
                         "SELECT COUNT(*) FROM email_action_tokens WHERE contact_id = ?" id)]
               [deliveries (query-maybe-value conn
                             "SELECT COUNT(*) FROM email_deliveries WHERE contact_id = ?" id)])
-         (query-exec conn "DELETE FROM email_action_tokens WHERE contact_id = ?" id)
-         (query-exec conn "DELETE FROM email_deliveries WHERE contact_id = ?" id)
-         (query-exec conn "DELETE FROM email_contacts WHERE id = ? AND org_id = ?" id org)
-         (audit! conn #:action "email.contact.deleted" #:actor-type "user"
-                 #:actor-id (principal-user-id p) #:org-id org
-                 #:resource-type "email_contact" #:resource-id id #:result "ok"
-                 #:meta (jsexpr->string (hasheq 'tokens (or tokens 0)
-                                                'deliveries (or deliveries 0))))
+         ;; ONE TRANSACTION, because a failure between the three deletes leaves
+         ;; half an erasure: the contact gone and its address still on a delivery
+         ;; row, which is the one outcome an erasure must not produce.
+         (call-with-transaction
+          conn
+          (lambda ()
+            (query-exec conn "DELETE FROM email_action_tokens WHERE contact_id = ?" id)
+            (query-exec conn "DELETE FROM email_deliveries WHERE contact_id = ?" id)
+            (query-exec conn "DELETE FROM email_contacts WHERE id = ? AND org_id = ?" id org)
+            (audit! conn #:action "email.contact.deleted" #:actor-type "user"
+                    #:actor-id (principal-user-id p) #:org-id org #:team-id (principal-team-id p)
+                    #:resource-type "email_contact" #:resource-id id #:result "ok"
+                    #:meta (jsexpr->string (hasheq 'tokens (or tokens 0)
+                                                   'deliveries (or deliveries 0))))))
          (hasheq 'tokens (or tokens 0) 'deliveries (or deliveries 0)))))
 
 ;; The two reads a sender needs, so a caller does not reach into the hash and

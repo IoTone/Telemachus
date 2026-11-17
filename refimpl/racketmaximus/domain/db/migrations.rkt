@@ -2777,6 +2777,39 @@
       (exec* conn "ALTER TABLE email_transport ADD COLUMN dkim_key TEXT")
       (exec* conn "ALTER TABLE email_transport ADD COLUMN dkim_domain TEXT"))))
 
+(define m-0081-inbound-messages
+  (migration "0081-inbound-messages"
+    (lambda (conn)
+      ;; A REPLY THAT ARRIVED, stored so the product can show it. The platform does
+      ;; not try to understand prose: it resolves the reply token, records who it
+      ;; came from and what it said, and stops. Raising an inbox item is the
+      ;; product's job, because the inbox is a plugin and core may not require one.
+      ;;
+      ;; `token_id` is the credential that authorized the message, so a reply can be
+      ;; traced to the exact outbound message it answers. `raw_sha256` is the
+      ;; deduplication key: delivery is at-least-once, and a poller that restarts
+      ;; sees the same message again.
+      ;;
+      ;; `body` is the message's own words, so it is CONTENT and not a composed
+      ;; notification — the one place in this subsystem where that is true. It is
+      ;; bounded at the write and it is the reason `inbound_messages` is a separate
+      ;; table from `email_deliveries`.
+      (exec* conn (string-append
+                   "CREATE TABLE inbound_messages ("
+                   "  id TEXT PRIMARY KEY,"
+                   "  org_id TEXT NOT NULL,"
+                   "  contact_id TEXT,"
+                   "  token_id TEXT,"
+                   "  message_id TEXT,"
+                   "  from_address TEXT,"
+                   "  subject TEXT,"
+                   "  body TEXT,"
+                   "  raw_sha256 TEXT NOT NULL,"
+                   "  received_epoch BIGINT NOT NULL,"
+                   "  state TEXT NOT NULL DEFAULT 'stored')"))
+      (exec* conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_inbound_sha ON inbound_messages (raw_sha256)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_inbound_org ON inbound_messages (org_id, received_epoch)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2790,4 +2823,4 @@
                              m-0072-mail-verify-tls m-0073-note-format
                              m-0074-note-links m-0075-job-progress m-0076-plugin-seals
                              m-0077-email-contacts m-0078-email-external
-                             m-0079-inbound-mailbox m-0080-dkim))
+                             m-0079-inbound-mailbox m-0080-dkim m-0081-inbound-messages))

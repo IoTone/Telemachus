@@ -36,7 +36,7 @@
          retention-plan retention-apply! retention-sweep!
          legal-hold-of)
 
-;; The three rules #86 r3 names. `max_age` is the whole object; `derived` is only
+;; The rules #86 r3 names, plus the delivery-row horizon this subsystem gained. `max_age` is the whole object; `derived` is only
 ;; what a workflow produced from one, which a team may want gone long before the
 ;; source; `payloads` is #59's lever on a clock.
 (define retention-fields '(max_age_days delete_derived_after_days purge_job_payloads_after_days

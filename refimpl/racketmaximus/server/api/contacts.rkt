@@ -18,19 +18,20 @@
 ;; split is also what lets a test call the work without a request.
 
 (provide ep-my-org-contacts ep-my-org-contact-add ep-my-org-contact
-         ep-my-org-contact-update ep-my-org-contact-delete ep-my-org-mail)
+         ep-my-org-contact-update ep-my-org-contact-delete ep-my-org-mail
+         ep-my-org-inbound)
 
 (require racket/string
          db-kit/portable
          web-server/http
          json
          web-kit
-         (only-in "../../domain/authz/authz.rkt" require-perm principal-org-id
-                  exn:fail:forbidden?)
+         (only-in "../../domain/authz/authz.rkt" require-perm principal-org-id)
          "../../domain/orgs/orgs.rkt"
          "../../domain/mail/contacts.rkt"
          "../../domain/mail/templates.rkt"
          "../../domain/mail/external.rkt"
+         "../../domain/mail/inbound.rkt"
          "../kit.rkt")
 
 ;; The caller's company, or a 400. A contact belongs to a company, and an operator
@@ -54,21 +55,25 @@
   (cond
     [(not address) (err "address required" 400)]
     [else
-     (with-handlers ([exn:fail? (lambda (e) (err (exn-message e) 400))])
-       (define id (contact-add! db-conn p #:address address
-                                #:name (hash-ref b 'name #f)
-                                #:org-name (hash-ref b 'org_name #f)
-                                #:locale (or (hash-ref b 'locale #f) "en")))
-       (hasheq 'contact (contact-get db-conn p id)))]))
+     ;; NO CATCH-ALL HERE. The domain raises `exn:fail:user?` for a bad address, a
+     ;; duplicate and a bad locale, and the dispatcher maps that to a 400 with the
+     ;; message; anything else is a 500 with an opaque body. A `with-handlers` that
+     ;; turned every failure into a 400 would put the database's own words in the
+     ;; reply, which is #123's closed defect.
+     (define id (contact-add! db-conn p #:address address
+                              #:name (hash-ref b 'name #f)
+                              #:org-name (hash-ref b 'org_name #f)
+                              #:locale (or (hash-ref b 'locale #f) "en")))
+     (hasheq 'contact (contact-get db-conn p id))]))
 
 (define (one-contact p id)
   (define c (contact-get db-conn p id))
   (cond [(not c) (err "not found" 404)]
         [else (hasheq 'contact c)]))
 
-;; Suppress or unsuppress. A suppression needs a reason, because "why is this
-;; address blocked" is the question an operator asks and a bare flag cannot answer
-;; it.
+;; Suppress or unsuppress. A reason is kept when one is given and a plain default
+;; is written when it is not, because "why is this address blocked" is the question
+;; an operator asks and a bare flag cannot answer it.
 (define (set-contact-status p id b)
   (define status (hash-ref b 'status #f))
   (define problem (status-problem status))
@@ -100,17 +105,21 @@
     [(not template) (err "template required" 400)]
     [(not (and link (string? link))) (err "link required" 400)]
     [else
-     (with-handlers ([exn:fail:forbidden? raise]
-                     [exn:fail? (lambda (e) (err (exn-message e) 400))])
-       (mail-external! db-conn p #:contact contact #:template template
-                       #:data data #:link link))]))
+     ;; `exn:fail:forbidden?` propagates to the dispatcher's 403, and a user error
+     ;; to its 400; nothing here rewrites either.
+     (mail-external! db-conn p #:contact contact #:template template
+                     #:data data #:link link)]))
 
 ;; ---- the routes -------------------------------------------------------------
 (define (ep-my-org-contacts req)
   (with-mt req (lambda ()
     (with-auth req (lambda (p)
       (require-perm db-conn p "org:read")
-      (json-response (list-contacts p (query-param req 'status #f))))))))
+      ;; `?status=` alone yields "" from `query-param`, which is not a filter and
+      ;; must not become a 400 — the trap `kit.rkt` records about its default.
+      (define status (let ([v (query-param req 'status #f)])
+                       (and (string? v) (not (string=? v "")) v)))
+      (json-response (list-contacts p status)))))))
 
 (define (ep-my-org-contact-add req)
   (with-mt req (lambda ()
@@ -135,6 +144,14 @@
     (with-auth req (lambda (p)
       (require-perm db-conn p "org:manage")
       (json-response (erase-contact p id)))))))
+
+;; THE REPLIES THAT ARRIVED. The platform stores them and stops; showing them is
+;; the product's job, because the inbox is a plugin and core may not require one.
+(define (ep-my-org-inbound req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:read")
+      (json-response (hasheq 'messages (inbound-messages db-conn (caller-org p)))))))))
 
 (define (ep-my-org-mail req)
   (with-mt req (lambda ()

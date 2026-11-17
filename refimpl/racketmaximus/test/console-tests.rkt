@@ -368,7 +368,7 @@
   (check-true (string-contains? body "'/api/email-inbound'"))
   ;; A MODE THAT READS NO MAILBOX MUST NOT SEND A HOST, or the server refuses a
   ;; `none` document that carries one.
-  (check-true (string-contains? body "mode === 'imap' || mode === 'webhook'")
+  (check-true (string-contains? body "mode === 'imap'")
               "the host and credential are only sent for a mode that reads a mailbox")
   (define card (or (fn-body "emailInboundCard") ""))
   (check-true (string-contains? card "data-cons=")

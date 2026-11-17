@@ -17,7 +17,7 @@
 ;;   DATABASE_URL="postgres://…" raco test test/email-contacts-tests.rkt
 
 (require rackunit db-kit/portable db-kit/migrate
-         racket/string json
+         racket/string json racket/vector
          "../domain/db/migrations.rkt"
          "db-fixture.rkt"
          "../domain/db/id.rkt"
@@ -49,6 +49,20 @@
                             'user_id))
     (hasheq 'org oid 'team eng 'admin-p (user-principal conn admin eng)))
   (values conn (user-principal conn root sys-team) (company "Acme" "acme") (company "Globex" "globex")))
+
+;; EVERY TABLE, EVERY COLUMN, as text. The erasure's property is that the address
+;; is GONE, and a test that names the three tables it knows about cannot catch a
+;; column added later — which is exactly what `test/dump-leak-tests.rkt` exists for.
+(define (tables conn)
+  (if (postgres-fixture?)
+      (query-list conn "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()")
+      (query-list conn "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")))
+
+(define (address-anywhere? conn address)
+  (for/or ([t (in-list (tables conn))])
+    (for/or ([r (in-list (query-rows conn (format "SELECT * FROM \"~a\"" t)))])
+      (for/or ([v (in-vector r)])
+        (and (string? v) (string-contains? v address))))))
 
 (define (audit-meta conn action)
   (for/list ([r (in-list (query-rows conn
@@ -99,6 +113,12 @@
   (check-false (contact-delete! conn (hash-ref acme 'admin-p) gid)
                "and it cannot be deleted from the wrong company")
   (check-true (and (contact-get conn (hash-ref globex 'admin-p) gid) #t))
+  ;; and the two writes are scoped in their own statements, not only the read
+  (check-false (contact-suppress! conn (hash-ref acme 'admin-p) gid "not mine"))
+  (check-equal? (hash-ref (contact-get conn (hash-ref globex 'admin-p) gid) 'status) "active")
+  (check-true (contact-suppress! conn (hash-ref globex 'admin-p) gid "mine"))
+  (check-false (contact-unsuppress! conn (hash-ref acme 'admin-p) gid))
+  (check-equal? (hash-ref (contact-get conn (hash-ref globex 'admin-p) gid) 'status) "suppressed")
   (close-db! conn))
 
 ;; ---- suppression ------------------------------------------------------------
@@ -153,6 +173,11 @@
   (check-equal? (query-value conn "SELECT COUNT(*) FROM email_deliveries WHERE contact_id = ?" id) 0)
   ;; THE LOG OUTLIVES THE ERASURE, so it must not hold the address. Every entry
   ;; this module wrote is checked, not just the deletion.
+  ;; THE PROPERTY, not the mechanism: after the erasure the address appears in NO
+  ;; table, in NO column. The three counts above prove the deletes ran; this proves
+  ;; nothing was left behind.
+  (check-false (address-anywhere? conn "erase@example.test")
+               "the address must be gone from every table, not just the three we know about")
   (for ([action (in-list '("email.contact.added" "email.contact.deleted"))])
     (for ([m (in-list (audit-meta conn action))])
       (when m

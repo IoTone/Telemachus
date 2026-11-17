@@ -219,9 +219,15 @@
 ;; "Is there a key and a selector?" — the two things a signature needs. The domain
 ;; defaults to the From address's domain, which is the only domain the instance may
 ;; honestly claim.
-(define (dkim-configured? t)
+;; THE KEY IS AN ARGUMENT, because `transport-ref` never carries it: the read
+;; exposes `has_dkim_key` and nothing else, the rule the password follows. Asking
+;; the hash for `dkim_key` answered #f on every real transport, so signing was
+;; inert while every test of the signer passed — the defect a test that drives
+;; `smtp-deliver!` with a real transport hash is there to catch.
+(define (dkim-configured? t [key #f])
   (and t
-       (let ([s (hash-ref t 'dkim_selector #f)] [k (hash-ref t 'dkim_key #f)])
+       (let ([s (hash-ref t 'dkim_selector #f)]
+             [k (or key (hash-ref t 'dkim_key #f))])
          (and (string? s) (not (string=? s (no-i18n "")))
               (string? k) (not (string=? k (no-i18n "")))
               #t))))

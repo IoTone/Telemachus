@@ -108,6 +108,7 @@ A machine-readable form of this same table is [openapi.json](openapi.json) (Open
 | GET | `/api/org/contacts/:id` | org-admin | `org:read` | role | — | 会社外の相手を 1 件返します。他社の ID は 404 になります。スコープは SQL 文の中にあるためです。 |
 | PATCH | `/api/org/contacts/:id` | org-admin | `org:manage` | role | — | 抑止または抑止の解除: {status, reason?}。抑止は、クォータを消費する前にそのアドレスへの送信をすべて拒否します。また、1 回の失敗報告は配信されなかった証明ではなく試行の証拠にすぎないため（RFC 3464）、抑止は解除できます。 |
 | DELETE | `/api/org/contacts/:id` | org-admin | `org:manage` | role | — | 会社外の相手を消去します: 連絡先、そのアクショントークン、その配送行です。監査ログは送信が行われた事実を保持し、アドレスは保持しません。そのログは連鎖され、外部に出力され、消去後も保持されるためです。 |
+| GET | `/api/org/inbound` | org-admin | `org:read` | role | — | The replies that arrived in the company's inbound mailbox, newest first: who they came from, the subject, the body and when. The platform stores them and does not try to understand the prose; showing them is the product's job, because the inbox is a plugin and core may not require one. |
 | POST | `/api/org/mail` | org-admin | `org:mail` | role | — | 会社外の相手にメッセージを送信します: {contact, template, data, link}。文言は固定のテンプレート登録から取得し、`data` は ID のみを運び、文章は運びません。呼び出し側が任意の本文と任意の宛先を渡せるメール API は、インスタンス自身の From 識別情報を背負ったスパム送信装置になるためです。抑止された連絡先、送信経路の未設定、重複は、いずれも通常の状態なのでエラーではなく `{queued: 0, reason}` を返します。 |
 | GET | `/api/org/audit` | org-admin | `org:read` | role | — | 会社の監査ログ。 |
 | GET | `/api/org/retention` | org-admin | `org:read` | role | — | 会社自身の保持ルール（#86 r3）。組織は自社のデータについてインスタンスが許す期間を短縮できますが、延長はできません。 |

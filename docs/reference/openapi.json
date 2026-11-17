@@ -3351,6 +3351,24 @@
         "x-tmach-permission-checked": "role"
       }
     },
+    "/api/org/inbound": {
+      "get": {
+        "description": "The replies that arrived in the company's inbound mailbox, newest first: who they came from, the subject, the body and when. The platform stores them and does not try to understand the prose; showing them is the product's job, because the inbox is a plugin and core may not require one.",
+        "operationId": "get.api.org.inbound",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "org"
+        ],
+        "x-tmach-auth": "org-admin",
+        "x-tmach-handler": "my-org-inbound",
+        "x-tmach-permission": "org:read",
+        "x-tmach-permission-checked": "role"
+      }
+    },
     "/api/org/mail": {
       "post": {
         "description": "Send a message to an external party: {contact, template, data, link}. The words come from a closed template registry and `data` carries ids, never prose — an email API a caller can hand arbitrary text and an arbitrary recipient is a spam cannon with the instance's own From identity behind it. A suppressed contact, a missing transport and a duplicate answer `{queued: 0, reason}` rather than an error, because all three are ordinary states.",

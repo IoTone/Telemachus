@@ -803,6 +803,17 @@
      ;; is the VERP address, so a bounce comes back naming the delivery rather than
      ;; the instance's own From address.
      (define external? (equal? (vector-ref r 4) "external"))
+     ;; A SUPPRESSION STOPS A MESSAGE THAT IS ALREADY QUEUED. The enqueue-time check
+     ;; is not enough: a row retries for up to a day, and a bounce that arrives while
+     ;; it is retrying is exactly the case the suppression exists for. One indexed
+     ;; lookup, and only for an external row.
+     (define suppressed?
+       (and external?
+            (let ([v (query-maybe-value conn
+                       (string-append "SELECT status FROM email_contacts WHERE id = "
+                                      "(SELECT contact_id FROM email_deliveries WHERE id = ?)")
+                       id)])
+              (and v (equal? v "suppressed") #t))))
      (define reply-to (let ([v (vector-ref r 9)]) (and (not (sql-null? v)) v)))
      (define envelope
        (and external?
@@ -813,6 +824,8 @@
        (with-handlers ([exn:fail:mail? (lambda (e) (values (clip-error (exn-message e))
                                                            (exn:fail:mail-permanent? e)))]
                        [exn:fail? (lambda (e) (values (clip-error (exn-message e)) #f))])
+         (when suppressed?
+           (mail-error! #t "the contact is suppressed, so this message was not sent"))
          (smtp-deliver! t (vector-ref r 3) (vector-ref r 6) (vector-ref r 7)
                         #:password pw #:message-id id
                         #:mode (if external? 'external 'notification)

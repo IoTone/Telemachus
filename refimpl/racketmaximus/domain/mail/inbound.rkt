@@ -28,7 +28,16 @@
          json
          "../db/nulls.rkt"
          (only-in "../authz/authz.rkt" audit! principal-user-id)
-         (only-in "../authz/sealed.rkt" define-sealed-column))
+         (only-in "../authz/sealed.rkt" define-sealed-column)
+         (only-in "../authz/authz.rkt" hash-token)
+         (only-in "../db/id.rkt" new-id)
+         (only-in "./dsn.rkt" dsn? dsn-reports dsn-report-recipient dsn-report-permanent?
+                  dsn-report-status dsn-report-diagnostic)
+         (only-in "./imap.rkt" imap-available? imap-uidvalidity imap-unseen-uids imap-fetch
+                  imap-mark-seen)
+         (only-in "./contacts.rkt" contact-suppress!)
+         (only-in "./transport.rkt" clip printable)
+         sha2-kit)
 
 ;; THE PASSWORD IS A SEALED COLUMN, and it is listed in `CREDENTIAL-SECRETS` in the
 ;; same commit as its table — a sealed column `rewrap` does not walk is silently
@@ -39,11 +48,16 @@
 (provide INBOUND-MODES inbound-mode? INBOUND-CONSUMERS inbound-consumer?
          inbound-ref inbound-set! inbound-clear! inbound-problem inbound-password
          inbound-configured? inbound-consumer-on? inbound-reply-address
-         inbound-record-poll!)
+         inbound-record-poll! inbound-classify inbound-poll! inbound-messages
+         inbound-delivery-id inbound-reply-token)
 
 ;; `none` is a mode rather than an absent row, so "configured but off" and "never
 ;; configured" are one state and the console has one thing to draw.
-(define INBOUND-MODES '("none" "imap" "maildir" "webhook"))
+;; ONLY THE MODES THAT EXIST. `maildir` and `webhook` are the two the design
+;; records as the alternatives, and offering them before they are implemented is
+;; the thing a closed vocabulary is supposed to prevent: an operator would set one
+;; and nothing would read the mailbox.
+(define INBOUND-MODES '("none" "imap"))
 (define (inbound-mode? m) (and (member m INBOUND-MODES) #t))
 
 ;; The two consumers. `bounces` writes a suppression from a DSN; `messages` stores
@@ -117,11 +131,11 @@
     ;; A MODE THAT READS A MAILBOX NEEDS A HOST AND A FOLDER. `none` needs
     ;; neither, and `maildir` needs a path rather than a host — which is why the
     ;; check is per mode rather than one shape for all four.
-    [(and (member (hash-ref doc 'mode "none") '("imap" "webhook"))
+    [(and (equal? (hash-ref doc 'mode "none") "imap")
           (let ([h (hash-ref doc 'host #f)])
             (not (and (string? h) (regexp-match? #px"^[A-Za-z0-9][A-Za-z0-9._-]*$" h)))))
      "host must be a hostname for this mode"]
-    [(and (member (hash-ref doc 'mode "none") '("imap" "webhook"))
+    [(and (equal? (hash-ref doc 'mode "none") "imap")
           (let ([p (hash-ref doc 'port #f)])
             (not (and (exact-integer? p) (> p 0) (< p 65536)))))
      "port must be 1-65535 for this mode"]
@@ -181,8 +195,13 @@
   (inbound-ref conn))
 
 ;; The only way back to the shipped state, the reason `transport-clear!` exists.
-(define (inbound-clear! conn)
-  (query-exec conn "DELETE FROM inbound_mailbox WHERE id = ?" INBOUND-ID))
+(define (inbound-clear! conn #:by [by #f])
+  (query-exec conn "DELETE FROM inbound_mailbox WHERE id = ?" INBOUND-ID)
+  ;; THE AUDIT IS HERE, not only in the route: a plugin may require this module,
+  ;; and a delete that leaves no record is the one an operator is asked about.
+  (audit! conn #:action "instance.inbound.cleared" #:actor-type "user"
+          #:actor-id (or by sql-null) #:resource-type "inbound_mailbox"
+          #:resource-id INBOUND-ID #:result "ok"))
 
 ;; "Is there a mailbox this instance actually reads?" — ACTIVE as well as present,
 ;; so an operator can stop the poller with one field without destroying the
@@ -212,3 +231,163 @@
     (string-append "UPDATE inbound_mailbox SET last_poll_epoch = ?, last_poll_ok = ?, last_error = ? "
                    "WHERE id = ?")
     (now) (if ok? 1 0) (or err sql-null) INBOUND-ID))
+
+
+;; ---- what a message is --------------------------------------------------------
+;; THREE ANSWERS, and the order matters: a DSN is checked first because a bounce is
+;; the one message whose `To` is our own VERP address and whose body is machine
+;; readable. A reply is a message addressed to a reply token. Anything else is
+;; `other`, and it is stored rather than dropped — an operator who points the
+;; mailbox at the wrong folder should be able to see that.
+(define (inbound-classify raw)
+  (cond
+    [(dsn? raw) 'dsn]
+    [(inbound-reply-token raw) 'reply]
+    [else 'other]))
+
+;; The delivery id out of the VERP address the report was sent to. `bounce+<id>@`
+;; is the envelope sender of the original message, so the report's `To` names it.
+(define (inbound-delivery-id raw)
+  (define m (regexp-match #px"(?i:(?m:^To:.*?bounce\\+([0-9a-f-]{36})@))" raw))
+  (and m (cadr m)))
+
+;; The raw reply token out of `reply+<token>@`. The token is what authorizes the
+;; message, so the `From` header is only ever informational.
+(define (inbound-reply-token raw)
+  (define m (regexp-match #px"(?i:(?m:^To:.*?reply\\+(tk_[0-9a-f]+)@))" raw))
+  (and m (cadr m)))
+
+(define (header-of raw name)
+  (define m (regexp-match (regexp (format "(?i:(?m:^~a:[ \\t]*(.*)))" (regexp-quote name))) raw))
+  (and m (string-trim (cadr m))))
+
+(define (body-of raw)
+  (define m (regexp-match-positions #rx"\r?\n\r?\n" raw))
+  (and m (substring raw (cdr (car m)) (string-length raw))))
+
+(define MAX-INBOUND-BODY 20000)
+
+;; ---- the poll ----------------------------------------------------------------
+;; -> (hasheq 'seen n 'bounces n 'replies n 'other n 'error <string or #f>).
+;;
+;; `#:fetch` and `#:mark-seen` are parameters so a test can drive the dispatch
+;; without an IMAP server; the shipped path is `imap.rkt`.
+(define (inbound-poll! conn #:fetch [fetch #f] #:mark-seen [mark-seen #f] #:uids [uids #f])
+  (define m (inbound-ref conn))
+  (cond
+    [(not (inbound-configured? conn)) (hasheq 'seen 0 'bounces 0 'replies 0 'other 0 'error #f)]
+    [(not (equal? (hash-ref m 'mode) "imap"))
+     (hasheq 'seen 0 'bounces 0 'replies 0 'other 0 'error "this mode has no poller yet")]
+    [else
+     (define full (hash-set m 'password (inbound-password conn)))
+     (define fetch* (or fetch (lambda (uid) (imap-fetch full uid))))
+     (define mark* (or mark-seen (lambda (uid) (imap-mark-seen full uid))))
+     (with-handlers ([exn:fail?
+                      (lambda (e)
+                        (define msg (string-append "poll failed: " (exn-message e)))
+                        (inbound-record-poll! conn #f msg)
+                        (hasheq 'seen 0 'bounces 0 'replies 0 'other 0 'error msg))])
+       (define uids* (or uids (imap-unseen-uids full)))
+       ;; A MUTABLE hash: `hasheq` is immutable and `hash-set!` refuses it.
+       (define counts (make-hasheq (list (cons 'seen 0) (cons 'bounces 0)
+                                         (cons 'replies 0) (cons 'other 0))))
+       (for ([uid (in-list uids*)])
+         (define raw (fetch* uid))
+         (define kind (inbound-classify raw))
+         (case kind
+           [(dsn) (inbound-handle-dsn! conn raw)]
+           [(reply) (inbound-handle-reply! conn raw)]
+           [else (void)])
+         (hash-set! counts 'seen (add1 (hash-ref counts 'seen)))
+         (hash-set! counts (case kind [(dsn) 'bounces] [(reply) 'replies] [else 'other])
+                    (add1 (hash-ref counts (case kind [(dsn) 'bounces] [(reply) 'replies] [else 'other]))))
+         (mark* uid))
+       (inbound-record-poll! conn #t #f)
+       (hash-set! counts 'error #f)
+       counts)]))
+
+;; A PERMANENT REPORT SUPPRESSES THE CONTACT, and a temporary one does not. The
+;; delivery is found through the VERP address, so the report identifies the message
+;; without parsing a body; the contact is the delivery's own, so a report about a
+;; message this instance did not send is ignored rather than guessed at.
+(define (inbound-handle-dsn! conn raw)
+  (define did (inbound-delivery-id raw))
+  (when did
+    (define row (query-maybe-row conn
+                  "SELECT contact_id, org_id FROM email_deliveries WHERE id = ?" did))
+    (when row
+      (define contact (vector-ref row 0))
+      (define org (vector-ref row 1))
+      (for ([r (in-list (dsn-reports raw))])
+        (when (and contact (dsn-report-permanent? r))
+          (define reason (or (dsn-report-diagnostic r)
+                             (format "bounce ~a" (dsn-report-status r))))
+          ;; The suppression is written as the SYSTEM: no person pressed anything,
+          ;; and attributing it to whoever started the process would be a lie.
+          (query-exec conn
+            (string-append "UPDATE email_contacts SET status = 'suppressed', suppressed_reason = ?, "
+                           "suppressed_epoch = ?, updated_epoch = ? WHERE id = ? AND org_id = ? "
+                           "AND status <> 'suppressed'")
+            (clip (printable reason) 400) (now) (now) contact org)
+          (audit! conn #:action "email.contact.suppressed" #:actor-type "system"
+                  #:actor-id "bounce" #:org-id org
+                  #:resource-type "email_contact" #:resource-id contact #:result "ok"
+                  #:meta (jsexpr->string (hasheq 'delivery did
+                                                 'status (dsn-report-status r)))))))))
+
+;; A REPLY IS STORED, and the token is spent. The platform does not try to
+;; understand the prose: it records who it came from and what it said, and the
+;; product shows it. Raising an inbox item is the product's job, because the inbox
+;; is a plugin and core may not require one.
+(define (inbound-handle-reply! conn raw)
+  (define raw-token (inbound-reply-token raw))
+  (when raw-token
+    (define h (hash-token (string-append "reply:" raw-token)))
+    (define row (query-maybe-row conn
+                  (string-append "SELECT id, contact_id, org_id, expires_at, used_at "
+                                 "FROM email_action_tokens WHERE token_hash = ? AND purpose = 'reply'")
+                  h))
+    (when row
+      (define token-id (vector-ref row 0))
+      (define contact (vector-ref row 1))
+      (define org (vector-ref row 2))
+      (define expires (vector-ref row 3))
+      (define used (vector-ref row 4))
+      ;; A SPENT OR EXPIRED TOKEN IS REFUSED, and the message is not stored: the
+      ;; token is the authorization, so a second message to the same address is a
+      ;; replay rather than a reply.
+      (when (and (sql-null? used) (> expires (now)))
+        (define sha (bytes->hex-lower (sha256 (string->bytes/utf-8 raw))))
+        (define body (let ([b (or (body-of raw) "")])
+                       (if (> (string-length b) MAX-INBOUND-BODY)
+                           (substring b 0 MAX-INBOUND-BODY)
+                           b)))
+        ;; THE TOKEN IS SPENT AND THE MESSAGE STORED IN ONE TRANSACTION, so a
+        ;; failure cannot leave a spent token with no message or a message with a
+        ;; token that can be spent again.
+        (call-with-transaction
+         conn
+         (lambda ()
+           (query-exec conn "UPDATE email_action_tokens SET used_at = ? WHERE id = ?" (now) token-id)
+           (query-exec conn
+             (string-append "INSERT INTO inbound_messages (id, org_id, contact_id, token_id, message_id, "
+                            "from_address, subject, body, raw_sha256, received_epoch, state) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stored')")
+             (new-id) org contact token-id (or (header-of raw "Message-ID") sql-null)
+             (or (header-of raw "From") sql-null) (or (header-of raw "Subject") sql-null)
+             body sha (now))
+           (audit! conn #:action "email.inbound.received" #:actor-type "system"
+                   #:actor-id "inbound" #:org-id org
+                   #:resource-type "inbound_message" #:resource-id token-id #:result "ok")))))))
+
+;; The stored replies, newest first, for the product to show.
+(define (inbound-messages conn org #:limit [limit 100])
+  (define lim (number->string (min 500 (max 1 limit))))
+  (for/list ([r (in-list (query-rows conn
+                          (string-append "SELECT id, contact_id, from_address, subject, body, "
+                                         "received_epoch FROM inbound_messages WHERE org_id = ? "
+                                         "ORDER BY received_epoch DESC, id DESC LIMIT " lim)
+                          org))])
+    (hasheq 'id (vector-ref r 0) 'contact_id (nz (vector-ref r 1))
+            'from_address (nz (vector-ref r 2)) 'subject (nz (vector-ref r 3))
+            'body (vector-ref r 4) 'received_epoch (vector-ref r 5))))

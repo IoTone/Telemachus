@@ -315,7 +315,10 @@ that survives a relay.
 reply are both "mail that comes back", so they share one mailbox, one credential
 and one poller; the split is at the first parse. An instance may run neither, one,
 or both, and the shipped state is `none` — an upgrade must not start reading a
-mailbox. `last_uid` and `uidvalidity` are stored together, because when UIDVALIDITY
+mailbox. The shipped mode is `imap`, read through `curl`; `maildir` and `webhook`
+are recorded as the alternatives and are not in the vocabulary until they are
+implemented, because a mode an operator can set and nothing reads is the thing a
+closed vocabulary exists to prevent. `last_uid` and `uidvalidity` are stored together, because when UIDVALIDITY
 changes the UID space was reset and the poller must re-sync rather than trust a UID
 that now names a different message.
 
@@ -331,8 +334,9 @@ retention rule purges settled delivery rows and never a `pending` one.
   and an outbound attachment needs multipart, a size limit, a virus scan and
   content in the queue.
 - **Inbound reply parsing.** The reply goes to a person, and the platform's own
-  inbound path stores a message and raises an inbox item; it does not try to
-  understand prose.
+  inbound path stores the message and stops; it does not try to understand prose,
+  and it does not raise an inbox item, because the inbox is a plugin and core may
+  not require one. Showing the stored reply is the product's job.
 - **Per-customer sender domains.** That is domain verification, per-org DKIM keys,
   selector rotation and a reputation problem per customer. It is additive later.
 - **Marketing content in any template.** That is what keeps the surface outside

@@ -64,7 +64,7 @@
          ;; exported FOR the tests: the header composition and the deadline are
          ;; the two halves worth asserting without a mail server, and an export
          ;; with a test behind it is not an over-wide export (#110 r4).
-         compose-message call-with-deadline exn:fail:mail? exn:fail:mail-permanent?
+         compose-message call-with-deadline exn:fail:mail? exn:fail:mail-permanent? mail-error!
          ;; MAIL-27: one home for "what does verification mean", exported FOR the
          ;; tests because driving a real handshake is the only way to establish
          ;; that the two branches agree — and they are the two branches nothing
@@ -569,7 +569,7 @@
   ;; honestly claim; `dkim_domain` exists for a deployment that sends from a
   ;; subdomain and signs as the parent.
   (define hdr
-    (if (and dkim-key (dkim-configured? t))
+    (if (dkim-configured? t dkim-key)
         (let* ([from (hash-ref t 'from_address)]
                [m (regexp-match #px"@(.+)$" from)]
                [d (let ([v (hash-ref t 'dkim_domain #f)])

@@ -3823,6 +3823,14 @@
       "text": "See the Localization Manager's coverage and messages.",
       "hash": "da2cba8e84f038c877872c710f02f7f21d1049f8"
     },
+    "doc.route.get.api.org.inbound": {
+      "text": "The replies that arrived in the company's inbound mailbox, newest first: who they came from, the subject, the body and when. The platform stores them and does not try to understand the prose; showing them is the product's job, because the inbox is a plugin and core may not require one.",
+      "hash": "53353d91d8e94a4837f2ed6afe7c65a54823cc30"
+    },
+    "ui.mltested": {
+      "text": "Last test",
+      "hash": "0574834056c9a2320bef1d182f0b1b5441df7987"
+    },
     "ui.thcontrasthint": {
       "text": "Readers may not be able to see this text. The server refuses a theme below the minimum.",
       "hash": "931f620bbf6a582ae8b0d682fcec3c2206887dd4"
@@ -3838,10 +3846,6 @@
     "doc.tool.create_note": {
       "text": "Create a note for the current user's team.",
       "hash": "b647e9b2764c0eb907c2306751d03cbc7e8fee48"
-    },
-    "ui.mltested": {
-      "text": "Last test",
-      "hash": "0574834056c9a2320bef1d182f0b1b5441df7987"
     },
     "ui.instfeatures": {
       "text": "Instance features",

@@ -16,7 +16,7 @@
 ;;   DATABASE_URL="postgres://…" raco test test/email-external-tests.rkt
 
 (require rackunit db-kit/portable db-kit/migrate
-         racket/string json
+         racket/string json racket/file racket/port racket/system
          "../domain/db/migrations.rkt"
          "db-fixture.rkt"
          "../domain/db/id.rkt"
@@ -129,9 +129,20 @@
   (define rt (reply-to-of r2))
   (check-true (string-prefix? rt "reply+tk_"))
   (check-true (string-suffix? rt "@example.test"))
-  ;; and the token is stored hashed, never raw
-  (check-equal? (query-value conn "SELECT COUNT(*) FROM email_action_tokens WHERE token_hash = ?" rt) 0
+  ;; AND THE RAW TOKEN IS STORED NOWHERE. The address is `reply+<raw>@domain`, so
+  ;; the raw value is the local part between the `+` and the `@`; asserting the
+  ;; whole address against `token_hash` would pass against code that stored the
+  ;; token in the clear, because the two can never be equal.
+  ;; `regexp-match`'s first element is the WHOLE match; the capture group is the
+  ;; second. Taking the first would compare the address against a hash, which can
+  ;; never be equal and would pass against code that stored the token in the clear.
+  (define raw (cadr (regexp-match #px"^reply\\+([^@]+)@" rt)))
+  (check-true (and raw #t))
+  (check-equal? (query-value conn "SELECT COUNT(*) FROM email_action_tokens WHERE token_hash = ?" raw) 0
                 "the raw token is not what is stored")
+  (check-equal? (query-value conn "SELECT COUNT(*) FROM email_action_tokens WHERE token_hash = ?"
+                              (hash-token (string-append "reply:" raw))) 1
+                "the hash of the raw token is")
   (close-db! conn))
 
 ;; ---- the guards, in order ---------------------------------------------------
@@ -209,6 +220,43 @@
   (check-equal? (delivery-count conn) 0)
   (close-db! conn))
 
+;; ---- the limiters -----------------------------------------------------------
+(test-case "the per-contact limiter refuses the sixth message in the window"
+  ;; CONTACT-MAX is 5. The limiter is in memory and per process, which is stated
+  ;; rather than discovered: a second replica would double the ceiling.
+  (define-values (conn acme) (instance))
+  (define p (hash-ref acme 'admin-p))
+  (define cid (contact-add! conn p #:address "a@example.test"))
+  (for ([i (in-range 5)])
+    (check-equal? (hash-ref (send! conn p cid #:data (hasheq 'what "x" 'subject_id (format "s~a" i)))
+                            'queued)
+                  1))
+  (define sixth (send! conn p cid #:data (hasheq 'what "x" 'subject_id "s5")))
+  (check-equal? (hash-ref sixth 'queued) 0)
+  (check-equal? (hash-ref sixth 'reason) 'rate)
+  (close-db! conn))
+
+;; ---- a suppression stops a message that is already queued --------------------
+(test-case "a suppression settles a pending row instead of letting it retry"
+  ;; The enqueue-time check is not enough: a row retries for up to a day, and a
+  ;; bounce that arrives while it is retrying is exactly the case the suppression
+  ;; exists for.
+  (define-values (conn acme) (instance))
+  (define p (hash-ref acme 'admin-p))
+  (define cid (contact-add! conn p #:address "gone@example.test" #:locale "en"))
+  (define r (send! conn p cid))
+  (check-equal? (hash-ref r 'queued) 1)
+  (void (contact-suppress! conn p cid "550 5.1.1 user unknown"))
+  (mock-clear!)
+  (start-mock-smtp! #:port PORT-EXT)
+  (check-equal? (mail-deliver-one! conn (hash-ref r 'id)) 'dead)
+  (stop-mock-smtp!)
+  (check-equal? (mock-message-count) 0 "nothing crossed the wire")
+  (check-true (string-contains? (query-value conn "SELECT last_error FROM email_deliveries WHERE id = ?"
+                                             (hash-ref r 'id))
+                                "suppressed"))
+  (close-db! conn))
+
 ;; ---- the wire ---------------------------------------------------------------
 (test-case "an external message drops Auto-Submitted, carries Reply-To, and sends from the VERP address"
   (define-values (conn acme) (instance))
@@ -238,4 +286,35 @@
   (check-true (regexp-match? #px"(?i:Reply-To: admin@acme\\.test)" data)
               "and a reply reaches the person who sent it, because no mailbox is read")
   (check-true (regexp-match? #px"(?i:Message-ID: <)" data))
+  (close-db! conn))
+
+(test-case "a configured DKIM key puts a signature on the wire"
+  ;; THE DEFECT THIS CATCHES: `dkim-configured?` asked the transport hash for
+  ;; `dkim_key`, which `transport-ref` never carries, so signing was inert while
+  ;; every test of the signer passed. This drives the real send path.
+  (define-values (conn acme) (instance))
+  (define p (hash-ref acme 'admin-p))
+  (define dir (make-temporary-file "tmach-dkim-e2e-~a" 'directory))
+  (define key (build-path dir "k.pem"))
+  (define-values (proc out in err)
+    (subprocess #f #f #f (find-executable-path "openssl") "genrsa" "-out" (path->string key) "2048"))
+  (close-output-port in) (void (port->string out)) (void (port->string err)) (subprocess-wait proc)
+  (check-equal? (subprocess-status proc) 0)
+  (transport-set! conn (hasheq 'host "127.0.0.1" 'port PORT-EXT 'security "none"
+                               'from_address "tmach@example.test" 'from_name "TMach"
+                               'base_url "https://acme.test" 'active #t 'verify_tls #f
+                               'dkim_selector "tmach" 'dkim_key (file->string key)))
+  (define cid (contact-add! conn p #:address "supplier@example.test" #:locale "en"))
+  (mock-clear!)
+  (start-mock-smtp! #:port PORT-EXT)
+  (define r (send! conn p cid))
+  (check-equal? (mail-deliver-one! conn (hash-ref r 'id)) 'sent)
+  (stop-mock-smtp!)
+  (define data (mock-msg-data (mock-last-message)))
+  (check-true (regexp-match? #px"(?i:DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=example\\.test; s=tmach;)"
+                              data)
+              "the message carries a signature naming the From domain and the selector")
+  (check-true (regexp-match? #px"(?i:; bh=[A-Za-z0-9+/=]{20,})" data) "and a body hash")
+  (check-true (regexp-match? #px"(?i:; b=[A-Za-z0-9+/=]{40,})" data) "and a signature")
+  (delete-directory/files dir)
   (close-db! conn))

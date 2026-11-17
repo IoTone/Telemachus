@@ -3351,6 +3351,24 @@
         "x-tmach-permission-checked": "role"
       }
     },
+    "/api/org/inbound": {
+      "get": {
+        "description": "The replies that arrived in the company's inbound mailbox, newest first: who they came from, the subject, the body and when. The platform stores them and does not try to understand the prose; showing them is the product's job, because the inbox is a plugin and core may not require one.",
+        "operationId": "get.api.org.inbound",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "org"
+        ],
+        "x-tmach-auth": "org-admin",
+        "x-tmach-handler": "my-org-inbound",
+        "x-tmach-permission": "org:read",
+        "x-tmach-permission-checked": "role"
+      }
+    },
     "/api/org/mail": {
       "post": {
         "description": "会社外の相手にメッセージを送信します: {contact, template, data, link}。文言は固定のテンプレート登録から取得し、`data` は ID のみを運び、文章は運びません。呼び出し側が任意の本文と任意の宛先を渡せるメール API は、インスタンス自身の From 識別情報を背負ったスパム送信装置になるためです。抑止された連絡先、送信経路の未設定、重複は、いずれも通常の状態なのでエラーではなく `{queued: 0, reason}` を返します。",

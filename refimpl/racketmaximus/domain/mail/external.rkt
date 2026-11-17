@@ -104,18 +104,29 @@
                         #:data data #:link link)
   (require-perm conn p "org:mail")
   (define org (or (principal-org-id p)
-                  (error 'mail-external "a company is required to send outside it")))
+                  (raise-user-error 'mail-external "a company is required to send outside it")))
   (define team (principal-team-id p))
   (define c (contact-get conn p contact-id))
-  (unless c (error 'mail-external "no such contact"))
+  (unless c (raise-user-error 'mail-external "no such contact"))
   (define (refuse reason [id 'null]) (hasheq 'queued 0 'reason reason 'id id))
+  ;; THE LINK IS THE ONE CALLER-SUPPLIED STRING THAT REACHES A THIRD PARTY, so it
+  ;; is held to an http(s) URL and nothing else. `data` is ids by contract, and the
+  ;; template's own `what` is bounded here because a caller could put a paragraph
+  ;; in it — the one remaining free-text path into somebody's inbox.
+  (when (not (and (string? link) (regexp-match? #px"^https?://[^\\s]+$" link)))
+    (raise-user-error 'mail-external "link must be an http(s) URL"))
+  (when (> (string-length link) 2000)
+    (raise-user-error 'mail-external "link is longer than 2000 characters"))
+  (for ([(k v) (in-hash (if (hash? data) data (hasheq)))])
+    (when (and (string? v) (> (string-length v) 500))
+      (raise-user-error 'mail-external "~a is longer than 500 characters" k)))
   (cond
     [(contact-suppressed? c) (refuse 'suppressed)]
     [else
      (define t (transport-ref conn))
      (cond
        [(not (and t (hash-ref t 'active))) (refuse 'no-transport)]
-       [(not (template? template-id)) (error 'mail-external "unknown template: ~a" template-id)]
+       [(not (template? template-id)) (raise-user-error 'mail-external "unknown template: ~a" template-id)]
        [else
         ;; THE QUOTA IS ASKED BEFORE ANYTHING IS COMPOSED, so a company that has
         ;; spent its budget costs neither a render nor a token row.
@@ -136,28 +147,27 @@
            (cond
              [existing (refuse 'duplicate existing)]
              [else
-              ;; THE TOKEN IS MINTED BEFORE THE RENDER, because the render needs
-              ;; the address it goes in. A render that then fails leaves an unused
-              ;; token row, which expires; the alternative is composing a message
-              ;; with no way to answer it.
-              (define raw (random-token))
-              (define token-id (new-id))
-              (query-exec conn
-                (string-append "INSERT INTO email_action_tokens (id, contact_id, org_id, purpose, "
-                               "token_hash, subject_id, expires_at, created_epoch) "
-                               "VALUES (?, ?, ?, 'reply', ?, ?, ?, ?)")
-                token-id contact-id org (hash-token (string-append "reply:" raw))
-                (or subject-id sql-null) (+ (now) REPLY-TTL) (now))
-              ;; THE REPLY ADDRESS DEPENDS ON WHETHER ANYTHING READS THE MAILBOX.
-              ;; A token nothing redeems sends a supplier's answer to an address
-              ;; nobody opens, which is worse than no token at all, so with no
-              ;; inbound mailbox the reply goes to the person who sent the message.
+              ;; THE TOKEN IS MINTED ONLY WHEN SOMETHING READS THE MAILBOX. A token
+              ;; nothing redeems is a credential row living for a month that can
+              ;; never be spent, and the address it goes in sends a supplier's
+              ;; answer to a mailbox nobody opens — worse than no token at all. So
+              ;; the row and the address are decided together, and with no inbound
+              ;; mailbox the reply goes to the person who sent the message.
               (define sender-address
                 (let ([v (query-maybe-value conn "SELECT email FROM users WHERE id = ?"
                                             (principal-user-id p))])
                   (and v (not (sql-null? v)) v)))
               (define reply-to
-                (inbound-reply-address conn (from-domain t) raw sender-address))
+                (if (inbound-consumer-on? conn "messages")
+                    (let ([raw (random-token)])
+                      (query-exec conn
+                        (string-append "INSERT INTO email_action_tokens (id, contact_id, org_id, purpose, "
+                                       "token_hash, subject_id, expires_at, created_epoch) "
+                                       "VALUES (?, ?, ?, 'reply', ?, ?, ?, ?)")
+                        (new-id) contact-id org (hash-token (string-append "reply:" raw))
+                        (or subject-id sql-null) (+ (now) REPLY-TTL) (now))
+                      (format "reply+~a@~a" raw (from-domain t)))
+                    sender-address))
               (define from-name (or (user-display conn (principal-user-id p)) "A colleague"))
               (define org-name* (or (org-name conn org) "your company"))
               (define full-data

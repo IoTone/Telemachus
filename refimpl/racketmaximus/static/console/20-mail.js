@@ -112,12 +112,12 @@ function emailInboundCard(){
       <div><label>${t('mlmode')}</label><select id="mim" data-h-change="${H((el)=>mailInboundMode(el))}">${modes.map(m=>`<option value="${esc(m)}"${mode===m?' selected':''}>${esc(m)}</option>`).join('')}</select></div>
       <div><label>${t('mlfolder')}</label><input id="mif" value="${esc((I&&I.folder)||'INBOX')}"></div>
     </div>
-    <div class="row"${needsHost?'':' style="display:none"'}>
+    <div class="row" id="mihost"${needsHost?'':' style="display:none"'}>
       <div><label>${t('mlhost')}</label><input id="mih" value="${esc((I&&I.host)||'')}" placeholder="imap.example.com"></div>
       <div><label>${t('mlport')}</label><input id="mip" type="number" min="1" max="65535" value="${esc(String((I&&I.port)||993))}"></div>
       <div><label>${t('mlsec')}</label><select id="mis">${['tls','starttls','none'].map(m=>`<option value="${esc(m)}"${((I&&I.security)||'tls')===m?' selected':''}>${esc(m)}</option>`).join('')}</select></div>
     </div>
-    <div class="row"${needsHost?'':' style="display:none"'}>
+    <div class="row" id="micred"${needsHost?'':' style="display:none"'}>
       <div><label>${t('mluser')}</label><input id="miu" value="${esc((I&&I.username)||'')}" autocomplete="off"></div>
       <div><label>${t('mlpass')}</label><input id="miw" type="password" autocomplete="new-password" placeholder="${I&&I.has_password?t('mlpasskeep'):''}"></div>
     </div>
@@ -137,8 +137,10 @@ function emailInboundCard(){
 // The host and credential rows are hidden for a mode that reads no mailbox, so the
 // card does not ask for an IMAP host when the answer is `none` or `maildir`.
 function mailInboundMode(sel){
-  const show = sel.value === 'imap' || sel.value === 'webhook';
-  document.querySelectorAll('#mibcard .row').forEach((r,i)=>{ if(i===1||i===2) r.style.display = show ? '' : 'none'; });
+  const show = sel.value === 'imap';
+  // BY ID, not by DOM index: a row added above these would silently move the
+  // toggle onto the wrong one, which is the coupling `S.wfKeys` records as a trap.
+  ['mihost','micred'].forEach(id=>{ const r = document.getElementById(id); if(r) r.style.display = show ? '' : 'none'; });
 }
 
 async function doInboundSave(){
@@ -146,7 +148,7 @@ async function doInboundSave(){
   const body = {mode, folder:val('mif')||'INBOX', active:document.getElementById('mia').checked,
                 consumers:{}};
   document.querySelectorAll('input[type=checkbox][data-cons]').forEach(b=>{ body.consumers[b.dataset.cons] = b.checked; });
-  if(mode === 'imap' || mode === 'webhook'){
+  if(mode === 'imap'){
     body.host = val('mih'); body.port = parseInt(val('mip'),10); body.security = val('mis');
     body.username = val('miu')||null;
     // AN ABSENT PASSWORD LEAVES THE STORED ONE ALONE, the rule the transport card

@@ -11776,8 +11776,10 @@ bash test/server-smoke.sh
   holding every literal there to `t` or `no-i18n` would be a sweep that says nothing
   about the message.
 - **A REPLY TOKEN NOTHING REDEEMS IS A DEAD END.** The first version minted one
-  unconditionally, so a supplier's answer went to an address nobody read. The reply
-  address now depends on whether the `messages` consumer is on.
+  unconditionally, so a supplier's answer went to an address nobody read. The token
+  row and the address are now decided together: with the `messages` consumer on the
+  address is `reply+<token>@<domain>`, and without it the reply goes to the person
+  who sent the message and no token row is written.
 - **THE DKIM PROOF IS A REAL VERIFICATION.** `test/dkim-tests.rkt` signs a message
   and hands the signature, the public key and the signing input to
   `openssl dgst -verify`, requiring "Verified OK". The body hash is checked
@@ -11787,6 +11789,10 @@ bash test/server-smoke.sh
   adjacent string literals are NOT concatenated in Racket — both cost a run here.
 - **`query-row` WITH TWO STRING ARGUMENTS TREATS THE SECOND AS A PARAMETER**, which
   produced a "no such column" that looked like a migration failure and was not.
+- **`pregexp` REJECTS `\t` AND `\r`** as "illegal alphabetic escape" while PCRE
+  accepts them, so a pattern built at run time uses `regexp`, not `pregexp`.
+- **`hasheq` IS IMMUTABLE**, so a counter that is incremented in a loop is
+  `make-hasheq`.
 - **`jsexpr->string` REFUSES A STRING KEY**, so a stored JSON document is built with
   symbol keys and the API's own vocabulary stays strings; the conversion is in
   `normalize-consumers` and nowhere else.

@@ -147,20 +147,15 @@
   (with-auth req (lambda (p)
     (require-perm db-conn p "instance:manage")
     (define b (read-json-body req))
-    (define problem (inbound-problem b))
-    (cond
-      [problem (err problem 400)]
-      [else
-       (define m (inbound-set! db-conn b #:by (principal-user-id p)))
-       (json-response (hasheq 'inbound m))]))))
+    ;; `inbound-set!` validates; a second check here would be the redundant-guard
+    ;; shape, and the two would drift.
+    (with-handlers ([exn:fail:user? raise])
+      (json-response (hasheq 'inbound (inbound-set! db-conn b #:by (principal-user-id p))))))))
 
 (define (ep-email-inbound-delete req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "instance:manage")
-    (inbound-clear! db-conn)
-    (audit! db-conn #:action "instance.inbound.cleared" #:actor-type "user"
-            #:actor-id (principal-user-id p) #:resource-type "inbound_mailbox"
-            #:resource-id "default" #:result "ok")
+    (inbound-clear! db-conn #:by (principal-user-id p))
     (json-response (hasheq 'ok #t)))))
 
 ;; ---- the instance and org layers ----------------------------------------------
