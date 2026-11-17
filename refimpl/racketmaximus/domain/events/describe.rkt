@@ -28,7 +28,8 @@
 ;; 3f2a finished" tells nobody which thing finished.
 
 (require racket/string
-         (only-in "events.rkt" EVENTS event?))
+         (only-in "events.rkt" EVENTS event?)
+         (only-in "../i18n/i18n.rkt" t no-i18n))
 
 (provide event-subject event-phrase event-console-path CONSOLE-PATHS
          short-id)
@@ -41,46 +42,51 @@
   (if (and (string? s) (> (string-length s) 12)) (substring s 0 8) s))
 
 (define (data-ref data k)
-  (let ([v (hash-ref data k #f)]) (and (string? v) (not (string=? v "")) v)))
+  (let ([v (hash-ref data k #f)]) (and (string? v) (not (string=? v (no-i18n ""))) v)))
 
 ;; What the thing IS — "run 3f2a", "document 91bc". Separate from the verb
 ;; because a subject line wants them in one order and a chat line in another.
 (define (event-noun data)
   (cond
-    [(data-ref data 'run_id) => (lambda (v) (format "run ~a" (short-id v)))]
-    [(data-ref data 'job_id) => (lambda (v) (format "job ~a" (short-id v)))]
-    [(data-ref data 'object_id) => (lambda (v) (format "document ~a" (short-id v)))]
-    [(data-ref data 'review_id) => (lambda (v) (format "review ~a" (short-id v)))]
-    [else "something"]))
+    [(data-ref data 'run_id) => (lambda (v) (t "mail.noun.run" #:default "run {id}"
+                                               #:args (hasheq 'id (short-id v))))]
+    [(data-ref data 'job_id) => (lambda (v) (t "mail.noun.job" #:default "job {id}"
+                                               #:args (hasheq 'id (short-id v))))]
+    [(data-ref data 'object_id) => (lambda (v) (t "mail.noun.document" #:default "document {id}"
+                                                  #:args (hasheq 'id (short-id v))))]
+    [(data-ref data 'review_id) => (lambda (v) (t "mail.noun.review" #:default "review {id}"
+                                                  #:args (hasheq 'id (short-id v))))]
+    [else (t "mail.noun.something" #:default "something")]))
 
 (define (event-verb event data)
   (cond
-    [(equal? event "run.completed") "finished"]
-    [(equal? event "run.failed") "FAILED"]
-    [(equal? event "job.completed") "finished"]
-    [(equal? event "object.created") "arrived"]
-    [(equal? event "object.deleted") "was deleted"]
-    [(equal? event "review.decided")
-     (format "was decided: ~a" (or (data-ref data 'verdict) "?"))]
-    [(equal? event "ping") "— this is a test notification from TMach"]
+    [(equal? event (no-i18n "run.completed")) (t "mail.verb.finished" #:default "finished")]
+    [(equal? event (no-i18n "run.failed")) (t "mail.verb.failed" #:default "FAILED")]
+    [(equal? event (no-i18n "job.completed")) (t "mail.verb.finished" #:default "finished")]
+    [(equal? event (no-i18n "object.created")) (t "mail.verb.arrived" #:default "arrived")]
+    [(equal? event (no-i18n "object.deleted")) (t "mail.verb.deleted" #:default "was deleted")]
+    [(equal? event (no-i18n "review.decided"))
+     (t "mail.verb.decided" #:default "was decided: {verdict}"
+        #:args (hasheq 'verdict (or (data-ref data 'verdict) (no-i18n "?"))))]
+    [(equal? event (no-i18n "ping")) (t "mail.verb.ping" #:default "— this is a test notification from TMach")]
     [else event]))
 
 ;; The workflow slug, in parentheses, or "". A team's own word (MTX-8).
 (define (event-qualifier data)
-  (let ([s (data-ref data 'workflow)]) (if s (format " (~a)" s) "")))
+  (let ([s (data-ref data 'workflow)]) (if s (format (no-i18n " (~a)") s) (no-i18n ""))))
 
 ;; "run 3f2a (index-documents) finished" — the sentence both notifiers are about.
 ;; A SUBJECT LINE AND A BODY GO THROUGH THE SAME COMPOSER (MAIL-9), so a subject
 ;; cannot leak what a body refuses; this is that composer's one source of words.
 (define (event-subject event data)
-  (string-append (event-noun data) (event-qualifier data) " " (event-verb event data)))
+  (string-append (event-noun data) (event-qualifier data) (no-i18n " ") (event-verb event data)))
 
 ;; Matrix's line: the event name, then the sentence, then the URL. Kept in this
 ;; shape because it is what that plugin has sent for a year and a room's history
 ;; should stay greppable.
 (define (event-phrase event data #:url [url #f])
-  (string-append event ": " (event-subject event data)
-                 (if url (string-append " — " url) "")))
+  (string-append event (no-i18n ": ") (event-subject event data)
+                 (if url (string-append (no-i18n " — ") url) (no-i18n ""))))
 
 ;; ---- where a person goes to look at it ----------------------------------------
 ;;
@@ -97,18 +103,18 @@
 ;; every pattern below really is a route the console parses. #110 r6's `src`-tags
 ;; rule, applied to a link.
 (define CONSOLE-PATHS
-  (list (cons "run.completed"   "#/workflows/runs/~a")
-        (cons "run.failed"      "#/workflows/runs/~a")
-        (cons "object.created"  "#/repository/~a")
+  (list (cons (no-i18n "run.completed") (no-i18n "#/workflows/runs/~a"))
+        (cons (no-i18n "run.failed") (no-i18n "#/workflows/runs/~a"))
+        (cons (no-i18n "object.created") (no-i18n "#/repository/~a"))
         ;; A DELETED DOCUMENT HAS NO PAGE, so the link is the tab rather than a
         ;; detail view of something that is gone — which would render an empty
         ;; panel and read as a broken link.
-        (cons "object.deleted"  "#/repository")
-        (cons "job.completed"   "#/jobs")
+        (cons (no-i18n "object.deleted") (no-i18n "#/repository"))
+        (cons (no-i18n "job.completed") (no-i18n "#/jobs"))
         ;; The review QUEUE, not one review: the console has no deep link for a
         ;; single decision, and inventing one here would be a path nothing parses.
-        (cons "review.decided"  "#/reviews")
-        (cons "ping"            "#/jobs")))
+        (cons (no-i18n "review.decided") (no-i18n "#/reviews"))
+        (cons (no-i18n "ping") (no-i18n "#/jobs"))))
 
 ;; -> a fragment path, or #f when there is nothing to link to. `base` is the
 ;; transport's `base_url`; with none configured there is no link, because a

@@ -64,7 +64,8 @@
          (only-in "../orgs/orgs.rkt" tenant-quota-check/team tenant-quota-record!/team)
          ;; the ONE predicate for "may this principal read this document"
          (only-in "../repo/repo.rkt" repo-readable?)
-         "transport.rkt")
+         "transport.rkt"
+         "templates.rkt")
 
 (provide MAIL-CATEGORIES CATEGORY-EVENTS TRANSACTIONAL-CATEGORIES MAX-ATTEMPTS
          MAIL-QUOTA-DIM
@@ -235,20 +236,11 @@
   (define sentence (event-subject event data))
   (define path (event-console-path event data))
   (define link (and base path (string-append (string-trim base "/" #:left? #f) "/" path)))
-  (define subject (if team-name (format "[~a] ~a" team-name sentence) sentence))
-  (define body
-    (string-join
-     (append
-      (list sentence "")
-      (if link
-          (list link "")
-          (list "This instance has no base URL configured, so there is no link to"
-                "follow — an operator can set one in Admin > Email." ""))
-      (list "— TMach"
-            "You are receiving this because notifications are on for your account."
-            "Turn them off under your own profile in the console."))
-     "\n"))
-  (values subject body))
+  ;; THE WORDS ARE IN `templates.rkt`, which is a surface the localization gate
+  ;; scans. This module is not: it is mostly SQL, and holding every literal here
+  ;; to `t` or `no-i18n` would be a sweep that says nothing about the message.
+  (values (notification-subject sentence team-name)
+          (notification-body sentence link)))
 
 ;; ---- the queue ----------------------------------------------------------------
 ;; Ten attempts, 60 * 2^(n-1) with a 24h ceiling — webhooks' curve, and the same
@@ -303,9 +295,14 @@
      id]))
 
 ;; ---- who gets it --------------------------------------------------------------
-;; -> (listof (cons user-id address)). The team's ACTIVE members who have a
+;; -> (listof (list user-id address locale)). The team's ACTIVE members who have a
 ;; VERIFIED address and whose layers all allow this category and who may READ the
 ;; subject.
+;;
+;; THE LOCALE RIDES ALONG because the composer runs in the delivery path with no
+;; request, so the recipient is the only place a language can come from. It is
+;; `users.locale` (migration 0018), which is the same column `POST /api/profile`
+;; writes.
 ;;
 ;; `can?` IS ASKED PER RECIPIENT AND IT IS THE EXPENSIVE HALF, deliberately
 ;; (MAIL-17). The window is the team's membership, which is bounded by what a team
@@ -316,7 +313,7 @@
 (define (notification-recipients conn team category event data)
   (define rows
     (query-rows conn
-      (string-append "SELECT u.id, u.email FROM users u "
+      (string-append "SELECT u.id, u.email, u.locale FROM users u "
                      "JOIN memberships m ON m.user_id = u.id "
                      "WHERE m.team_id = ? AND m.status = 'active' AND u.status = 'active' "
                      "AND u.email IS NOT NULL AND u.email_verified_epoch IS NOT NULL")
@@ -342,12 +339,13 @@
     [else
      (for*/list ([r (in-list rows)]
                  #:do [(define uid (vector-ref r 0))
-                       (define addr (vector-ref r 1))]
+                       (define addr (vector-ref r 1))
+                       (define loc (vector-ref r 2))]
                  #:when (and (string? addr)
                              (not (mail-address-problem addr))
                              (not (member category (hash-ref disabled uid '())))
                              (may-read? conn uid team event data)))
-       (cons uid addr))]))
+       (list uid addr loc))]))
 
 ;; uid -> (listof category) the person has turned off, in ONE query. An empty
 ;; list for a user with no row at all, because absence means "I have not
@@ -539,12 +537,16 @@
        [else
         (define base (transport-base-url conn))
         (define team-name (team-label conn team))
-        (define-values (subject body)
-          (compose-notification event data #:base base #:team-name team-name))
+        ;; COMPOSED PER RECIPIENT, because each one reads in their own language.
+        ;; The sentence is the same event; only the words around it differ, and
+        ;; `with-locale` is the one lookup that resolves them.
         (define n
           (for/sum ([ua (in-list recips)])
-            (if (mail-enqueue! conn #:recipient (cdr ua) #:category category #:subject subject
-                               #:body body #:team team #:user (car ua) #:event event)
+            (define-values (subject body)
+              (with-locale (third ua)
+                (lambda () (compose-notification event data #:base base #:team-name team-name))))
+            (if (mail-enqueue! conn #:recipient (second ua) #:category category #:subject subject
+                               #:body body #:team team #:user (first ua) #:event event)
                 1 0)))
         ;; THE COUNT OF ROWS THAT WERE WRITTEN — which today is provably the
         ;; same number as `(length recips)`, and a control is what established

@@ -367,6 +367,10 @@
       "text": "Chunk one repository document's extracted text and store an embedding per chunk, replacing any previous set for that version.",
       "hash": "33d693225f27c0dcad7f1a1f5ef95c7e0cf86929"
     },
+    "mail.verb.deleted": {
+      "text": "was deleted",
+      "hash": "5b1035caff485c017a65c1b503ae6bed930fc31f"
+    },
     "ui.stop": {
       "text": "Stop",
       "hash": "9e253470c876ee6d5c720eb777aeb82d4c26e28f"
@@ -859,6 +863,10 @@
       "text": "The team's jobs, newest first. A queued job the platform is holding carries `waiting` — {reason: \"quota\"|\"concurrency\", …}; the key is absent when nothing holds it and it is waiting only for a free worker.",
       "hash": "d43d2fb4962c8810b1ff4079a3608ea56175ad72"
     },
+    "mail.noun.something": {
+      "text": "something",
+      "hash": "1af17e73721dbe0c40011b82ed4bb1a7dbe3ce29"
+    },
     "doc.route.post.api.x.matrix.rooms": {
       "text": "Notify a room: {room_id, events?, label?, user_id?}. The room id is a Matrix id (`!abc:example.org`) and never an alias; the bot must already be in it.",
       "hash": "520e1c7663e36a7b2346ae216580a361e35de8ef"
@@ -1203,6 +1211,10 @@
       "text": "Enable",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
     },
+    "mail.noun.document": {
+      "text": "document {id}",
+      "hash": "da9aa987dc3ee77da9d487dd83941d6d67aec0f7"
+    },
     "ui.edexportfail": {
       "text": "the download was refused",
       "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
@@ -1510,6 +1522,10 @@
     "ui.quotaheldteam": {
       "text": "This team has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
       "hash": "66b9019ebeec34d2bca09f92ab6d5030f9759227"
+    },
+    "mail.verb.ping": {
+      "text": "— this is a test notification from TMach",
+      "hash": "274ad0edb2001e445576df6e8317551969058a6d"
     },
     "ui.autotagorg": {
       "text": "an org note's tags come from its #+FILETAGS: line, so this cannot write them",
@@ -2147,6 +2163,14 @@
       "text": "The team's outbound webhook subscriptions, plus the closed list of event names a subscription may filter on and how many delivery attempts a dead letter takes. A secret is never in a listing.",
       "hash": "7d1abec01a54f3310bb4e0bde1714d3995790c4b"
     },
+    "mail.notification.nolink": {
+      "text": "This instance has no base URL configured, so there is no link to follow — an operator can set one in Admin > Email.",
+      "hash": "ddba8903aeeb2e1866ada9433ea652e2fc043e3d"
+    },
+    "ui.rs_unread": {
+      "text": "Index Knowledge has not read this page yet.",
+      "hash": "d629bd02d30d4dc30b181bce99a60fce2e5a6ae8"
+    },
     "ui.wkmodels": {
       "text": "models",
       "hash": "5ba2688dffd71df813a468578a87c653e1575e1e"
@@ -2195,10 +2219,6 @@
       "text": "steps used",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
     },
-    "ui.rs_unread": {
-      "text": "Index Knowledge has not read this page yet.",
-      "hash": "d629bd02d30d4dc30b181bce99a60fce2e5a6ae8"
-    },
     "doc.route.post.api.beta.signup": {
       "text": "Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured.",
       "hash": "bba4ed6d31893fac39c03f250081b0787cdc73cb"
@@ -2226,6 +2246,10 @@
     "doc.route.get.": {
       "text": "The console (or the beta funnel when TMACH_HOME=beta). The HTML title is rewritten from instance branding.",
       "hash": "02e8b32f35af9fafca11af11f096a74b5847347d"
+    },
+    "mail.noun.review": {
+      "text": "review {id}",
+      "hash": "f4247e9947c2c404deb14ba753544546aa3262c1"
     },
     "doc.route.get.api.email-deliveries": {
       "text": "The team's email deliveries, newest first: recipient, category, event, status (`pending`/`sent`/`dead`), attempts, the relay's last reply and when the next attempt is due. `?status=dead` is the dead-letter list. The BODY is not in a listing: a dead-letter list answers \"what is failing and why\", and a page of message bodies is not that. The two transactional messages — a confirmation and a transport test — belong to no team and are invisible here by construction; `GET /api/admin/email-deliveries` is the operator's view.",
@@ -2690,6 +2714,10 @@
     "doc.workflow.transcribe-documents": {
       "text": "Turn the team's audio documents into text in the search index. Finds recordings with no transcript yet, then transcribes each one. Needs TMACH_TRANSCRIBE_URL. Safe to re-run; processes up to 20 recordings per run and spends the team's transcription budget. Run this BEFORE Index Documents and Embed Documents for a voice note — until it has, a recording has no text for either of them to read.",
       "hash": "85238c78d2068f3a2b17cd1d77dc53fd9e66c8d6"
+    },
+    "mail.noun.job": {
+      "text": "job {id}",
+      "hash": "d5e935b8000e719c26b0cc2929559817e6593b7c"
     },
     "doc.tool.doc_classify.object": {
       "text": "The repository object id",
@@ -3543,6 +3571,10 @@
       "text": "See workflow definitions, runs and triggers.",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
     },
+    "mail.verb.arrived": {
+      "text": "arrived",
+      "hash": "1b2853c43d4f5ce1ffff2e3ad07fb2f02eecd372"
+    },
     "ui.edempty": {
       "text": "nothing to save",
       "hash": "a0e92e059b9b0c33b6d0d368dbe5bc292b7141e9"
@@ -3731,6 +3763,10 @@
       "text": "Save to repository",
       "hash": "9d0e8997855a6a8c3235ddfe2eedf66ded7cb315"
     },
+    "mail.verb.failed": {
+      "text": "FAILED",
+      "hash": "8d33f3064fd0cf2aaa41f82a9b338d50cbbafde5"
+    },
     "doc.route.delete.api.webhooks.id": {
       "text": "Delete a subscription and its delivery history. The audit entries survive.",
       "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
@@ -3822,6 +3858,14 @@
     "ui.thradius": {
       "text": "Corner radius",
       "hash": "c7a86e072be0a7a476c9e29aa6514eb2d3fde8ab"
+    },
+    "mail.noun.run": {
+      "text": "run {id}",
+      "hash": "273f659f1c5ebc20e2d15795271ce25674625124"
+    },
+    "mail.notification.why": {
+      "text": "You are receiving this because notifications are on for your account.",
+      "hash": "a1cc2c7081761f9f9db820bb330225df02251d5e"
     },
     "doc.route.post.api.org.teams": {
       "text": "Create a team in the caller's company.",
@@ -3986,6 +4030,10 @@
     "doc.route.post.api.repo-obj.id.share": {
       "text": "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.",
       "hash": "cd82f7d35429e191de508ed5238a7b3b4dabbdd8"
+    },
+    "mail.notification.signature": {
+      "text": "— TMach",
+      "hash": "0acc611310883669132e3adf685a1fd6abcd4f6d"
     },
     "doc.route.post.api.x.feeds.items.id.status": {
       "text": "Move one queued item to another status: {\"status\": \"claimed\"}. Guarded on the row's own team as well as the document, because an object id is instance-global.",
@@ -4319,6 +4367,14 @@
       "text": "Untitled",
       "hash": "621521f9a8788695ec292cbec54d2792cfdf0a7d"
     },
+    "ui.hdrain": {
+      "text": "Drain window",
+      "hash": "6a47b6b48e47e9726a7b8ee8aebae4e2b396e6fa"
+    },
+    "mail.notification.subject_team": {
+      "text": "[{team}] {sentence}",
+      "hash": "b6157b43081439404b35130d11768e656ebb7cf8"
+    },
     "doc.route.post.api.workers.jobs.id.heartbeat": {
       "text": "Extend the lease on a job this worker holds: {claim_token}, the token the claim returned. A missing or stale token is a 409.",
       "hash": "7c5cab8cfb5e9fe78bdf2903b748b2144efbe4e1"
@@ -4330,10 +4386,6 @@
     "doc.route.put.api.org.retention": {
       "text": "Set the company's retention rules. Same vocabulary and same refusals as the team route; the effective value for a team is the shortest of instance, org and team.",
       "hash": "5ba096d4acfe3546f0865de072a8ba5b9dc2c1a2"
-    },
-    "ui.hdrain": {
-      "text": "Drain window",
-      "hash": "6a47b6b48e47e9726a7b8ee8aebae4e2b396e6fa"
     },
     "ui.nosharedwithme": {
       "text": "Nothing has been shared with you yet.",
@@ -4390,6 +4442,10 @@
     "doc.route.post.api.orgs.ref.quota": {
       "text": "Set an org-level quota; teams nest beneath it.",
       "hash": "b56168537a1f06874aa58142c8c2c7a24d720c1c"
+    },
+    "mail.notification.off": {
+      "text": "Turn them off under your own profile in the console.",
+      "hash": "e5ec6a25d6e84351f20a00293832376986faf764"
     },
     "ui.palhpalette": {
       "text": "Open the command palette",
@@ -4546,6 +4602,10 @@
     "ui.file": {
       "text": "File",
       "hash": "2c3cafa4db3f3e1e51b3dff4303502dbe42b7a89"
+    },
+    "mail.verb.finished": {
+      "text": "finished",
+      "hash": "f957097d7a22775f6bea41b46cae4d14274dac9f"
     },
     "doc.route.post.api.webhooks.id.ping": {
       "text": "Deliver a `ping` event to this subscription NOW, synchronously, and answer with what happened. The way to check a receiver's signature verification before a real event depends on it. Refused with 409 if the subscription is inactive or does not subscribe to `ping`.",
@@ -4958,6 +5018,10 @@
     "doc.route.get.index.html": {
       "text": "The console.",
       "hash": "22e231ec8661962729182ce14c43ad6f9a6ebd62"
+    },
+    "mail.verb.decided": {
+      "text": "was decided: {verdict}",
+      "hash": "a27ecbebc090dc4555364f748d708baa29d9667e"
     },
     "ui.wkaddhint": {
       "text": "Creates the worker token this host signs in with. The token is shown once, here, and never again.",

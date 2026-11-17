@@ -368,6 +368,10 @@
       "text": "1つのリポジトリドキュメントの抽出済みテキストをチャンクに分割し、チャンクごとに埋め込みベクトルを保存します。そのバージョンの既存のベクトルは全体が置き換えられます。",
       "hash": "33d693225f27c0dcad7f1a1f5ef95c7e0cf86929"
     },
+    "mail.verb.deleted": {
+      "text": "が削除されました",
+      "hash": "5b1035caff485c017a65c1b503ae6bed930fc31f"
+    },
     "ui.stop": {
       "text": "停止",
       "hash": "9e253470c876ee6d5c720eb777aeb82d4c26e28f"
@@ -860,6 +864,10 @@
       "text": "チームのジョブを新しい順に返す。プラットフォームが保留しているキュー内ジョブには `waiting` が付きます — {reason: \"quota\"|\"concurrency\", …}。何も保留しておらず空きワーカーを待っているだけの場合、このキーはありません。",
       "hash": "d43d2fb4962c8810b1ff4079a3608ea56175ad72"
     },
+    "mail.noun.something": {
+      "text": "何か",
+      "hash": "1af17e73721dbe0c40011b82ed4bb1a7dbe3ce29"
+    },
     "doc.route.post.api.x.matrix.rooms": {
       "text": "ルームへ通知します: {room_id, events?, label?, user_id?}。room_id は Matrix のルーム ID（`!abc:example.org`）で、エイリアスは受け付けません。ボットがあらかじめそのルームに参加している必要があります。",
       "hash": "520e1c7663e36a7b2346ae216580a361e35de8ef"
@@ -1204,6 +1212,10 @@
       "text": "有効化",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
     },
+    "mail.noun.document": {
+      "text": "文書 {id}",
+      "hash": "da9aa987dc3ee77da9d487dd83941d6d67aec0f7"
+    },
     "ui.edexportfail": {
       "text": "ダウンロードが拒否されました",
       "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
@@ -1511,6 +1523,10 @@
     "ui.quotaheldteam": {
       "text": "このチームは {dimension} の割り当てを使い切りました（{limit} のうち {used}）。キュー内のジョブは失敗したのではなく待機しており、期間がリセットされると再開します。",
       "hash": "66b9019ebeec34d2bca09f92ab6d5030f9759227"
+    },
+    "mail.verb.ping": {
+      "text": "— これは TMach からのテスト通知です",
+      "hash": "274ad0edb2001e445576df6e8317551969058a6d"
     },
     "ui.autotagorg": {
       "text": "org ノートのタグは #+FILETAGS: 行から取得されるため、ここからは書き込めません",
@@ -2148,6 +2164,14 @@
       "text": "チームの送信 Webhook 購読の一覧。あわせて購読がフィルタに使えるイベント名の閉じたリストと、デッドレターになるまでの配信試行回数を返します。シークレットが一覧に含まれることはありません。",
       "hash": "7d1abec01a54f3310bb4e0bde1714d3995790c4b"
     },
+    "mail.notification.nolink": {
+      "text": "このインスタンスにはベース URL が設定されていないため、開くリンクがありません。管理者が「管理 > メール」で設定できます。",
+      "hash": "ddba8903aeeb2e1866ada9433ea652e2fc043e3d"
+    },
+    "ui.rs_unread": {
+      "text": "Index Knowledge はまだこのページを読んでいません。",
+      "hash": "d629bd02d30d4dc30b181bce99a60fce2e5a6ae8"
+    },
     "ui.wkmodels": {
       "text": "モデル",
       "hash": "5ba2688dffd71df813a468578a87c653e1575e1e"
@@ -2196,10 +2220,6 @@
       "text": "使用ステップ数",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
     },
-    "ui.rs_unread": {
-      "text": "Index Knowledge はまだこのページを読んでいません。",
-      "hash": "d629bd02d30d4dc30b181bce99a60fce2e5a6ae8"
-    },
     "doc.route.post.api.beta.signup": {
       "text": "オンボーディングフォームを送信する：公開された体験に対して検証され、不正利用対策で制限され、モデルが設定されていればモデルが判定します。",
       "hash": "bba4ed6d31893fac39c03f250081b0787cdc73cb"
@@ -2227,6 +2247,10 @@
     "doc.route.get.": {
       "text": "コンソール（TMACH_HOME=beta のときはベータ申込フロー）。HTML のタイトルはインスタンスのブランディングから書き換えられます。",
       "hash": "02e8b32f35af9fafca11af11f096a74b5847347d"
+    },
+    "mail.noun.review": {
+      "text": "レビュー {id}",
+      "hash": "f4247e9947c2c404deb14ba753544546aa3262c1"
     },
     "doc.route.get.api.email-deliveries": {
       "text": "チームのメール配送を新しい順に返します: 宛先、カテゴリ、イベント、状態（`pending`/`sent`/`dead`）、試行回数、リレーの直近の応答、次回試行の予定。`?status=dead` が不達一覧です。本文は一覧に含まれません。不達一覧は「何が失敗していて、なぜか」に答えるものであり、メッセージ本文が並んだページはそれではないからです。どのチームにも属さない2種類の事務的メッセージ（確認と送信経路テスト）は、構造上ここには現れません。オペレーターの視点は `GET /api/admin/email-deliveries` です。",
@@ -2691,6 +2715,10 @@
     "doc.workflow.transcribe-documents": {
       "text": "チームの音声ドキュメントを検索インデックス内のテキストに変換します。まだ文字起こしのない録音を見つけ、一つずつ文字起こしします。TMACH_TRANSCRIBE_URL が必要です。再実行は安全で、一回の実行で最大20件の録音を処理し、チームの文字起こし予算を消費します。ボイスノートについては Index Documents と Embed Documents より前にこれを実行してください — これが済むまで、録音にはどちらが読むテキストもありません。",
       "hash": "85238c78d2068f3a2b17cd1d77dc53fd9e66c8d6"
+    },
+    "mail.noun.job": {
+      "text": "ジョブ {id}",
+      "hash": "d5e935b8000e719c26b0cc2929559817e6593b7c"
     },
     "doc.tool.doc_classify.object": {
       "text": "リポジトリオブジェクトID",
@@ -3544,6 +3572,10 @@
       "text": "ワークフロー定義、実行とトリガーを確認します。",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
     },
+    "mail.verb.arrived": {
+      "text": "が届きました",
+      "hash": "1b2853c43d4f5ce1ffff2e3ad07fb2f02eecd372"
+    },
     "ui.edempty": {
       "text": "保存する内容がありません",
       "hash": "a0e92e059b9b0c33b6d0d368dbe5bc292b7141e9"
@@ -3732,6 +3764,10 @@
       "text": "リポジトリに保存",
       "hash": "9d0e8997855a6a8c3235ddfe2eedf66ded7cb315"
     },
+    "mail.verb.failed": {
+      "text": "が失敗しました",
+      "hash": "8d33f3064fd0cf2aaa41f82a9b338d50cbbafde5"
+    },
     "doc.route.delete.api.webhooks.id": {
       "text": "購読とその配信履歴を削除する。監査エントリは残ります。",
       "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
@@ -3823,6 +3859,14 @@
     "ui.thradius": {
       "text": "角の丸み",
       "hash": "c7a86e072be0a7a476c9e29aa6514eb2d3fde8ab"
+    },
+    "mail.noun.run": {
+      "text": "実行 {id}",
+      "hash": "273f659f1c5ebc20e2d15795271ce25674625124"
+    },
+    "mail.notification.why": {
+      "text": "アカウントで通知が有効になっているため、このメールが届いています。",
+      "hash": "a1cc2c7081761f9f9db820bb330225df02251d5e"
     },
     "doc.route.post.api.org.teams": {
       "text": "呼び元の会社でチームを作成します。",
@@ -3987,6 +4031,10 @@
     "doc.route.post.api.repo-obj.id.share": {
       "text": "組織内のユーザーまたはチームと共有する：{principal_type, principal_id, capability: view|edit|manage, expires_at?}。{user_id} は従来どおり view を意味します。",
       "hash": "cd82f7d35429e191de508ed5238a7b3b4dabbdd8"
+    },
+    "mail.notification.signature": {
+      "text": "— TMach",
+      "hash": "0acc611310883669132e3adf685a1fd6abcd4f6d"
     },
     "doc.route.post.api.x.feeds.items.id.status": {
       "text": "キューの 1 件を別の状態へ移します：{\"status\": \"claimed\"}。オブジェクト ID はインスタンス全体で一意なので、ドキュメントに加えて行そのもののチームでも保護しています。",
@@ -4320,6 +4368,14 @@
       "text": "無題",
       "hash": "621521f9a8788695ec292cbec54d2792cfdf0a7d"
     },
+    "ui.hdrain": {
+      "text": "ドレイン待機時間",
+      "hash": "6a47b6b48e47e9726a7b8ee8aebae4e2b396e6fa"
+    },
+    "mail.notification.subject_team": {
+      "text": "[{team}] {sentence}",
+      "hash": "b6157b43081439404b35130d11768e656ebb7cf8"
+    },
     "doc.route.post.api.workers.jobs.id.heartbeat": {
       "text": "このワーカーが保持するジョブのリースを延長する：{claim_token}、取得時に返されたトークン。トークンが無い、または古い場合は 409 になります。",
       "hash": "7c5cab8cfb5e9fe78bdf2903b748b2144efbe4e1"
@@ -4331,10 +4387,6 @@
     "doc.route.put.api.org.retention": {
       "text": "会社の保持ルールを設定します。語彙と拒否条件はチーム向けの経路と同一で、チームに適用される実効値はインスタンス・組織・チームのうち最短のものになります。",
       "hash": "5ba096d4acfe3546f0865de072a8ba5b9dc2c1a2"
-    },
-    "ui.hdrain": {
-      "text": "ドレイン待機時間",
-      "hash": "6a47b6b48e47e9726a7b8ee8aebae4e2b396e6fa"
     },
     "ui.nosharedwithme": {
       "text": "まだ何も共有されていません。",
@@ -4391,6 +4443,10 @@
     "doc.route.post.api.orgs.ref.quota": {
       "text": "組織レベルのクォータを設定；チームはその下に配置されます",
       "hash": "b56168537a1f06874aa58142c8c2c7a24d720c1c"
+    },
+    "mail.notification.off": {
+      "text": "コンソールのご自身のプロフィールで通知を停止できます。",
+      "hash": "e5ec6a25d6e84351f20a00293832376986faf764"
     },
     "ui.palhpalette": {
       "text": "コマンドパレットを開く",
@@ -4547,6 +4603,10 @@
     "ui.file": {
       "text": "ファイル",
       "hash": "2c3cafa4db3f3e1e51b3dff4303502dbe42b7a89"
+    },
+    "mail.verb.finished": {
+      "text": "が完了しました",
+      "hash": "f957097d7a22775f6bea41b46cae4d14274dac9f"
     },
     "doc.route.post.api.webhooks.id.ping": {
       "text": "この購読に `ping` イベントを今すぐ同期的に配信し、その結果を返す。実際のイベントが依存する前に、受信側の署名検証を確認する手段です。購読が無効、または `ping` を購読していない場合は 409 で拒否されます。",
@@ -4959,6 +5019,10 @@
     "doc.route.get.index.html": {
       "text": "コンソール",
       "hash": "22e231ec8661962729182ce14c43ad6f9a6ebd62"
+    },
+    "mail.verb.decided": {
+      "text": "が決定しました: {verdict}",
+      "hash": "a27ecbebc090dc4555364f748d708baa29d9667e"
     },
     "ui.wkaddhint": {
       "text": "このホストが接続に使うワーカートークンを作成します。トークンはこの場で一度だけ表示され、以後は表示されません。",

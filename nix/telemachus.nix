@@ -80,7 +80,7 @@ stdenv.mkDerivation (finalAttrs: {
     # module rather than in `surface/`. The linter has to scan it or those strings
     # are invisible to the Localization Manager and untranslated for ever.
     racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt \
-      domain/mail/templates.rkt --required en
+      domain/mail/templates.rkt domain/events/describe.rkt --required en
     runHook postCheck
   '';
 

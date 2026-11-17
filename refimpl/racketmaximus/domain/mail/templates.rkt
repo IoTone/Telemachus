@@ -32,7 +32,8 @@
          "../i18n/i18n.rkt"
          "../../config.rkt")
 
-(provide EXTERNAL-TEMPLATES template? template-keys template-render with-locale)
+(provide EXTERNAL-TEMPLATES template? template-keys template-render with-locale
+         notification-subject notification-body)
 
 ;; id -> (list required-keys builder), where builder : (hashof symbol string) -> (values subject body).
 ;;
@@ -91,6 +92,32 @@
     (unless (and (string? v) (not (string=? (string-trim v) (no-i18n ""))))
       (error 'template-render (no-i18n "template ~a needs a non-empty ~a") id k)))
   ((caddr e) data))
+
+;; ---- the notification's wrapper words ----------------------------------------
+;; The SENTENCE comes from `describe.rkt` and is already localized there; these are
+;; the words around it. They live here rather than in `mail.rkt` because this
+;; module is a surface the localization gate scans and `mail.rkt` is mostly SQL.
+(define (notification-subject sentence team-name)
+  (if team-name
+      (t "mail.notification.subject_team" #:default "[{team}] {sentence}"
+         #:args (hasheq 'team team-name 'sentence sentence))
+      sentence))
+
+(define (notification-body sentence link)
+  (string-join
+   (append
+    (list sentence (no-i18n ""))
+    (if link
+        (list link (no-i18n ""))
+        (list (t "mail.notification.nolink"
+                 #:default "This instance has no base URL configured, so there is no link to follow — an operator can set one in Admin > Email.")
+              (no-i18n "")))
+    (list (t "mail.notification.signature" #:default "— TMach")
+          (t "mail.notification.why"
+             #:default "You are receiving this because notifications are on for your account.")
+          (t "mail.notification.off"
+             #:default "Turn them off under your own profile in the console.")))
+   (no-i18n "\n")))
 
 ;; Run `thunk` with the catalog for `locale` as the current localizer. A locale
 ;; that has no catalog falls back to the empty localizer, which resolves every key
