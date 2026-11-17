@@ -67,7 +67,12 @@
         ;; transport still reports itself configured, and the message an operator
         ;; would see is a relay's "authentication failed". Nullable — a relay that
         ;; wants no credential has none — and `rows-of` filters NULLs out.
-        (list "email_transport"   "password"    "id" "email_transport.password")))
+        (list "email_transport"   "password"    "id" "email_transport.password")
+        ;; The inbound mailbox's IMAP credential. Same argument as the transport's,
+        ;; and the same cost if it is forgotten: `rewrap` would not walk it, so
+        ;; every poll would fail at the first key rotation with an authentication
+        ;; error that names the relay rather than the rotation.
+        (list "inbound_mailbox"   "password"    "id" "inbound_mailbox.password")))
 
 ;; Document-derived CONTENT (issue #83), which is a different kind of thing and
 ;; is therefore conditional. The three above are replayable credentials: if a key

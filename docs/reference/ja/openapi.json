@@ -1382,6 +1382,56 @@
         "x-tmach-permission-checked": "role"
       }
     },
+    "/api/email-inbound": {
+      "delete": {
+        "description": "Remove the inbound mailbox, which is the only way back to the state the instance shipped in. A `PUT` with `active: false` is still a configured mailbox.",
+        "operationId": "delete.api.email-inbound",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "email-inbound"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "email-inbound-delete",
+        "x-tmach-permission": "instance:manage",
+        "x-tmach-permission-checked": "role"
+      },
+      "get": {
+        "description": "The inbound mailbox: its mode (`none`, `imap`, `maildir` or `webhook`), the two consumer switches, the last poll and its error, and the closed vocabularies beside the row so a console card holds no second copy. The password is never in this reply.",
+        "operationId": "get.api.email-inbound",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "email-inbound"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "email-inbound-get",
+        "x-tmach-permission": "instance:read",
+        "x-tmach-permission-checked": "role"
+      },
+      "put": {
+        "description": "Configure the inbound mailbox as a whole document: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}. An absent password leaves the stored one alone, so an edit to the folder cannot silently clear the credential. `consumers` is `{bounces, messages}` and both default to off.",
+        "operationId": "put.api.email-inbound",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "email-inbound"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "email-inbound-put",
+        "x-tmach-permission": "instance:manage",
+        "x-tmach-permission-checked": "role"
+      }
+    },
     "/api/email-notify": {
       "get": {
         "description": "このインスタンスが送る通知カテゴリ、固定されたカテゴリ一覧、各カテゴリが対象とするイベント、および呼び出し元にとっての解決結果。この層では不在は無効を意味します。機能スイッチとは異なる点です。通知はインスタンスが人にメールを送るかどうかを決めるものであり、これまでの挙動は「送らない」だったからです。そのためオペレーターが送るカテゴリを指定します。",
@@ -3053,7 +3103,7 @@
     },
     "/api/org/contacts": {
       "get": {
-        "description": "The company's external parties, newest first, with their suppression state. `?status=active` or `?status=suppressed` narrows it. The address is in this reply because this is the company's own record of who it corresponds with, and the route is the company plane.",
+        "description": "会社外の相手を新しい順に、抑止状態とともに返します。`?status=active` または `?status=suppressed` で絞り込めます。アドレスがこの応答に含まれるのは、これが会社自身の取引先の記録であり、このルートが会社の管理面だからです。",
         "operationId": "get.api.org.contacts",
         "security": [
           {
@@ -3069,7 +3119,7 @@
         "x-tmach-permission-checked": "role"
       },
       "post": {
-        "description": "Add an external party: {address, name?, org_name?, locale?}. The address is unique within the company, compared case-insensitively, and a duplicate is refused rather than merged — adding a supplier twice is a mistake, and merging it silently would hide that somebody typed a different name for the same address.",
+        "description": "会社外の相手を追加します: {address, name?, org_name?, locale?}。アドレスは会社内で一意で、大文字小文字を区別せずに比較します。重複は統合せず拒否します。同じサプライヤーを二度追加するのは誤りであり、黙って統合すると同じアドレスに別の名前を入力した事実が隠れるためです。",
         "operationId": "post.api.org.contacts",
         "security": [
           {
@@ -3087,7 +3137,7 @@
     },
     "/api/org/contacts/{id}": {
       "delete": {
-        "description": "Erase an external party: the contact, its action tokens and its delivery rows. The audit log keeps the fact that sends happened and never the address, because that log is chained, exported and kept through an erasure.",
+        "description": "会社外の相手を消去します: 連絡先、そのアクショントークン、その配送行です。監査ログは送信が行われた事実を保持し、アドレスは保持しません。そのログは連鎖され、外部に出力され、消去後も保持されるためです。",
         "operationId": "delete.api.org.contacts.id",
         "parameters": [
           {
@@ -3113,7 +3163,7 @@
         "x-tmach-permission-checked": "role"
       },
       "get": {
-        "description": "One external party. Another company's id answers 404, because the scope is in the statement.",
+        "description": "会社外の相手を 1 件返します。他社の ID は 404 になります。スコープは SQL 文の中にあるためです。",
         "operationId": "get.api.org.contacts.id",
         "parameters": [
           {
@@ -3139,7 +3189,7 @@
         "x-tmach-permission-checked": "role"
       },
       "patch": {
-        "description": "Suppress or unsuppress: {status, reason?}. A suppression refuses every send to that address before a quota is spent, and it is reversible because a single failure report is evidence of an attempt rather than proof of non-delivery (RFC 3464).",
+        "description": "抑止または抑止の解除: {status, reason?}。抑止は、クォータを消費する前にそのアドレスへの送信をすべて拒否します。また、1 回の失敗報告は配信されなかった証明ではなく試行の証拠にすぎないため（RFC 3464）、抑止は解除できます。",
         "operationId": "patch.api.org.contacts.id",
         "parameters": [
           {
@@ -3303,7 +3353,7 @@
     },
     "/api/org/mail": {
       "post": {
-        "description": "Send a message to an external party: {contact, template, data, link}. The words come from a closed template registry and `data` carries ids, never prose — an email API a caller can hand arbitrary text and an arbitrary recipient is a spam cannon with the instance's own From identity behind it. A suppressed contact, a missing transport and a duplicate answer `{queued: 0, reason}` rather than an error, because all three are ordinary states.",
+        "description": "会社外の相手にメッセージを送信します: {contact, template, data, link}。文言は固定のテンプレート登録から取得し、`data` は ID のみを運び、文章は運びません。呼び出し側が任意の本文と任意の宛先を渡せるメール API は、インスタンス自身の From 識別情報を背負ったスパム送信装置になるためです。抑止された連絡先、送信経路の未設定、重複は、いずれも通常の状態なのでエラーではなく `{queued: 0, reason}` を返します。",
         "operationId": "post.api.org.mail",
         "security": [
           {
@@ -6815,6 +6865,9 @@
     },
     {
       "name": "email-deliveries"
+    },
+    {
+      "name": "email-inbound"
     },
     {
       "name": "email-notify"

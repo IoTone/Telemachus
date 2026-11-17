@@ -317,6 +317,8 @@
    'my-org-contact-delete ep-my-org-contact-delete 'my-org-mail ep-my-org-mail
    'email-transport-get ep-email-transport-get 'email-transport-put ep-email-transport-put
    'email-transport-delete ep-email-transport-delete 'email-transport-test ep-email-transport-test
+   'email-inbound-get ep-email-inbound-get 'email-inbound-put ep-email-inbound-put
+   'email-inbound-delete ep-email-inbound-delete
    'email-notify-get ep-email-notify-get 'email-notify-put ep-email-notify-put
    'org-email-notify-get ep-org-email-notify-get 'org-email-notify-put ep-org-email-notify-put
    'email-prefs-get ep-email-prefs-get 'email-prefs-put ep-email-prefs-put

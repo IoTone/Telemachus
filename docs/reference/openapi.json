@@ -1382,6 +1382,56 @@
         "x-tmach-permission-checked": "role"
       }
     },
+    "/api/email-inbound": {
+      "delete": {
+        "description": "Remove the inbound mailbox, which is the only way back to the state the instance shipped in. A `PUT` with `active: false` is still a configured mailbox.",
+        "operationId": "delete.api.email-inbound",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "email-inbound"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "email-inbound-delete",
+        "x-tmach-permission": "instance:manage",
+        "x-tmach-permission-checked": "role"
+      },
+      "get": {
+        "description": "The inbound mailbox: its mode (`none`, `imap`, `maildir` or `webhook`), the two consumer switches, the last poll and its error, and the closed vocabularies beside the row so a console card holds no second copy. The password is never in this reply.",
+        "operationId": "get.api.email-inbound",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "email-inbound"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "email-inbound-get",
+        "x-tmach-permission": "instance:read",
+        "x-tmach-permission-checked": "role"
+      },
+      "put": {
+        "description": "Configure the inbound mailbox as a whole document: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}. An absent password leaves the stored one alone, so an edit to the folder cannot silently clear the credential. `consumers` is `{bounces, messages}` and both default to off.",
+        "operationId": "put.api.email-inbound",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "email-inbound"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "email-inbound-put",
+        "x-tmach-permission": "instance:manage",
+        "x-tmach-permission-checked": "role"
+      }
+    },
     "/api/email-notify": {
       "get": {
         "description": "Which notification categories this instance sends, the closed category list, the events each one covers, and what they resolve to for the caller. ABSENCE MEANS OFF at this layer, unlike a feature switch: a notification governs whether the instance sends mail to people, and the behaviour that already existed is sending none — so an operator names the categories their instance sends.",
@@ -6815,6 +6865,9 @@
     },
     {
       "name": "email-deliveries"
+    },
+    {
+      "name": "email-inbound"
     },
     {
       "name": "email-notify"

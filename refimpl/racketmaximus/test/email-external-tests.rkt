@@ -28,6 +28,7 @@
          "../domain/mail/contacts.rkt"
          "../domain/mail/templates.rkt"
          "../domain/mail/external.rkt"
+         "../domain/mail/inbound.rkt"
          "mock-smtp.rkt")
 
 (define PORT-EXT 8931)
@@ -80,6 +81,8 @@
 (test-case "a send queues one row with the company, the template and a reply address"
   (define-values (conn acme) (instance))
   (define p (hash-ref acme 'admin-p))
+  (query-exec conn "UPDATE users SET email = 'admin@acme.test', email_verified_epoch = ? WHERE id = ?"
+              (current-seconds) (principal-user-id p))
   (define cid (contact-add! conn p #:address "supplier@example.test" #:name "Sato" #:locale "ja"))
   (define r (send! conn p cid))
   (check-equal? (hash-ref r 'queued) 1)
@@ -91,8 +94,9 @@
   (check-equal? (vector-ref row 0) (hash-ref acme 'org))
   (check-equal? (vector-ref row 1) "document_request")
   (check-equal? (vector-ref row 2) (format "~a|document_request|obj-1" cid))
-  (check-true (string-prefix? (vector-ref row 3) "reply+tk_"))
-  (check-true (string-suffix? (vector-ref row 3) "@example.test"))
+  ;; NO INBOUND MAILBOX IS CONFIGURED, so the reply goes to the person who sent
+  ;; the message rather than to a token nothing redeems.
+  (check-equal? (vector-ref row 3) "admin@acme.test")
   (check-equal? (vector-ref row 4) "supplier@example.test")
   (check-equal? (vector-ref row 5) "external")
   ;; THE BODY CARRIES THE LINK AND THE SENDER, and it is in the CONTACT's
@@ -103,6 +107,31 @@
   (check-true (string-contains? (vector-ref row 7) "admin@acme"))
   (check-true (string-contains? (vector-ref row 7) "Acme"))
   (check-true (string-contains? (vector-ref row 7) "書類") "the ja catalog was used")
+  (close-db! conn))
+
+;; ---- the reply address depends on whether anything reads the mailbox ---------
+(test-case "with an inbound mailbox the reply address is the token, and without one it is the sender"
+  (define-values (conn acme) (instance))
+  (define p (hash-ref acme 'admin-p))
+  (query-exec conn "UPDATE users SET email = 'admin@acme.test', email_verified_epoch = ? WHERE id = ?"
+              (current-seconds) (principal-user-id p))
+  (define cid (contact-add! conn p #:address "supplier@example.test" #:locale "en"))
+  (define (reply-to-of r)
+    (query-value conn "SELECT reply_to FROM email_deliveries WHERE id = ?" (hash-ref r 'id)))
+  ;; no mailbox: the person
+  (check-equal? (reply-to-of (send! conn p cid)) "admin@acme.test")
+  ;; a mailbox with the message consumer on: the token
+  (inbound-set! conn (hasheq 'mode "imap" 'host "imap.example.test" 'port 993
+                             'security "tls" 'username "bounce@example.test"
+                             'password "s3cret" 'folder "INBOX"
+                             'consumers (hasheq 'bounces #t 'messages #t) 'active #t))
+  (define r2 (send! conn p cid #:data (hasheq 'what "the second thing" 'subject_id "obj-2")))
+  (define rt (reply-to-of r2))
+  (check-true (string-prefix? rt "reply+tk_"))
+  (check-true (string-suffix? rt "@example.test"))
+  ;; and the token is stored hashed, never raw
+  (check-equal? (query-value conn "SELECT COUNT(*) FROM email_action_tokens WHERE token_hash = ?" rt) 0
+                "the raw token is not what is stored")
   (close-db! conn))
 
 ;; ---- the guards, in order ---------------------------------------------------
@@ -184,6 +213,11 @@
 (test-case "an external message drops Auto-Submitted, carries Reply-To, and sends from the VERP address"
   (define-values (conn acme) (instance))
   (define p (hash-ref acme 'admin-p))
+  ;; THE SENDER NEEDS AN ADDRESS FOR A REPLY TO REACH THEM, and with no inbound
+  ;; mailbox that address IS the Reply-To: a reply token nothing redeems would send
+  ;; a supplier's answer to an address nobody opens.
+  (query-exec conn "UPDATE users SET email = 'admin@acme.test', email_verified_epoch = ? WHERE id = ?"
+              (current-seconds) (principal-user-id p))
   (define cid (contact-add! conn p #:address "supplier@example.test" #:locale "en"))
   (mock-clear!)
   (start-mock-smtp! #:port PORT-EXT)
@@ -201,7 +235,7 @@
   (define data (mock-msg-data m))
   (check-false (regexp-match? #px"(?i:Auto-Submitted:)" data)
                "an external message must not tell a filter not to reply")
-  (check-true (regexp-match? #px"(?i:Reply-To: reply\\+tk_)" data)
-              "and it carries the address a reply should reach")
+  (check-true (regexp-match? #px"(?i:Reply-To: admin@acme\\.test)" data)
+              "and a reply reaches the person who sent it, because no mailbox is read")
   (check-true (regexp-match? #px"(?i:Message-ID: <)" data))
   (close-db! conn))

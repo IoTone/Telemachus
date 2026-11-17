@@ -41,7 +41,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `notes:read` | team | ノートを読む |
 | `notes:write` | team | ノートの作成と編集 |
 | `org:*` | org | 会社層のすべて。instance:* には決して届きません。 |
-| `org:mail` | org | Send a message to somebody outside the company: a broker, a supplier, a customer. The message is composed from a template and ids, never free text, and the From address is this instance's own identity. |
+| `org:mail` | org | 会社外の相手（通関業者、サプライヤー、顧客）にメッセージを送信します。メッセージはテンプレートと ID から構成され、自由文は使えません。From アドレスはこのインスタンス自身の識別情報です。 |
 | `org:manage` | org | 会社の管理：チームとメンバー。チームデータは管理するが読まない（TEN-2a）。 |
 | `org:read` | org | 会社、そのチーム、メンバー、監査ログを見る。 |
 | `org:read-data` | org | 会社内のすべてのチームにわたり、チームに公開されたノート・文書・検索結果を読む（TEN-2h）。非公開のものは対象外；書き込み不可；AI 利用不可。org_reader ロールが保持します。 |

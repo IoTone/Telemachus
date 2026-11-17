@@ -1728,6 +1728,10 @@
       "text": "承認",
       "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
     },
+    "doc.route.get.api.email-inbound": {
+      "text": "受信メールボックスを返します: モード（`none`、`imap`、`maildir`、`webhook`）、2 つの消費側スイッチ、最後のポーリングとそのエラー、および閉じた語彙。コンソールのカードがコアの所有する一覧の複製を持たないよう、語彙は行と並べて返します。パスワードはこの応答に含まれません。",
+      "hash": "edd2228d18bca58088e0dd7b8955fcef87dec5f4"
+    },
     "ui.jobwhen": {
       "text": "時刻",
       "hash": "30603fa9e0f620c305cd627ab0ff138a960c48bd"
@@ -4204,13 +4208,17 @@
       "text": "名前順で最初の {cap} 件を表示しています。ほかにもあります。",
       "hash": "1f1094b98b125340213b8bdf1de11bfe5bd76654"
     },
-    "ui.wkerrhint": {
-      "text": "この期間にこのホストが失敗と報告したジョブ数です。ジョブ自体に問題があったか、モデルが拒否した場合です。実行できないホストは、失敗させるのではなくジョブを解放します。",
-      "hash": "cfdbef058d05adb2200693df3e67b3ab5c0d7782"
-    },
     "doc.route.post.api.email-deliveries.id.redeliver": {
       "text": "不達をもう一度送ります。試行回数はリセットされます。再送するオペレーターは判断を下したのであり、10回のうちすでに使われた1回だけを渡してもその操作は役に立たないからです。配送idは変わらないため Message-ID も同じで、すでに受け付けたリレーはそれを認識します。",
       "hash": "ca98beab446bcdb0a55cc35232f64a0c31147baf"
+    },
+    "doc.route.delete.api.email-inbound": {
+      "text": "受信メールボックスを削除します。インスタンスの初期状態に戻る唯一の方法です。`active: false` を指定した `PUT` でも、設定済みのメールボックスは残ります。",
+      "hash": "8b562fc742092bcc10b071fdfd893675c37b8cbf"
+    },
+    "ui.wkerrhint": {
+      "text": "この期間にこのホストが失敗と報告したジョブ数です。ジョブ自体に問題があったか、モデルが拒否した場合です。実行できないホストは、失敗させるのではなくジョブを解放します。",
+      "hash": "cfdbef058d05adb2200693df3e67b3ab5c0d7782"
     },
     "doc.perm.org:manage": {
       "text": "会社の管理：チームとメンバー。チームデータは管理するが読まない（TEN-2a）。",
@@ -5007,6 +5015,10 @@
     "ui.heldbyquota": {
       "text": "保留：{dimension} の予算",
       "hash": "f2afcef162808b1a6720bb9cd2b948aea93b14d3"
+    },
+    "doc.route.put.api.email-inbound": {
+      "text": "受信メールボックスを文書全体として設定します: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}。パスワードを省略すると保存済みの値が維持されるため、フォルダの変更が資格情報を黙って消すことはありません。`consumers` は `{bounces, messages}` で、どちらも既定では無効です。",
+      "hash": "948b499dee20792ff4a1f25207f8212c56974110"
     },
     "ui.dimension": {
       "text": "指標",

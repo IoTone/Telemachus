@@ -2713,6 +2713,50 @@
                    "WHERE dedupe_key IS NOT NULL AND status = 'pending'"))
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_org ON email_deliveries (org_id, created_epoch)"))))
 
+(define m-0079-inbound-mailbox
+  (migration "0079-inbound-mailbox"
+    (lambda (conn)
+      ;; ONE OPTIONAL MAILBOX, TWO CONSUMERS. A bounce report and a reply are both
+      ;; "mail that comes back", so they share one mailbox, one credential and one
+      ;; poller; the split is at the first parse, not at the mailbox. An instance
+      ;; may run neither consumer, one, or both, and the shipped state is `none` —
+      ;; an upgrade must not start reading a mailbox, the same rule the transport
+      ;; follows.
+      ;;
+      ;; `mode` is the ingestion mechanism: `imap` (the shipped one, read through
+      ;; `curl`, which is already in the closure and already shelled out to),
+      ;; `maildir` (for an operator who already runs a local delivery agent), and
+      ;; `webhook` (for a relay that reports). `none` is the shipped state.
+      ;;
+      ;; `consumers` is a JSON document rather than two columns, because it is one
+      ;; closed vocabulary and the writer normalizes it — the shape
+      ;; `instance-categories` already uses.
+      ;;
+      ;; `last_uid` AND `uidvalidity` ARE STORED TOGETHER, and that is the whole
+      ;; safety of an IMAP consumer: when UIDVALIDITY changes the UID space was
+      ;; reset, so the poller re-syncs rather than trusting a UID that now names a
+      ;; different message. Losing that pair is how an IMAP consumer duplicates or
+      ;; silently skips mail.
+      (exec* conn (string-append
+                   "CREATE TABLE inbound_mailbox ("
+                   "  id TEXT PRIMARY KEY,"
+                   "  mode TEXT NOT NULL DEFAULT 'none',"
+                   "  host TEXT,"
+                   "  port INTEGER,"
+                   "  security TEXT NOT NULL DEFAULT 'tls',"
+                   "  username TEXT,"
+                   "  password TEXT,"
+                   "  folder TEXT NOT NULL DEFAULT 'INBOX',"
+                   "  consumers TEXT NOT NULL DEFAULT '{}',"
+                   "  last_uid TEXT,"
+                   "  uidvalidity TEXT,"
+                   "  active INTEGER NOT NULL DEFAULT 0,"
+                   "  last_poll_epoch BIGINT,"
+                   "  last_poll_ok INTEGER,"
+                   "  last_error TEXT,"
+                   "  updated_by TEXT,"
+                   "  updated_epoch BIGINT)")))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2725,4 +2769,5 @@
                              m-0070-token-purpose m-0071-research-sources
                              m-0072-mail-verify-tls m-0073-note-format
                              m-0074-note-links m-0075-job-progress m-0076-plugin-seals
-                             m-0077-email-contacts m-0078-email-external))
+                             m-0077-email-contacts m-0078-email-external
+                             m-0079-inbound-mailbox))

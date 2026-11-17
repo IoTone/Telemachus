@@ -39,7 +39,8 @@
 ;; The three rules #86 r3 names. `max_age` is the whole object; `derived` is only
 ;; what a workflow produced from one, which a team may want gone long before the
 ;; source; `payloads` is #59's lever on a clock.
-(define retention-fields '(max_age_days delete_derived_after_days purge_job_payloads_after_days))
+(define retention-fields '(max_age_days delete_derived_after_days purge_job_payloads_after_days
+                           purge_email_deliveries_after_days))
 
 ;; #83's recommendation, applied only when payload purging is switched on without
 ;; a horizon. NOT a default for an unconfigured instance.
@@ -55,7 +56,8 @@
 
 (define EMPTY (hasheq 'max_age_days 'null
                       'delete_derived_after_days 'null
-                      'purge_job_payloads_after_days 'null))
+                      'purge_job_payloads_after_days 'null
+                      'purge_email_deliveries_after_days 'null))
 
 (define (retention-ref conn scope [id ""])
   (normalize (setting-ref conn (key-for scope id) EMPTY)))
@@ -165,6 +167,7 @@
   (define max-age (days->cutoff (hash-ref eff 'max_age_days)))
   (define derived-age (days->cutoff (hash-ref eff 'delete_derived_after_days)))
   (define payload-age (days->cutoff (hash-ref eff 'purge_job_payloads_after_days)))
+  (define delivery-age (days->cutoff (hash-ref eff 'purge_email_deliveries_after_days)))
 
   ;; Objects whose newest version is older than the cutoff. A HELD object is
   ;; excluded here, not filtered later, so a plan never lists something a rule
@@ -205,8 +208,24 @@
                          "AND status IN ('done', 'error', 'canceled') "
                          "AND created_epoch IS NOT NULL AND created_epoch < ?")
           team payload-age)))
+  ;; A DELIVERY ROW IS NOT A DOCUMENT, so the plan reports a COUNT rather than a
+  ;; list of ids: the question an operator asks is "how many", and a plan carrying
+  ;; ten thousand ids is a plan nobody reads. The apply uses the same cutoff, so
+  ;; the count is the answer and a row that arrives between the two is simply
+  ;; counted next time.
+  ;;
+  ;; ONLY SETTLED ROWS. A `pending` delivery is a message somebody is waiting for,
+  ;; and a retention rule that deleted one would be a rule that silently drops
+  ;; mail.
+  (define deliveries
+    (if (not delivery-age)
+        0
+        (query-value conn
+          (string-append "SELECT COUNT(*) FROM email_deliveries WHERE team_id = ? "
+                         "AND status IN ('sent', 'dead') AND created_epoch < ?")
+          team delivery-age)))
   (hasheq 'policy eff
-          'objects objects 'derived derived 'payloads payloads
+          'objects objects 'derived derived 'payloads payloads 'deliveries deliveries
           'held (query-value conn
                   (string-append "SELECT COUNT(*) FROM repo_objects "
                                  "WHERE team_id = ? AND legal_hold IS NOT NULL "
@@ -242,7 +261,26 @@
                     #:team-id team #:resource-type "job" #:resource-id id)
             1)
           0)))
-  (hasheq 'deleted deleted 'purged purged 'held (hash-ref plan 'held)))
+  (define deliveries
+    (let ([cutoff (and (exact-integer? (hash-ref (hash-ref plan 'policy) 'purge_email_deliveries_after_days))
+                       (- now (* (hash-ref (hash-ref plan 'policy) 'purge_email_deliveries_after_days) 86400)))])
+      (if (not cutoff)
+          0
+          (let ([n (query-value conn
+                     (string-append "SELECT COUNT(*) FROM email_deliveries WHERE team_id = ? "
+                                    "AND status IN ('sent', 'dead') AND created_epoch < ?")
+                     team cutoff)])
+            (query-exec conn
+              (string-append "DELETE FROM email_deliveries WHERE team_id = ? "
+                             "AND status IN ('sent', 'dead') AND created_epoch < ?")
+              team cutoff)
+            (when (positive? n)
+              (audit! conn #:action "retention.deliveries" #:actor-type "system"
+                      #:actor-id "retention" #:team-id team
+                      #:resource-type "email_deliveries" #:resource-id team
+                      #:meta (jsexpr->string (hasheq 'deleted n))))
+            n))))
+  (hasheq 'deleted deleted 'purged purged 'deliveries deliveries 'held (hash-ref plan 'held)))
 
 ;; ---- the sweep --------------------------------------------------------------------
 ;; Every team that HAS a policy, plus every team in an org that has one, plus all

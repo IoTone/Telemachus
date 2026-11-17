@@ -1727,6 +1727,10 @@
       "text": "Approve",
       "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
     },
+    "doc.route.get.api.email-inbound": {
+      "text": "The inbound mailbox: its mode (`none`, `imap`, `maildir` or `webhook`), the two consumer switches, the last poll and its error, and the closed vocabularies beside the row so a console card holds no second copy. The password is never in this reply.",
+      "hash": "edd2228d18bca58088e0dd7b8955fcef87dec5f4"
+    },
     "ui.jobwhen": {
       "text": "when",
       "hash": "30603fa9e0f620c305cd627ab0ff138a960c48bd"
@@ -4203,13 +4207,17 @@
       "text": "Showing the first {cap} entities by name. There are more.",
       "hash": "1f1094b98b125340213b8bdf1de11bfe5bd76654"
     },
-    "ui.wkerrhint": {
-      "text": "Jobs this host reported as failed in the window. The job itself was at fault, or the model refused it — a host that cannot run work releases it instead.",
-      "hash": "cfdbef058d05adb2200693df3e67b3ab5c0d7782"
-    },
     "doc.route.post.api.email-deliveries.id.redeliver": {
       "text": "Send a dead letter again. The attempt count is RESET — an operator redelivering has made a decision, and one attempt out of ten already spent would make the lever useless. The delivery id does not change, so the Message-ID is the same and a relay that already accepted it recognises it.",
       "hash": "ca98beab446bcdb0a55cc35232f64a0c31147baf"
+    },
+    "doc.route.delete.api.email-inbound": {
+      "text": "Remove the inbound mailbox, which is the only way back to the state the instance shipped in. A `PUT` with `active: false` is still a configured mailbox.",
+      "hash": "8b562fc742092bcc10b071fdfd893675c37b8cbf"
+    },
+    "ui.wkerrhint": {
+      "text": "Jobs this host reported as failed in the window. The job itself was at fault, or the model refused it — a host that cannot run work releases it instead.",
+      "hash": "cfdbef058d05adb2200693df3e67b3ab5c0d7782"
     },
     "doc.perm.org:manage": {
       "text": "Administer the company: teams and members. Manages, does not read, team data (TEN-2a).",
@@ -5006,6 +5014,10 @@
     "ui.heldbyquota": {
       "text": "held: {dimension} budget",
       "hash": "f2afcef162808b1a6720bb9cd2b948aea93b14d3"
+    },
+    "doc.route.put.api.email-inbound": {
+      "text": "Configure the inbound mailbox as a whole document: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}. An absent password leaves the stored one alone, so an edit to the folder cannot silently clear the credential. `consumers` is `{bounces, messages}` and both default to off.",
+      "hash": "948b499dee20792ff4a1f25207f8212c56974110"
     },
     "ui.dimension": {
       "text": "Dimension",

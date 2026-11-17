@@ -40,7 +40,8 @@
          "./transport.rkt"
          "./mail.rkt"
          "./contacts.rkt"
-         "./templates.rkt")
+         "./templates.rkt"
+         "./inbound.rkt")
 
 (provide MAIL-EXTERNAL-DIM EXTERNAL-CATEGORY REPLY-TTL
          mail-external! external-reply-address)
@@ -147,7 +148,16 @@
                                "VALUES (?, ?, ?, 'reply', ?, ?, ?, ?)")
                 token-id contact-id org (hash-token (string-append "reply:" raw))
                 (or subject-id sql-null) (+ (now) REPLY-TTL) (now))
-              (define reply-to (external-reply-address t raw))
+              ;; THE REPLY ADDRESS DEPENDS ON WHETHER ANYTHING READS THE MAILBOX.
+              ;; A token nothing redeems sends a supplier's answer to an address
+              ;; nobody opens, which is worse than no token at all, so with no
+              ;; inbound mailbox the reply goes to the person who sent the message.
+              (define sender-address
+                (let ([v (query-maybe-value conn "SELECT email FROM users WHERE id = ?"
+                                            (principal-user-id p))])
+                  (and v (not (sql-null? v)) v)))
+              (define reply-to
+                (inbound-reply-address conn (from-domain t) raw sender-address))
               (define from-name (or (user-display conn (principal-user-id p)) "A colleague"))
               (define org-name* (or (org-name conn org) "your company"))
               (define full-data
