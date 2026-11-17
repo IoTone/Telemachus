@@ -250,3 +250,95 @@ flag.
   preference from an unauthenticated GET, which is a CSRF surface on a platform
   that has deliberately kept a no-cookie JSON API. The preference is in the
   console, and the message links to it.
+
+## External recipients (EXT‑1…EXT‑12)
+
+The ask, from the product built on this platform: a broker, a supplier and a
+customer are not users, and the product has to reach them. That is a different
+primitive from a notification, and the difference is the whole of this section.
+
+**EXT‑1. A contact is not a user.** A broker cannot sign in, so giving them a user
+row to hold an address would hand them a credential they must never have.
+`email_contacts` is org-scoped, unique on `lower(address)` within a company, and it
+never becomes a user implicitly.
+
+**EXT‑2. The words come from a closed registry.** `domain/mail/templates.rkt` maps
+a template id to a subject and body builder that take ids and a link. A caller
+names a template and hands over ids; it never composes text. An email API a caller
+can hand arbitrary prose and an arbitrary recipient is a spam cannon with the
+instance's own From identity behind it, and the From address is the one thing every
+deployment shares. A missing data key is a refusal rather than a `{what}` in
+somebody's inbox.
+
+**EXT‑3. The body stays composed, not content.** MAIL‑9's rule survives, which is
+what keeps `email_deliveries.body` unsealed and keeps a queue table from becoming a
+copy of a customer's document. The link is the action, so nothing has to be
+attached and nothing has to be read back.
+
+**EXT‑4. `org:mail` is its own permission, at the company tier.** The thing being
+spent is the company's standing with the relays, which is one resource however many
+teams use it. `can?` checks an `org:` permission only against the caller's org
+role, so a team owner's `*:*` cannot reach it.
+
+**EXT‑5. A suppression is a status with a reason, and it is reversible.** It
+refuses at enqueue time, before a quota is spent and before a row is written. It is
+reversible because RFC 3464 records the SMTP race that can produce a failure DSN
+for a message that was delivered, so a single report is evidence of an attempt
+rather than proof of non-delivery.
+
+**EXT‑6. The dedupe key stops a second ROW.** The claim already prevents a double
+SEND of one row; a partial unique index on the dedupe key among pending rows
+prevents a double-click or a retry queueing the same message twice.
+
+**EXT‑7. The envelope sender is the VERP address.** `bounce+<delivery-id>@<domain>`,
+so a report identifies the delivery without parsing a body. The platform composes
+`MAIL FROM` itself, so this is a string rather than an MTA feature.
+
+**EXT‑8. An external message is composed differently.** `Auto-Submitted:
+auto-generated` is the header that says "do not reply", which is wrong for a
+message a broker is expected to act on, so the mode drops it and carries a
+`Reply-To` instead.
+
+**EXT‑9. The reply address depends on whether anything reads the mailbox.** With
+the `messages` consumer on it is `reply+<token>@<domain>`, 24 random bytes hashed
+at rest. Without it the reply goes to the person who sent the message, because a
+token nothing redeems sends a supplier's answer to an address nobody opens, which
+is worse than no token at all.
+
+**EXT‑10. DKIM, because DMARC alignment needs it.** SPF authenticates the envelope
+sender, and an external message's envelope sender is the bounce address, so SPF
+alone cannot carry DMARC for it. A signature with `d=<the From domain>` aligns
+whatever the envelope says. Relaxed/relaxed, because that is the canonicalization
+that survives a relay.
+
+**EXT‑11. One optional inbound mailbox, two consumers.** A bounce report and a
+reply are both "mail that comes back", so they share one mailbox, one credential
+and one poller; the split is at the first parse. An instance may run neither, one,
+or both, and the shipped state is `none` — an upgrade must not start reading a
+mailbox. `last_uid` and `uidvalidity` are stored together, because when UIDVALIDITY
+changes the UID space was reset and the poller must re-sync rather than trust a UID
+that now names a different message.
+
+**EXT‑12. The address is the erasure subject.** It lives on the contact row and the
+delivery row and nowhere else. Deleting a contact takes its tokens and its delivery
+rows, and the audit log keeps the fact that sends happened and never the address,
+because that log is chained, exported and kept through an erasure (DEL‑7). A
+retention rule purges settled delivery rows and never a `pending` one.
+
+### Deliberately not built here
+
+- **Attachments.** A presigned link to a repository document is the same outcome,
+  and an outbound attachment needs multipart, a size limit, a virus scan and
+  content in the queue.
+- **Inbound reply parsing.** The reply goes to a person, and the platform's own
+  inbound path stores a message and raises an inbox item; it does not try to
+  understand prose.
+- **Per-customer sender domains.** That is domain verification, per-org DKIM keys,
+  selector rotation and a reputation problem per customer. It is additive later.
+- **Marketing content in any template.** That is what keeps the surface outside
+  特定電子メール法, which regulates mail sent as a means of advertising and exempts
+  transactional notices that carry no advertising and do not lead to a promotional
+  site.
+- **A bounce pipeline beyond the suppression write.** A DSN is parsed for its
+  per-recipient `Action` and `Status`; a complaint needs a feedback loop, which a
+  self-hosted relay does not offer, so it is a manual suppression.

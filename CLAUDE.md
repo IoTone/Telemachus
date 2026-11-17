@@ -11742,6 +11742,55 @@ will photograph a broken page — use this to gate a deploy.
   deprecation error from the GraphQL API. `--json number,title,body,comments`
   with a `--template` works.
 
+## A message to somebody outside the company (EXT‑1…EXT‑12)
+
+`domain/mail/contacts.rkt`, `domain/mail/templates.rkt`, `domain/mail/external.rkt`,
+`domain/mail/inbound.rkt`, `domain/mail/dkim.rkt`, `server/api/contacts.rkt`;
+migrations 0077–0080; six company-plane routes and three instance routes.
+
+```sh
+raco test test/email-contacts-tests.rkt test/email-external-tests.rkt \
+          test/email-inbound-tests.rkt test/dkim-tests.rkt
+bash test/server-smoke.sh
+```
+
+- **THE GUARDS ARE IN THE DOMAIN FUNCTION, NOT THE ROUTE.** A plugin may require a
+  core module, so a route-level check is a check a plugin never meets. The order in
+  `mail-external!` is the design: permission, contact, suppression, transport,
+  template, quota, limiters, dedupe — each before the thing it protects.
+- **A REFUSAL IS A VALUE FOR THE THREE ORDINARY STATES.** A suppressed contact, no
+  transport and a duplicate answer `{queued: 0, reason}`. A caller that has to catch
+  an exception to learn "this address is blocked" reports it as a bug.
+- **THE PERMISSION-COVERAGE GATE FORCED THE ROUTES TO EXIST.** Adding `org:mail`
+  without a route that enforces it fails `test/route-perm-gate-tests.rkt` with
+  "granted and enforced NOWHERE". That is the gate working, and it is why the slice
+  grew six routes rather than one.
+- **`locales-root` MOVED INTO `config.rkt`.** The composer runs in the delivery path
+  with no request, so the domain needs the catalog directory; `server/kit.rkt` now
+  delegates to it. `with-locale` parameterizes `current-localizer`, so `t` stays the
+  one lookup.
+- **THE LINTER TREATS A DOMAIN MODULE AS A SURFACE.** `domain/mail/templates.rkt`
+  and `domain/events/describe.rkt` are in the check's path list, so every
+  non-user-facing literal in them is `no-i18n` — error messages, event names, URL
+  fragments, punctuation. `mail.rkt` is NOT in the list: it is mostly SQL, and
+  holding every literal there to `t` or `no-i18n` would be a sweep that says nothing
+  about the message.
+- **A REPLY TOKEN NOTHING REDEEMS IS A DEAD END.** The first version minted one
+  unconditionally, so a supplier's answer went to an address nobody read. The reply
+  address now depends on whether the `messages` consumer is on.
+- **THE DKIM PROOF IS A REAL VERIFICATION.** `test/dkim-tests.rkt` signs a message
+  and hands the signature, the public key and the signing input to
+  `openssl dgst -verify`, requiring "Verified OK". The body hash is checked
+  separately, because a signature over the wrong body hash verifies perfectly and
+  still fails at the receiver.
+- **`#px`/`#rx` LITERALS REJECT `(?i)`** and need the scoped `(?i:...)` form, and
+  adjacent string literals are NOT concatenated in Racket — both cost a run here.
+- **`query-row` WITH TWO STRING ARGUMENTS TREATS THE SECOND AS A PARAMETER**, which
+  produced a "no such column" that looked like a migration failure and was not.
+- **`jsexpr->string` REFUSES A STRING KEY**, so a stored JSON document is built with
+  symbol keys and the API's own vocabulary stays strings; the conversion is in
+  `normalize-consumers` and nowhere else.
+
 ## Git
 
 - Commit/push only when asked. Branch before committing on the default branch.
