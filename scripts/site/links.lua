@@ -9,7 +9,7 @@
 local REPO = "https://github.com/IoTone/Telemachus/blob/main/"
 
 -- repository paths that build-site.sh copies into the site as-is
-local PUBLISHED = { "^docs/screenshots/",
+local PUBLISHED = { "^docs/screenshots/", "^docs/diagrams/",
                     -- the machine-readable reference, copied as itself by
                     -- build-site.sh. A blob URL serves HTML, so a viewer or a
                     -- generator pointed at it gets markup rather than a document.

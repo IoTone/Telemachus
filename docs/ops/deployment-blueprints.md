@@ -54,6 +54,8 @@ outside connection.
 
 One machine runs TMach, the database, and the model server.
 
+![One-box deployment](../diagrams/topology-one-box.svg)
+
 ```sh
 export TMACH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
 export TMACH_MODEL=qwen2.5:7b
@@ -76,6 +78,8 @@ The TMach server sits in one place. Each GPU machine runs a model server and a
 small TMach worker. Workers connect out to the server and pull jobs, so the GPU
 machines need no open ports. A private Tailscale network joins everything, and
 nothing is exposed to the public internet.
+
+![Deployment with GPU workers on a private network](../diagrams/topology-workers.svg)
 
 Set it up with:
 
@@ -148,6 +152,8 @@ Things to do in this layout:
 **For:** most teams that want both privacy and a strong model. Sensitive
 documents stay on local models. General questions and bulk work on
 non-sensitive material can use a cloud model.
+
+![Hybrid deployment with rules per document label](../diagrams/topology-hybrid.svg)
 
 This takes four steps.
 
