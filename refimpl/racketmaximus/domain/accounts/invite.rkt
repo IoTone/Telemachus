@@ -118,9 +118,12 @@
   (define tok (mint-mailed-token! conn uid INVITE-TTL-HOURS #:purpose "activate"))
   (define sendable? (transport-configured? conn))
   (when sendable?
+    ;; THE INVITER'S ID TRAVELS TOO: the invitee has no account and no locale, so
+    ;; the message is written in the language of the person who sent it (EXT-13).
     (mail-enqueue-invitation! conn #:user uid #:address addr #:token tok
                               #:team-name (or team-name (team-name-of conn team))
                               #:inviter (or inviter-name (display-name-of conn inviter-user-id))
+                              #:inviter-id inviter-user-id
                               #:ttl-hours INVITE-TTL-HOURS))
   (audit! conn #:action "member.invited" #:actor-type "user" #:actor-id inviter-user-id
           #:team-id team #:resource-type "user" #:resource-id uid
@@ -215,6 +218,7 @@
           (mail-enqueue-invitation! conn #:user uid #:address addr #:token tok
                                     #:team-name (or team-name (team-name-of conn team))
                                     #:inviter (or inviter-name (display-name-of conn inviter-user-id))
+                                    #:inviter-id inviter-user-id
                                     #:ttl-hours INVITE-TTL-HOURS))
         (audit! conn #:action "member.invite.resent" #:actor-type "user" #:actor-id inviter-user-id
                 #:team-id (or team sql-null) #:resource-type "user" #:resource-id uid

@@ -223,13 +223,17 @@
       "text": "mentions",
       "hash": "e2aee0fb859bc1f04b25c2de06f5fd64a66759f3"
     },
-    "doc.route.post.api.executors.id.resume": {
-      "text": "Put a drained executor back in rotation (FLEET-3). It takes work again on its next claim.",
-      "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
+    "mail.reset.ttl_many": {
+      "text": "{n} hours",
+      "hash": "bc7107f4a791a1034616e2c069ba6e03643fedaa"
     },
     "ui.edwrap": {
       "text": "Wrap",
       "hash": "c3447e7954fa5698ae957a33210094d617b1dc00"
+    },
+    "doc.route.post.api.executors.id.resume": {
+      "text": "Put a drained executor back in rotation (FLEET-3). It takes work again on its next claim.",
+      "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
     },
     "doc.tool.doc_classify.text": {
       "text": "The document's text (default: extracted from the document; a scan with no text layer can still match a content-type rule)",
@@ -454,6 +458,10 @@
     "doc.route.put.api.session-policy": {
       "text": "Set the instance session timeouts. null on a field means no limit on that axis; an org may tighten these and may never loosen them.",
       "hash": "1220312b0666ecb536e3e0bfa33a1399f684dda7"
+    },
+    "mail.invite.intro": {
+      "text": "{inviter} has invited you to join {team} on TMach. Follow this link to choose a password and sign in. It works once, and stops working in {expiry}.",
+      "hash": "f1635542c6003471d7d090a9a5899f458be93078"
     },
     "doc.route.post.api.tokens": {
       "text": "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.",
@@ -775,6 +783,10 @@
       "text": "One delivery WITH the message exactly as it would go out — the \"show me what you sent\" case. Another team's id is a 404, not a 403.",
       "hash": "83c0c358a521d9e1a00de6a897d993ee2e86190b"
     },
+    "mail.reset.ignore": {
+      "text": "If it was not you, ignore this message. Nothing has changed and nothing will: your current password still works, and this link does nothing until somebody uses it.",
+      "hash": "a9c61e9fcdc9102dbeddc77e04915fd76b005529"
+    },
     "doc.route.get.api.share-targets": {
       "text": "Who a document can be shared with: the team's people and the org's teams.",
       "hash": "a62f22189412b782d7e39c1ce3cf7a66c96f0a61"
@@ -963,6 +975,14 @@
       "text": "{d} of {n}",
       "hash": "f0209bf5d33971e13a03d6f5d9dfa99c9eaa5582"
     },
+    "mail.invite.ttl_one": {
+      "text": "a day",
+      "hash": "6744c1571488291dd18631e6a88081a3eb0db33d"
+    },
+    "doc.route.post.api.workers.jobs.id.derive": {
+      "text": "Write a document DERIVED from one THIS job names (issue #62): {source, key, bytes_b64, claim_token, content_type?, filename?}. The write counterpart of the read above, under the same three conditions — the caller holds this attempt, `source` appears in the job's own payload, and the write happens as the job's user, so files:write, the storage quotas and the org gate all apply. The output takes the source's visibility and then its grants, is marked derived so an opted-in trigger cannot fire on a worker's own output, and is capped at TMACH_MAX_UPLOAD: a worker is not a way past the front door's ceiling. There is deliberately no standalone put — an output anchored to nothing would make the worker token a key to the team's repository.",
+      "hash": "8ee5e319cdcdfac6c8c0917743484a7380901f26"
+    },
     "ui.trigger_derived": {
       "text": "also on derived documents",
       "hash": "95f4b5d99f5b830c28053256d1ad913fdac25d7c"
@@ -974,10 +994,6 @@
     "doc.tool.doc_set_type": {
       "text": "Record the document type a PERSON decided, after a review. The label is held to the same label set the classification offered, so a type no trigger could match is refused rather than stored. An EMPTY label withdraws the type — the honest record of a rejection, since there is no doc_type of \"unknown\". Writes doc_type / doc_type_confidence / doc_type_source with source \"review\" and confidence 1.00, and versions <key>.classification.json beside the document so the backend's original guess stays in its history.",
       "hash": "2e9e3a1c65607294e84f75aaf0e451cbe24dd34c"
-    },
-    "doc.route.post.api.workers.jobs.id.derive": {
-      "text": "Write a document DERIVED from one THIS job names (issue #62): {source, key, bytes_b64, claim_token, content_type?, filename?}. The write counterpart of the read above, under the same three conditions — the caller holds this attempt, `source` appears in the job's own payload, and the write happens as the job's user, so files:write, the storage quotas and the org gate all apply. The output takes the source's visibility and then its grants, is marked derived so an opted-in trigger cannot fire on a worker's own output, and is capped at TMACH_MAX_UPLOAD: a worker is not a way past the front door's ceiling. There is deliberately no standalone put — an output anchored to nothing would make the worker token a key to the team's repository.",
-      "hash": "8ee5e319cdcdfac6c8c0917743484a7380901f26"
     },
     "ui.started": {
       "text": "Started",
@@ -1075,6 +1091,14 @@
       "text": "Set a new password",
       "hash": "1e83ae49d16225081033781c393444f03c5385ea"
     },
+    "mail.invite.ttl_many": {
+      "text": "{n} days",
+      "hash": "c752c6dea2f93583c2da965c3b0ac6a837aa088d"
+    },
+    "doc.route.put.api.instance-features": {
+      "text": "Turn a feature off for the whole instance; no org or team can turn it back on.",
+      "hash": "3fd2086209d81528b5888e710a6801d66f40d345"
+    },
     "ui.qvleaseshint": {
       "text": "a lease quietly not being refreshed is what a failover looks like, 90 seconds early",
       "hash": "7b5419581c8cbebb0c7937c9a61c348251af58b3"
@@ -1086,10 +1110,6 @@
     "doc.perm.jobs:execute": {
       "text": "Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run.",
       "hash": "f5c72d603508d57a3cd01ecf4e75f59d0a9e155b"
-    },
-    "doc.route.put.api.instance-features": {
-      "text": "Turn a feature off for the whole instance; no org or team can turn it back on.",
-      "hash": "3fd2086209d81528b5888e710a6801d66f40d345"
     },
     "ui.buildsource": {
       "text": "Source",
@@ -1403,6 +1423,10 @@
       "text": "All statuses",
       "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
     },
+    "mail.verify.code": {
+      "text": "Confirm it with this code: {token}",
+      "hash": "50b42713c8d4618efb2329bcecb8957b2504682a"
+    },
     "doc.workflow.feed-propose": {
       "text": "An agent reads one pulled item and writes a proposal beside it; the run then parks on a person. Nothing acts on the proposal — v1 has no acting tool, and when it has one it goes on the approve branch.",
       "hash": "273f8add79363523aa57b166f84d1a852c876324"
@@ -1582,6 +1606,10 @@
     "ui.palhhelp": {
       "text": "Show this list",
       "hash": "213103f1cbe3ed858dba77dec93600b93b4a6e74"
+    },
+    "mail.invite.ignore": {
+      "text": "If you were not expecting this, ignore this message. No account is created for you until you follow the link.",
+      "hash": "9d4846a288772d49a6b0c1fa3fa217d9e8fe3e91"
     },
     "ui.uploaded": {
       "text": "Uploaded",
@@ -2039,13 +2067,17 @@
       "text": "Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run.",
       "hash": "7c6d3770630d5cb263185cef132426d1bc816c41"
     },
-    "doc.tool.doc_text": {
-      "text": "Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run.",
-      "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
-    },
     "ui.edit": {
       "text": "Edit",
       "hash": "5301648dcf6b53cefc9ed52999aaa92d4603cae0"
+    },
+    "mail.invite.subject": {
+      "text": "{inviter} invited you to join {team} on TMach",
+      "hash": "726aafbca9a60a28ff428f92f985026a5871cc56"
+    },
+    "doc.tool.doc_text": {
+      "text": "Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run.",
+      "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
     },
     "doc.route.post.api.x.inbox.items.id.resolve": {
       "text": "Close an item for good: {note?}. Resolved is terminal. The same (source, key) raised later is a new row with the next occurrence.",
@@ -2118,6 +2150,10 @@
     "ui.helpnone": {
       "text": "Nothing in the documentation is close to that question.",
       "hash": "c7f3ca885c6d94efd37d9641e8de577f51b6aba6"
+    },
+    "mail.reset.ttl_one": {
+      "text": "an hour",
+      "hash": "90335b649adeb76ebc45092a6c57be0d689110ab"
     },
     "ui.trjobs": {
       "text": "Submitted in this session",
@@ -2223,6 +2259,10 @@
       "text": "entities",
       "hash": "9d88f3cc176f53090e9fd457c305bbeb86126bcd"
     },
+    "mail.invite.code": {
+      "text": "Use this code on the sign-in screen: {token}",
+      "hash": "6e7d83bec4794a92e079770828d5c1a6c75e5f5d"
+    },
     "ui.stepsused": {
       "text": "steps used",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
@@ -2287,6 +2327,14 @@
       "text": "New password",
       "hash": "d850ee188c7c55b64bc3624534de5c5051a57dc6"
     },
+    "doc.tool.doc_redact.detectors": {
+      "text": "Which detectors to run: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary, which needs terms)",
+      "hash": "9995fe44288c76e96f3ae9c3408a6e689cb17fd9"
+    },
+    "mail.verify.intro": {
+      "text": "Somebody — probably you — asked for this address to receive TMach notifications. Confirm it to turn them on.",
+      "hash": "15efb33232d3408dc2d382574511d4e209a2b436"
+    },
     "doc.route.post.api.profile": {
       "text": "Update the caller's own durable preferences: `locale` and `timezone` (an IANA zone name, e.g. \"Europe/London\"). Either may be sent alone. An unknown timezone is refused rather than silently substituted — somebody quietly given UTC for a typo finds out from a report that arrives at the wrong hour. The reply carries the effective timezone and which layer answered it.",
       "hash": "99fb02766ee54f83b68c9ffe525bf3b592fcbcb6"
@@ -2294,10 +2342,6 @@
     "ui.trcount": {
       "text": "{n} / {max} characters",
       "hash": "37992f8af2be4f932bbc75295200d6fef95ad76f"
-    },
-    "doc.tool.doc_redact.detectors": {
-      "text": "Which detectors to run: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary, which needs terms)",
-      "hash": "9995fe44288c76e96f3ae9c3408a6e689cb17fd9"
     },
     "ui.ngraphempty": {
       "text": "Nothing to draw yet. An org note's [[target]] is what makes an edge.",
@@ -2470,6 +2514,10 @@
     "doc.route.put.api.org.features": {
       "text": "Turn a feature off for the caller's own company; its teams cannot turn it back on.",
       "hash": "ca7cfdfb5359b0de1761d996af74b3bf1d9ec895"
+    },
+    "mail.verify.subject": {
+      "text": "Confirm your TMach notification address",
+      "hash": "3e5721391ea08e1dcf31cde30d9019b56e0bfc08"
     },
     "doc.route.delete.api.executors.id": {
       "text": "Retire an executor: its worker token is revoked and any job it holds returns to the queue.",
@@ -3138,6 +3186,10 @@
     "ui.wkactive": {
       "text": "active",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
+    },
+    "mail.reset.intro": {
+      "text": "Somebody asked to reset the TMach password for this address. This link works once, and stops working in {ttl}.",
+      "hash": "2ae0ceea80193d92bec61591e6c60acea5e364f8"
     },
     "doc.route.get.api.doc-triggers.id": {
       "text": "One trigger with its fire history (which version, which run, or why not).",
@@ -4275,6 +4327,10 @@
       "text": "nothing matches",
       "hash": "90226a1418b7b508766c0dcbd18eb7b87205b182"
     },
+    "mail.reset.code": {
+      "text": "Use this code to set a new password: {token}",
+      "hash": "a63e66a479e5af355d67b910323c92979f74506d"
+    },
     "doc.perm.notes:manage": {
       "text": "Share notes one does not own.",
       "hash": "a2e2619888d3be8f3e7acdf9a16b78e93970602e"
@@ -4374,6 +4430,10 @@
     "doc.route.post.api.logout": {
       "text": "End the session this request is holding. The console's sign-out called nothing before this, so the bearer stayed valid until it expired.",
       "hash": "574667b54d3eb3f4e23149c72279775c2f2a340b"
+    },
+    "mail.reset.subject": {
+      "text": "Reset your TMach password",
+      "hash": "95d7041cda5b0464ad07a1f0102a47c4dc73814e"
     },
     "ui.reviewrecorded": {
       "text": "Decision recorded",
@@ -4662,6 +4722,10 @@
     "ui.wkretire": {
       "text": "Retire",
       "hash": "c9714c15af397514e267a29a83a2669dfe33365a"
+    },
+    "mail.verify.ignore": {
+      "text": "If you did not ask for this, ignore this message — nothing is sent to an address that has not been confirmed.",
+      "hash": "37c5da75f3c7c6c23ea68735a8d5bb862f36a2e0"
     },
     "ui.searchmin": {
       "text": "Type at least two characters.",

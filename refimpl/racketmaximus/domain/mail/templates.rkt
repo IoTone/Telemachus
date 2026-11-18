@@ -33,7 +33,10 @@
          "../../config.rkt")
 
 (provide EXTERNAL-TEMPLATES template? template-render with-locale
-         notification-subject notification-body)
+         notification-subject notification-body
+         verification-subject verification-body
+         reset-subject reset-body
+         invitation-subject invitation-body)
 
 ;; id -> (list required-keys builder), where builder : (hashof symbol string) -> (values subject body).
 ;;
@@ -120,6 +123,101 @@
           (t "mail.notification.off"
              #:default "Turn them off under your own profile in the console.")))
    (no-i18n "\n")))
+
+;; ---- the three transactional messages --------------------------------------
+;; THE MESSAGES A NEW PERSON MEETS FIRST, and until this they were the last
+;; English literals in the subsystem. They live here rather than in `mail.rkt` for
+;; the reason the notification wrapper above does: THIS module is a surface the
+;; localization gate scans, so every string in a mail is visible to the Localization
+;; Manager. `mail.rkt` is mostly SQL and stays out of the list.
+;;
+;; THE LANGUAGE IS THE READER'S. Verification and reset go to an address on a user
+;; row, so `users.locale` answers and `mail.rkt` passes it. An invitation goes to
+;; somebody who has no account yet and therefore no locale at all, so it is read in
+;; the INVITER's language: the sender is the person the platform knows, and the team
+;; being described is theirs.
+
+;; Paragraphs, blank-line separated. One logical line per paragraph rather than a
+;; hand-wrapped one, because the body is base64 in transit (`encode-body` wraps the
+;; transfer encoding, not this text) and a catalog value cannot hold a wrap that
+;; survives a different language anyway.
+(define (paragraphs ps) (string-join ps (no-i18n "\n\n")))
+
+;; The signature every message in this subsystem ends with, and the SAME key the
+;; notification uses: it is the same line, translated once.
+(define (signature) (t "mail.notification.signature" #:default "— TMach"))
+
+;; THE TOKEN IS THE ONLY ACTIONABLE THING when no base URL is configured, which is
+;; why the code branch is here and not in `mail.rkt`: the sentence that carries the
+;; token is copy like every other sentence.
+(define (verification-subject)
+  (t "mail.verify.subject" #:default "Confirm your TMach notification address"))
+
+(define (verification-body #:link [link #f] #:token token)
+  (paragraphs
+   (append
+    (list (t "mail.verify.intro"
+             #:default "Somebody — probably you — asked for this address to receive TMach notifications. Confirm it to turn them on."))
+    (if link
+        (list link)
+        (list (t "mail.verify.code" #:default "Confirm it with this code: {token}"
+                 #:args (hasheq 'token token))))
+    (list (t "mail.verify.ignore"
+             #:default "If you did not ask for this, ignore this message — nothing is sent to an address that has not been confirmed.")
+          (signature)))))
+
+;; The expiry is a KEY PER FORM rather than a plural inside one sentence. English
+;; needs "an hour" and "3 hours", Japanese needs neither, and a catalog cannot hold
+;; a rule.
+(define (reset-ttl ttl-hours)
+  (if (= ttl-hours 1)
+      (t "mail.reset.ttl_one" #:default "an hour")
+      (t "mail.reset.ttl_many" #:default "{n} hours"
+         #:args (hasheq 'n (number->string ttl-hours)))))
+
+(define (reset-subject)
+  (t "mail.reset.subject" #:default "Reset your TMach password"))
+
+(define (reset-body #:link [link #f] #:token token #:ttl-hours [ttl-hours 1])
+  (paragraphs
+   (append
+    (list (t "mail.reset.intro"
+             #:default "Somebody asked to reset the TMach password for this address. This link works once, and stops working in {ttl}."
+             #:args (hasheq 'ttl (reset-ttl ttl-hours))))
+    (if link
+        (list link)
+        (list (t "mail.reset.code" #:default "Use this code to set a new password: {token}"
+                 #:args (hasheq 'token token))))
+    (list (t "mail.reset.ignore"
+             #:default "If it was not you, ignore this message. Nothing has changed and nothing will: your current password still works, and this link does nothing until somebody uses it.")
+          (signature)))))
+
+(define (invitation-ttl ttl-hours)
+  (define days (max 1 (quotient ttl-hours 24)))
+  (if (= days 1)
+      (t "mail.invite.ttl_one" #:default "a day")
+      (t "mail.invite.ttl_many" #:default "{n} days"
+         #:args (hasheq 'n (number->string days)))))
+
+(define (invitation-subject #:inviter inviter #:team team)
+  (t "mail.invite.subject" #:default "{inviter} invited you to join {team} on TMach"
+     #:args (hasheq 'inviter inviter 'team team)))
+
+(define (invitation-body #:inviter inviter #:team team #:link [link #f] #:token token
+                         #:ttl-hours [ttl-hours 72])
+  (paragraphs
+   (append
+    (list (t "mail.invite.intro"
+             #:default "{inviter} has invited you to join {team} on TMach. Follow this link to choose a password and sign in. It works once, and stops working in {expiry}."
+             #:args (hasheq 'inviter inviter 'team team
+                            'expiry (invitation-ttl ttl-hours))))
+    (if link
+        (list link)
+        (list (t "mail.invite.code" #:default "Use this code on the sign-in screen: {token}"
+                 #:args (hasheq 'token token))))
+    (list (t "mail.invite.ignore"
+             #:default "If you were not expecting this, ignore this message. No account is created for you until you follow the link.")
+          (signature)))))
 
 ;; Run `thunk` with the catalog for `locale` as the current localizer. A locale
 ;; that has no catalog falls back to the empty localizer, which resolves every key

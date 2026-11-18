@@ -251,7 +251,7 @@ flag.
   that has deliberately kept a no-cookie JSON API. The preference is in the
   console, and the message links to it.
 
-## External recipients (EXT‑1…EXT‑12)
+## External recipients (EXT‑1…EXT‑13)
 
 The ask, from the product built on this platform: a broker, a supplier and a
 customer are not users, and the product has to reach them. That is a different
@@ -357,6 +357,29 @@ contact takes its tokens, its delivery rows and its replies in one transaction, 
 the audit log keeps the fact that sends happened and never the address, because
 that log is chained, exported and kept through an erasure (DEL‑7). A retention rule
 purges settled delivery rows and never a `pending` one.
+
+**EXT‑13. The three messages a new person meets first are localized, and the
+language is the reader's.** Confirming an address, resetting a password and
+accepting an invitation were the last English literals in this subsystem, which is
+why they are recorded before the exclusion list: they sit in `mail.rkt`, which is
+mostly SQL and is deliberately not a surface the localization gate scans, so
+nothing would have caught them. The words are in `templates.rkt` now, beside the
+notification wrapper and the external registry.
+
+- **Verification and reset read `users.locale`.** The address is on a user row, so
+  the reader is known. A column that has never been set answers `en`, which is the
+  column's own default rather than a decision made here.
+- **An invitation reads the INVITER's locale.** The invitee has no account and
+  therefore no locale at all, so there is nothing to read on their side. The
+  inviter is the person the platform knows, and the team being described is
+  theirs. The cost is the case a team invites somebody who reads a different
+  language, and it is a cost paid knowingly rather than by accident.
+- **An expiry is a key per form, not a plural inside one sentence.** English needs
+  "an hour" and "3 hours", Japanese needs neither, and a catalog holds text rather
+  than a rule. The body says what it must: the link works once, and when it stops.
+- **The transport test message stays English.** It goes to an operator who asked
+  for it, it carries the relay's own words, and it is a diagnostic rather than
+  copy a user reads.
 
 ### Deliberately not built here
 

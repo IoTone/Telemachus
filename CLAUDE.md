@@ -11863,6 +11863,17 @@ bash test/server-smoke.sh
 - **THE ERASURE TAKES THE REPLIES TOO.** `inbound_messages.from_address` is the
   address again and its body is that person's words, so `contact-delete!` removes
   them with the tokens and the deliveries, in one transaction.
+- **THE THREE MESSAGES A NEW PERSON MEETS FIRST ARE LOCALIZED NOW** (EXT‑13).
+  Confirming an address, resetting a password and accepting an invitation were the
+  last English literals in the subsystem, and nothing saw them because they sat in
+  `mail.rkt`, which is not a scan surface. They are `verification-*`, `reset-*` and
+  `invitation-*` in `templates.rkt`, and the language is the READER's:
+  `users.locale` for the first two, the INVITER's for an invitation, because
+  somebody being invited has no account and no locale. An expiry is a key per form
+  (`mail.reset.ttl_one` / `ttl_many`) rather than a plural in a sentence, because a
+  catalog holds text and not a rule. The test asserts a `ja` reader gets Japanese
+  and that no `{placeholder}` survives, which is the failure a translation produces
+  and an English-only string cannot.
 - **A CURL CONFIG VALUE MUST BE QUOTED AND ESCAPED.** `curl -K -` reads one
   directive per line, so a password containing a `"` ends the string early and a
   newline starts a directive; `imap.rkt` escapes both and every command carries

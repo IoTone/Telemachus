@@ -57,7 +57,7 @@
          (only-in "../events/events.rkt" EVENTS event?)
          (only-in "../events/describe.rkt" event-subject event-console-path short-id)
          (only-in "../settings/settings.rkt" setting-ref setting-set!)
-         (only-in "../authz/authz.rkt" team-org user-principal audit!)
+         (only-in "../authz/authz.rkt" team-org user-principal audit! user-locale)
          ;; the team-keyed half of the tenant admission pair (MAIL-25). orgs.rkt
          ;; requires authz, quota and db and nothing of this subsystem, so this
          ;; direction is the only one there is.
@@ -589,25 +589,15 @@
   ;; the card that shows the result lives.
   (define link (and base (format "~a/?verify_email=~a#/usage"
                                  (string-trim base "/" #:left? #f) token)))
-  (define body
-    (string-join
-     (append
-      (list "Somebody — probably you — asked for this address to receive TMach"
-            "notifications. Confirm it to turn them on." "")
-      (if link
-          (list link "")
-          ;; With no base URL the token is the only thing that can be acted on, so
-          ;; it is printed. It is single-use, short-lived and in the body of a
-          ;; message already addressed to its own subject, which is the only
-          ;; place it could go.
-          (list "Confirm it with this code:" token ""))
-      (list "If you did not ask for this, ignore this message — nothing is sent"
-            "to an address that has not been confirmed."
-            "" "— TMach"))
-     "\n"))
+  ;; THE WORDS ARE IN `templates.rkt` AND THE LANGUAGE IS THE READER'S. This address
+  ;; is on a user row, so `users.locale` answers; a person who has never set one gets
+  ;; English, which is the column's default and the honest fallback.
+  (define-values (subject body)
+    (with-locale (user-locale conn user)
+      (lambda () (values (verification-subject)
+                         (verification-body #:link link #:token token)))))
   (mail-enqueue! conn #:recipient address #:category "verify"
-                 #:subject "Confirm your TMach notification address"
-                 #:body body #:user user))
+                 #:subject subject #:body body #:user user))
 
 ;; A PASSWORD RESET LINK (RESET-5…7).
 ;;
@@ -633,27 +623,12 @@
   (define base (transport-base-url conn))
   (define link (and base (format "~a/?reset_token=~a#/"
                                  (string-trim base "/" #:left? #f) token)))
-  (define body
-    (string-join
-     (append
-      (list "Somebody asked to reset the TMach password for this address."
-            (format "This link works once, and stops working in ~a."
-                    (if (= ttl-hours 1) "an hour" (format "~a hours" ttl-hours)))
-            "")
-      (if link
-          (list link "")
-          ;; With no base URL the token is the only actionable thing, so it is
-          ;; printed — single-use, short-lived, and in a message already
-          ;; addressed to its own subject, which is the only place it could go.
-          (list "Use this code to set a new password:" token ""))
-      (list "If it was not you, ignore this message. Nothing has changed and"
-            "nothing will: your current password still works, and this link"
-            "does nothing until somebody uses it."
-            "" "— TMach"))
-     "\n"))
+  (define-values (subject body)
+    (with-locale (user-locale conn user)
+      (lambda () (values (reset-subject)
+                         (reset-body #:link link #:token token #:ttl-hours ttl-hours)))))
   (mail-enqueue! conn #:recipient address #:category "reset"
-                 #:subject "Reset your TMach password"
-                 #:body body #:user user))
+                 #:subject subject #:body body #:user user))
 
 ;; AN INVITATION (INVITE-1…6).
 ;;
@@ -673,29 +648,23 @@
 ;; own since hosted onboarding.
 (define (mail-enqueue-invitation! conn #:user user #:address address #:token token
                                   #:team-name team-name #:inviter inviter
+                                  #:inviter-id [inviter-id #f]
                                   #:ttl-hours [ttl-hours 72])
   (define base (transport-base-url conn))
   (define link (and base (format "~a/activate?token=~a"
                                  (string-trim base "/" #:left? #f) token)))
-  (define days (max 1 (quotient ttl-hours 24)))
-  (define body
-    (string-join
-     (append
-      (list (format "~a has invited you to join ~a on TMach." inviter team-name)
-            "" "Follow this link to choose a password and sign in."
-            (format "It works once, and stops working in ~a."
-                    (if (= days 1) "a day" (format "~a days" days)))
-            "")
-      (if link
-          (list link "")
-          (list "Use this code on the sign-in screen:" token ""))
-      (list "If you were not expecting this, ignore this message. No account is"
-            "created for you until you follow the link."
-            "" "— TMach"))
-     "\n"))
+  ;; THE INVITEE HAS NO LOCALE, so the message is written in the INVITER's. That is
+  ;; the person the platform knows and the one whose team is being described, and it
+  ;; is the only answer available: the address is a string somebody typed, and there
+  ;; is no account behind it yet to hold a language.
+  (define-values (subject body)
+    (with-locale (if inviter-id (user-locale conn inviter-id) "en")
+      (lambda ()
+        (values (invitation-subject #:inviter inviter #:team team-name)
+                (invitation-body #:inviter inviter #:team team-name
+                                 #:link link #:token token #:ttl-hours ttl-hours)))))
   (mail-enqueue! conn #:recipient address #:category "invite"
-                 #:subject (format "~a invited you to join ~a on TMach" inviter team-name)
-                 #:body body #:user user))
+                 #:subject subject #:body body #:user user))
 
 ;; THE TRANSPORT TEST IS SYNCHRONOUS AND STORES ONLY THE OUTCOME — #85's ping,
 ;; for #85's reason: a transport nobody can test is a transport nobody trusts, and

@@ -224,13 +224,17 @@
       "text": "言及",
       "hash": "e2aee0fb859bc1f04b25c2de06f5fd64a66759f3"
     },
-    "doc.route.post.api.executors.id.resume": {
-      "text": "停止したエグゼキュータをローテーションに戻す（FLEET-3）。次回の要求から再び仕事を受け取る。",
-      "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
+    "mail.reset.ttl_many": {
+      "text": "{n} 時間",
+      "hash": "bc7107f4a791a1034616e2c069ba6e03643fedaa"
     },
     "ui.edwrap": {
       "text": "折り返し",
       "hash": "c3447e7954fa5698ae957a33210094d617b1dc00"
+    },
+    "doc.route.post.api.executors.id.resume": {
+      "text": "停止したエグゼキュータをローテーションに戻す（FLEET-3）。次回の要求から再び仕事を受け取る。",
+      "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
     },
     "doc.tool.doc_classify.text": {
       "text": "文書のテキスト（既定では文書から抽出します。テキストレイヤーのないスキャンでも、コンテンツタイプのルールには一致し得ます）",
@@ -455,6 +459,10 @@
     "doc.route.put.api.session-policy": {
       "text": "インスタンスのセッションタイムアウトを設定する。フィールドに null を指定するとその軸に上限を設けない。会社はこれを厳しくできるが、緩めることはできない。",
       "hash": "1220312b0666ecb536e3e0bfa33a1399f684dda7"
+    },
+    "mail.invite.intro": {
+      "text": "{inviter} さんが TMach の {team} に招待しました。次のリンクからパスワードを設定してサインインしてください。このリンクは 1 回だけ有効で、{expiry}で失効します。",
+      "hash": "f1635542c6003471d7d090a9a5899f458be93078"
     },
     "doc.route.post.api.tokens": {
       "text": "API トークンを発行する。任意でスコープと ttl（秒。既定は90日；長寿命のマシントークンには \"never\"）を指定；生のトークンは一度だけ表示されます。",
@@ -776,6 +784,10 @@
       "text": "1件の配送を、送信されるとおりのメッセージ付きで返します。「送ったものをそのまま見せてほしい」場合向けです。他チームのidは403ではなく404です。",
       "hash": "83c0c358a521d9e1a00de6a897d993ee2e86190b"
     },
+    "mail.reset.ignore": {
+      "text": "身に覚えがない場合はこのメールを破棄してください。パスワードは変わっておらず、これからも変わりません。現在のパスワードはそのまま使え、このリンクは誰かが使うまで何もしません。",
+      "hash": "a9c61e9fcdc9102dbeddc77e04915fd76b005529"
+    },
     "doc.route.get.api.share-targets": {
       "text": "文書を誰と共有できるか：チームのメンバーと組織内のチーム。",
       "hash": "a62f22189412b782d7e39c1ce3cf7a66c96f0a61"
@@ -964,6 +976,14 @@
       "text": "{n} 件中 {d} 件",
       "hash": "f0209bf5d33971e13a03d6f5d9dfa99c9eaa5582"
     },
+    "mail.invite.ttl_one": {
+      "text": "1 日",
+      "hash": "6744c1571488291dd18631e6a88081a3eb0db33d"
+    },
+    "doc.route.post.api.workers.jobs.id.derive": {
+      "text": "このジョブが指定したドキュメントから派生した文書を書き込む（issue #62）：{source, key, bytes_b64, claim_token, content_type?, filename?}。上記の読み取りの書き込み版で、同じ3条件の下にある — 呼び出し元がこの試行を保持していること、`source` がそのジョブ自身のペイロードに現れること、そして書き込みがそのジョブのユーザーとして行われること（files:write、ストレージクォータ、組織ゲートがすべて適用される）。出力はソースの公開範囲を受け取り、次にその付与を継承する。派生としてマークされるため、オプトインしたトリガーがワーカー自身の出力で発火することはない。TMACH_MAX_UPLOAD が上限となる：ワーカーは正面玄関の上限を迂回する手段ではない。独立した put は意図的に存在しない — 何にも結び付かない出力は、ワーカートークンをチームのリポジトリへの鍵にしてしまうためである。",
+      "hash": "8ee5e319cdcdfac6c8c0917743484a7380901f26"
+    },
     "ui.trigger_derived": {
       "text": "派生文書にも",
       "hash": "95f4b5d99f5b830c28053256d1ad913fdac25d7c"
@@ -975,10 +995,6 @@
     "doc.tool.doc_set_type": {
       "text": "レビュー後に、人が判断した文書の種類を記録する。ラベルは分類が提示したラベル集合に照らして検証されるため、どのトリガーも一致し得ない種類は保存されずに拒否されます。空のラベルは種類を取り下げます — doc_type に「unknown」は存在しないため、却下の正直な記録はこれです。doc_type / doc_type_confidence / doc_type_source を source「review」、確信度 1.00 で書き込み、文書の隣の <key>.classification.json を新しいバージョンとして保存するので、バックエンドの当初の推測もその履歴に残ります。",
       "hash": "2e9e3a1c65607294e84f75aaf0e451cbe24dd34c"
-    },
-    "doc.route.post.api.workers.jobs.id.derive": {
-      "text": "このジョブが指定したドキュメントから派生した文書を書き込む（issue #62）：{source, key, bytes_b64, claim_token, content_type?, filename?}。上記の読み取りの書き込み版で、同じ3条件の下にある — 呼び出し元がこの試行を保持していること、`source` がそのジョブ自身のペイロードに現れること、そして書き込みがそのジョブのユーザーとして行われること（files:write、ストレージクォータ、組織ゲートがすべて適用される）。出力はソースの公開範囲を受け取り、次にその付与を継承する。派生としてマークされるため、オプトインしたトリガーがワーカー自身の出力で発火することはない。TMACH_MAX_UPLOAD が上限となる：ワーカーは正面玄関の上限を迂回する手段ではない。独立した put は意図的に存在しない — 何にも結び付かない出力は、ワーカートークンをチームのリポジトリへの鍵にしてしまうためである。",
-      "hash": "8ee5e319cdcdfac6c8c0917743484a7380901f26"
     },
     "ui.started": {
       "text": "開始",
@@ -1076,6 +1092,14 @@
       "text": "新しいパスワードを設定",
       "hash": "1e83ae49d16225081033781c393444f03c5385ea"
     },
+    "mail.invite.ttl_many": {
+      "text": "{n} 日",
+      "hash": "c752c6dea2f93583c2da965c3b0ac6a837aa088d"
+    },
+    "doc.route.put.api.instance-features": {
+      "text": "インスタンス全体で機能を無効にする。組織もチームも再び有効にはできない。",
+      "hash": "3fd2086209d81528b5888e710a6801d66f40d345"
+    },
     "ui.qvleaseshint": {
       "text": "リースが更新されないことが、フェイルオーバーの 90 秒前の兆候です",
       "hash": "7b5419581c8cbebb0c7937c9a61c348251af58b3"
@@ -1087,10 +1111,6 @@
     "doc.perm.jobs:execute": {
       "text": "プル型エグゼキュータに提供されたジョブの取得・ハートビート・完了・失敗報告。ワーカートークンのみが保持し、1つのエグゼキュータに紐づきます；チームのデータには届かず、実行も開始しません。",
       "hash": "f5c72d603508d57a3cd01ecf4e75f59d0a9e155b"
-    },
-    "doc.route.put.api.instance-features": {
-      "text": "インスタンス全体で機能を無効にする。組織もチームも再び有効にはできない。",
-      "hash": "3fd2086209d81528b5888e710a6801d66f40d345"
     },
     "ui.buildsource": {
       "text": "ソース",
@@ -1404,6 +1424,10 @@
       "text": "すべての状態",
       "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
     },
+    "mail.verify.code": {
+      "text": "次のコードで確認してください: {token}",
+      "hash": "50b42713c8d4618efb2329bcecb8957b2504682a"
+    },
     "doc.workflow.feed-propose": {
       "text": "エージェントが取得済みの項目 1 件を読み、その隣に提案を書き出します。その後、実行は人の判断を待って停止します。提案に対して何も実行されません — v1 に実行するツールはなく、将来できたとしても approve の分岐にのみ置かれます。",
       "hash": "273f8add79363523aa57b166f84d1a852c876324"
@@ -1583,6 +1607,10 @@
     "ui.palhhelp": {
       "text": "この一覧を表示",
       "hash": "213103f1cbe3ed858dba77dec93600b93b4a6e74"
+    },
+    "mail.invite.ignore": {
+      "text": "心当たりがない場合はこのメールを破棄してください。リンクを開くまでアカウントは作成されません。",
+      "hash": "9d4846a288772d49a6b0c1fa3fa217d9e8fe3e91"
     },
     "ui.uploaded": {
       "text": "アップロードしました",
@@ -2040,13 +2068,17 @@
       "text": "インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。",
       "hash": "7c6d3770630d5cb263185cef132426d1bc816c41"
     },
-    "doc.tool.doc_text": {
-      "text": "リポジトリ文書のテキストを返す（PDF、DOCX、HTML、Markdown、プレーンテキスト）。文書パイプラインの最初のステップで、検索インデックスの実行に依存しません。",
-      "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
-    },
     "ui.edit": {
       "text": "編集",
       "hash": "5301648dcf6b53cefc9ed52999aaa92d4603cae0"
+    },
+    "mail.invite.subject": {
+      "text": "{inviter} さんが TMach の {team} に招待しました",
+      "hash": "726aafbca9a60a28ff428f92f985026a5871cc56"
+    },
+    "doc.tool.doc_text": {
+      "text": "リポジトリ文書のテキストを返す（PDF、DOCX、HTML、Markdown、プレーンテキスト）。文書パイプラインの最初のステップで、検索インデックスの実行に依存しません。",
+      "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
     },
     "doc.route.post.api.x.inbox.items.id.resolve": {
       "text": "項目を確定して閉じます。`{note?}` を渡します。解決済みは終端の状態です。同じ `(source, key)` が後から登録されると、次の occurrence を持つ新しい行になります。",
@@ -2119,6 +2151,10 @@
     "ui.helpnone": {
       "text": "その質問に近いものはドキュメントにありません。",
       "hash": "c7f3ca885c6d94efd37d9641e8de577f51b6aba6"
+    },
+    "mail.reset.ttl_one": {
+      "text": "1 時間",
+      "hash": "90335b649adeb76ebc45092a6c57be0d689110ab"
     },
     "ui.trjobs": {
       "text": "このセッションで送信した翻訳",
@@ -2224,6 +2260,10 @@
       "text": "エンティティ",
       "hash": "9d88f3cc176f53090e9fd457c305bbeb86126bcd"
     },
+    "mail.invite.code": {
+      "text": "サインイン画面で次のコードを使用してください: {token}",
+      "hash": "6e7d83bec4794a92e079770828d5c1a6c75e5f5d"
+    },
     "ui.stepsused": {
       "text": "使用ステップ数",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
@@ -2288,6 +2328,14 @@
       "text": "新しいパスワード",
       "hash": "d850ee188c7c55b64bc3624534de5c5051a57dc6"
     },
+    "doc.tool.doc_redact.detectors": {
+      "text": "実行する検出器: \"email\"、\"date\"、\"id_number\"、\"dictionary\"、\"phone\"（既定は dictionary 以外のすべて。dictionary には語句が必要です）",
+      "hash": "9995fe44288c76e96f3ae9c3408a6e689cb17fd9"
+    },
+    "mail.verify.intro": {
+      "text": "おそらくご本人によるものと思いますが、このアドレスで TMach の通知を受け取るための確認の依頼が届いています。確認すると通知が有効になります。",
+      "hash": "15efb33232d3408dc2d382574511d4e209a2b436"
+    },
     "doc.route.post.api.profile": {
       "text": "呼び出し元自身の永続的な設定を更新する: `locale` と `timezone`（IANA ゾーン名、例: \"Europe/London\"）。どちらか一方だけでも送信できます。未知のタイムゾーンは暗黙に置き換えられず拒否されます — 入力ミスで黙って UTC を割り当てられた人は、間違った時刻に届いたレポートで初めて気づくことになります。応答には有効なタイムゾーンと、どの層がそれを決めたかが含まれます。",
       "hash": "99fb02766ee54f83b68c9ffe525bf3b592fcbcb6"
@@ -2295,10 +2343,6 @@
     "ui.trcount": {
       "text": "{n} / {max} 文字",
       "hash": "37992f8af2be4f932bbc75295200d6fef95ad76f"
-    },
-    "doc.tool.doc_redact.detectors": {
-      "text": "実行する検出器: \"email\"、\"date\"、\"id_number\"、\"dictionary\"、\"phone\"（既定は dictionary 以外のすべて。dictionary には語句が必要です）",
-      "hash": "9995fe44288c76e96f3ae9c3408a6e689cb17fd9"
     },
     "ui.ngraphempty": {
       "text": "まだ描画するものがありません。org ノートの [[ターゲット]] がエッジになります。",
@@ -2471,6 +2515,10 @@
     "doc.route.put.api.org.features": {
       "text": "呼び出し元の会社で機能を無効にする。その配下のチームは再び有効にはできない。",
       "hash": "ca7cfdfb5359b0de1761d996af74b3bf1d9ec895"
+    },
+    "mail.verify.subject": {
+      "text": "TMach 通知先アドレスの確認",
+      "hash": "3e5721391ea08e1dcf31cde30d9019b56e0bfc08"
     },
     "doc.route.delete.api.executors.id": {
       "text": "エグゼキュータを退役させる：ワーカートークンは失効し、保持していたジョブはキューに戻ります。",
@@ -3139,6 +3187,10 @@
     "ui.wkactive": {
       "text": "稼働中",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
+    },
+    "mail.reset.intro": {
+      "text": "このアドレスの TMach パスワード再設定が依頼されました。このリンクは 1 回だけ有効で、{ttl}で失効します。",
+      "hash": "2ae0ceea80193d92bec61591e6c60acea5e364f8"
     },
     "doc.route.get.api.doc-triggers.id": {
       "text": "1つのトリガーとその発火履歴（どのバージョン、どの実行、あるいはなぜ発火しなかったか）。",
@@ -4276,6 +4328,10 @@
       "text": "一致するものがありません",
       "hash": "90226a1418b7b508766c0dcbd18eb7b87205b182"
     },
+    "mail.reset.code": {
+      "text": "次のコードで新しいパスワードを設定してください: {token}",
+      "hash": "a63e66a479e5af355d67b910323c92979f74506d"
+    },
     "doc.perm.notes:manage": {
       "text": "自分が所有していないノートを共有する。",
       "hash": "a2e2619888d3be8f3e7acdf9a16b78e93970602e"
@@ -4375,6 +4431,10 @@
     "doc.route.post.api.logout": {
       "text": "このリクエストが使っているセッションを終了する。これ以前はコンソールのサインアウトが何も呼んでいなかったため、ベアラーは期限まで有効なままだった。",
       "hash": "574667b54d3eb3f4e23149c72279775c2f2a340b"
+    },
+    "mail.reset.subject": {
+      "text": "TMach パスワードの再設定",
+      "hash": "95d7041cda5b0464ad07a1f0102a47c4dc73814e"
     },
     "ui.reviewrecorded": {
       "text": "判断を記録しました",
@@ -4663,6 +4723,10 @@
     "ui.wkretire": {
       "text": "廃止",
       "hash": "c9714c15af397514e267a29a83a2669dfe33365a"
+    },
+    "mail.verify.ignore": {
+      "text": "この確認に心当たりがない場合は、このメールを破棄してください。確認が済んでいないアドレスには何も送信されません。",
+      "hash": "37c5da75f3c7c6c23ea68735a8d5bb862f36a2e0"
     },
     "ui.searchmin": {
       "text": "2文字以上入力してください。",
