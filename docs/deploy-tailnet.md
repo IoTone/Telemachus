@@ -359,5 +359,15 @@ same setting applies.
   runs under systemd, but this exact file has not been run as written.
 - `TMACH_LOOPBACK_TRUST`, `TMACH_TRUSTED_PROXIES` and the forwarded-header rule are covered by the
   project's automated tests, using requests that carry the headers a proxy
-  adds. They have not been tested against a live `tailscale serve` or
-  `tailscale funnel`.
+  adds.
+- They have also been run once against a live `tailscale serve`, tailnet-only,
+  with `TMACH_LOOPBACK_TRUST=off` and `TMACH_TRUSTED_PROXIES=127.0.0.1`. From a
+  second machine on the tailnet: a made-up identity header was refused, creating
+  a first account without the bootstrap secret was refused, a password sign-in
+  worked, the sign-in limit counted the calling machine's tailnet address, and
+  the audit log recorded that address.
+- `tailscale funnel` has not been tested live.
+- With `TMACH_TRUSTED_PROXIES=127.0.0.1`, any program on the server itself can
+  send its own `X-Forwarded-For` and be believed, because it connects from the
+  same address the proxy does. That affects only which address a limit or an
+  audit entry names. It does not let a caller sign in or act as anyone.
