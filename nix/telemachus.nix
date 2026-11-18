@@ -6,6 +6,9 @@
 # and OOP hosts are loaded. Wrapping the interpreter keeps the plugin SDK working
 # exactly as it does in a checkout.
 { lib, stdenv, makeWrapper, racket, openssl
+, curl               # The inbound mailbox is read through `curl` (domain/mail/imap.rkt),
+                     # found at CALL time. On the wrapper's PATH so a packaged
+                     # install outside the container image can read one too.
 , poppler-utils
 , pandoc, tectonic   # PDF forms (DWF-6, slice 68): doc_render md/html -> pandoc -> tectonic
 , weasyprint         # #88 req 1: the HTML/CSS paged-media PDF engine. Found at
@@ -52,6 +55,12 @@ stdenv.mkDerivation (finalAttrs: {
   # so the first version of this slice shipped a `zone-exists?` that refused UTC.
   buildInputs = [ tzdata ];
 
+  # The DKIM tests generate a key and verify a signature with `openssl`, and the
+  # IMAP tests drive the real `curl` against a mock server. Without these the
+  # sandbox has neither binary and those cases fail here while passing in every
+  # checkout, where the devShell provides both.
+  nativeCheckInputs = [ openssl curl ];
+
   # raco writes compiled/ next to sources and racket wants a writable HOME
   preBuild = ''
     export HOME=$TMPDIR
@@ -69,6 +78,11 @@ stdenv.mkDerivation (finalAttrs: {
   checkPhase = ''
     runHook preCheck
     export HOME=$TMPDIR PLTCOLLECTS="$PWD/pkgs:" TZDIR="${tzdata}/share/zoneinfo"
+    # stdenv points SSL_CERT_FILE at /no-cert-file.crt, a file that does not
+    # exist. The mail transport honours that variable as a CA bundle the operator
+    # named and refuses a named bundle that is missing, so with `openssl` present
+    # the certificate-verification cases would fail on the sandbox's own setting.
+    unset SSL_CERT_FILE
     # `*-tests.rkt`, never `*.rkt`: the wider glob pulls in test/mock-*.rkt, which
     # are mock SERVERS that block forever. Both suites here are hermetic — no
     # network, and no model (the LLM path falls back to a deterministic reply when
@@ -117,7 +131,7 @@ stdenv.mkDerivation (finalAttrs: {
       makeWrapper ${racket}/bin/racket $out/bin/telemachus-$name \
         --add-flags "$out/share/telemachus/$path" \
         --set PLTCOLLECTS "$out/share/telemachus/pkgs:" \
-        --prefix PATH : ${lib.makeBinPath [ racket openssl poppler-utils pandoc tectonic weasyprint pdfcpu qpdf ]} \
+        --prefix PATH : ${lib.makeBinPath [ racket openssl curl poppler-utils pandoc tectonic weasyprint pdfcpu qpdf ]} \
         --set-default TZDIR "${tzdata}/share/zoneinfo" \
         --set-default TMACH_BUILD_COMMIT "${commit}" \
         --run 'export TMACH_DATA_DIR="''${TMACH_DATA_DIR:-''${XDG_STATE_HOME:-$HOME/.local/state}/telemachus}"'
