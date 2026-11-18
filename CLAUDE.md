@@ -11829,6 +11829,11 @@ bash test/server-smoke.sh
   `smtp-deliver!` into the mock relay and verifies the signature against the
   message AS RECEIVED, which is the only assertion that catches a signature
   computed over a header block that differs from the one sent.
+- **THE DNS RECORD IS A COMMAND, NOT A WORKSHEET.** `telemachus-secrets dkim`
+  prints `selector._domainkey.domain IN TXT "v=DKIM1; k=rsa; p=…"` from the stored
+  sealed key, the stored selector and `dkim_domain` when it is set. The private key
+  is readable by nothing but the signer, so without the command the public half is
+  unobtainable and the signature cannot be verified by anybody.
 - **A HEADER NAME IN `h=` IS SIGNED FROM THE LAST INSTANCE** (RFC 6376 5.4): a
   duplicated `Subject` must not be free to change after the fact, so
   `dkim-parse-headers` is searched bottom-up.

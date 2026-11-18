@@ -47,7 +47,7 @@
          (only-in "../db/id.rkt" new-id)
          (only-in "./dsn.rkt" dsn? dsn-reports dsn-report-recipient dsn-report-permanent?
                   dsn-report-status dsn-report-diagnostic)
-         (only-in "./imap.rkt" imap-available? imap-uidvalidity imap-unseen-uids imap-uids-after
+         (only-in "./imap.rkt" imap-uidvalidity imap-unseen-uids imap-uids-after
                   imap-fetch imap-mark-seen)
          (only-in "./contacts.rkt" contact-suppress!)
          (only-in "./transport.rkt" clip printable)

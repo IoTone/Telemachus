@@ -30,6 +30,7 @@
          "../domain/mail/dkim.rkt"
          "../domain/mail/external.rkt"
          "../domain/mail/inbound.rkt"
+         "../cli/telemachus-secrets.rkt"
          "mock-smtp.rkt")
 
 (define PORT-EXT 8931)
@@ -352,5 +353,37 @@
   (subprocess-wait vproc)
   (check-equal? (subprocess-status vproc) 0 (string-append "openssl refused the wire signature: " verrs))
   (check-true (string-contains? vres "Verified OK"))
+  (delete-directory/files dir)
+  (close-db! conn))
+
+;; ---- what the deploy publishes ----------------------------------------------
+;; THE PRIVATE KEY IS A SEALED COLUMN NOTHING READS BUT THE SIGNER, so the public
+;; half is unobtainable by hand: an operator who cannot print the record holds a
+;; signature nobody can verify, which is the same as no signature at all.
+(test-case "the operator can print the record the signer actually uses"
+  (define-values (conn acme) (instance))
+  (define dir (make-temporary-file "tmach-dkim-dns-~a" 'directory))
+  (define key (build-path dir "k.pem"))
+  (define-values (proc out in err)
+    (subprocess #f #f #f (find-executable-path "openssl") "genrsa" "-out" (path->string key) "2048"))
+  (close-output-port in) (void (port->string out)) (void (port->string err)) (subprocess-wait proc)
+  (check-equal? (subprocess-status proc) 0)
+  (transport-set! conn (hasheq 'host "127.0.0.1" 'port PORT-EXT 'security "none"
+                               'from_address "tmach@example.test" 'from_name "TMach"
+                               'base_url "https://acme.test" 'active #t 'verify_tls #f
+                               'dkim_selector "tmach" 'dkim_key (file->string key)))
+  (define rec (dkim-record conn))
+  (check-true (string-prefix? rec "tmach._domainkey.example.test. IN TXT \"v=DKIM1; k=rsa; p=")
+              "the record names the selector and the From domain the signer uses")
+  (check-false (string-contains? rec "-----") "and carries no PEM armour")
+  ;; THE DOMAIN FOLLOWS `dkim_domain` WHEN IT IS SET, because that is what the
+  ;; signature's `d=` uses; a record published under a different name verifies
+  ;; nothing.
+  (void (transport-set! conn (hasheq 'host "127.0.0.1" 'port PORT-EXT 'security "none"
+                                    'from_address "tmach@mail.example.test" 'from_name "TMach"
+                                    'base_url "https://acme.test" 'active #t 'verify_tls #f
+                                    'dkim_selector "tmach" 'dkim_key (file->string key)
+                                    'dkim_domain "example.test")))
+  (check-true (string-prefix? (dkim-record conn) "tmach._domainkey.example.test. IN TXT "))
   (delete-directory/files dir)
   (close-db! conn))

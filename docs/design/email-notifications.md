@@ -313,7 +313,9 @@ the address is worth setting up before the first send.
 sender, and an external message's envelope sender is the bounce address, so SPF
 alone cannot carry DMARC for it. A signature with `d=<the From domain>` aligns
 whatever the envelope says. Relaxed/relaxed, because that is the canonicalization
-that survives a relay.
+that survives a relay. The private key is a sealed column, so the public half is
+not obtainable by hand: `telemachus-secrets dkim` prints the `TXT` record from the
+key and the selector the signer actually uses.
 
 **EXT‑11. One optional inbound mailbox, two consumers.** A bounce report and a
 reply are both "mail that comes back", so they share one mailbox, one credential

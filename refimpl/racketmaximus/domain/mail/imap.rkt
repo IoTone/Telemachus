@@ -38,11 +38,8 @@
          racket/system
          racket/list)
 
-(provide imap-available? imap-uidvalidity imap-unseen-uids imap-uids-after
+(provide imap-uidvalidity imap-unseen-uids imap-uids-after
          imap-fetch imap-mark-seen imap-command)
-
-(define (imap-available?)
-  (and (find-executable-path "curl") #t))
 
 (define (curl)
   (or (find-executable-path "curl")
