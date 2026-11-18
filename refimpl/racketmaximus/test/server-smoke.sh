@@ -91,6 +91,9 @@ bad(){ echo "  FAIL $1"; fail=1; }
 # of EGR-2 — and it is what lets the smoke assert the refusal for an address
 # OUTSIDE the allowance (169.254/16) rather than for everything.
 export TMACH_EGRESS_ALLOW="127.0.0.0/8"
+# The proxy block needs loopback named as a proxy whose X-Forwarded-For is
+# believed. Nothing else in the suite sends that header on a throttled route.
+export TMACH_TRUSTED_PROXIES="127.0.0.1"
 # #66: the anchor block needs a signing key in the SERVER's environment — it is
 # read per call, but this process is the one that reads it. A fixed test seed, so
 # the public key in the assertions is stable. The OFF path (no key: `enabled`
@@ -2407,6 +2410,30 @@ assert "a member may NOT export to disk" \
 
 # ---- reviews (LAY-1..3): a workflow that waits for a person ---------------------
 echo
+echo "== the calling address behind a trusted proxy ================================"
+# Behind a reverse proxy every connection comes from the proxy, so the
+# per-address sign-in limit treated all callers as one. The server is started
+# with loopback named as a trusted proxy (TMACH_TRUSTED_PROXIES, above), so an
+# X-Forwarded-For arriving from it is the caller's address. Each attempt uses a
+# different unknown username, so the per-ACCOUNT delay never comes into it.
+for i in $(seq 1 20); do
+  curl -s -o /dev/null -X POST $B/api/login -H 'X-Forwarded-For: 198.51.100.50' \
+    -d "{\"username\":\"px-nobody-$i\",\"password\":\"wrong-pass-0\"}"
+done
+assert "proxy: one caller's attempts run out" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/login -H 'X-Forwarded-For: 198.51.100.50' -d '{"username":"px-nobody-21","password":"wrong-pass-0"}')" '429'
+assert "…and another caller behind the same proxy is not held with them" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/login -H 'X-Forwarded-For: 198.51.100.51' -d '{"username":"px-nobody-22","password":"wrong-pass-0"}')" '401'
+# the proxy appends the address it saw; whatever the caller typed sits to its left
+assert "…an address typed in front of the real one changes nothing" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/login -H 'X-Forwarded-For: 198.51.100.77, 198.51.100.50' -d '{"username":"px-nobody-23","password":"wrong-pass-0"}')" '429'
+assert "…and a direct sign-in from this host is unaffected" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/login -d '{"username":"px-nobody-24","password":"wrong-pass-0"}')" '401'
+# a forwarded address never reaches the peer gate: identity headers through the
+# trusted proxy are still refused
+assert "…naming a proxy for addresses does not let it assert identity" \
+  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/whoami -H 'X-Forwarded-For: 127.0.0.1' -H 'X-Telemachus-User: alice' -H 'X-Telemachus-Team: default')" '401'
+
 echo "== reviews =="
 # create_note is left DISABLED by the tool-activation assertion above; this block
 # needs a tool that runs, and restores the state it found when it is done.
@@ -3558,7 +3585,7 @@ assert "email: verification is stored with a TLS mode"  "$MTV" '"verify_tls":tru
 # AND THE AUDIT TRAIL CARRIES IT, because turning verification off is the
 # security-relevant edit on this surface and the log outlives every other copy.
 assert "email: the configuration entry records the verification posture" \
-  "$(curl -s "$B/api/admin/audit/export?limit=200" -H "Authorization: Bearer $OP")" \
+  "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $OP")" \
   'verify_tls'
 # Put the transport back the way the rest of the file expects it, or every later
 # email block is testing a relay on port 587 that is not there — this file's own

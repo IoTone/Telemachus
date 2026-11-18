@@ -164,14 +164,43 @@
 ;; ---- identity ---------------------------------------------------------------
 ;; issue #40: the identity headers are honoured only from a peer we trust — see
 ;; domain/authz/peer.rkt for what that means and why. A deployment behind a
-;; trusted reverse proxy names it in TELEMACHUS_TRUSTED_HEADER_PEERS.
-;; SEC-13: ONE answer to "which address is calling", because that question must
-;; not be answered differently in two places — it decides a peer gate, an audit
-;; entry and a throttle. `"?"` rather than #f, so a caller composing a limiter
-;; KEY cannot silently key every unknown caller on the same `#f` by accident in
-;; one place and crash in another.
-(define (client-ip-of req)
-  (or (with-handlers ([exn:fail? (lambda (_) #f)]) (request-client-ip req)) "?"))
+;; trusted reverse proxy names it in TMACH_TRUSTED_HEADER_PEERS.
+;;
+;; TWO ADDRESSES, AND THEY ANSWER DIFFERENT QUESTIONS.
+;;   `peer-ip-of`   the address the connection came from. The peer gate asks
+;;                  this one and nothing else: an address read out of a header
+;;                  must never decide who may assert identity or bootstrap.
+;;   `client-ip-of` who is calling, for a limiter key and an audit entry. Behind
+;;                  a proxy named in TMACH_TRUSTED_PROXIES that is the address
+;;                  the proxy reported; otherwise it is the peer.
+(define (peer-ip-of req)
+  (with-handlers ([exn:fail? (lambda (_) #f)]) (request-client-ip req)))
+
+;; A proxy trusted to assert IDENTITY is trusted to report an address too; the
+;; second is the smaller thing to believe.
+(define (trusted-proxies)
+  (append (parse-peer-allowlist (tmach-env "TRUSTED_PROXIES"))
+          (parse-peer-allowlist (tmach-env "TRUSTED_HEADER_PEERS"))))
+
+;; Every `X-Forwarded-For` line, in order. `req-header` answers the first only,
+;; and the line our own proxy wrote is the last.
+(define (forwarded-for-values req)
+  (for/list ([h (in-list (request-headers/raw req))]
+             #:when (string-ci=? (bytes->string/latin-1 (header-field h)) "x-forwarded-for"))
+    (bytes->string/latin-1 (header-value h))))
+
+(define (client-ip/f req)
+  (define peer (peer-ip-of req))
+  (define proxies (trusted-proxies))
+  (if (and peer (member peer proxies))
+      (forwarded-client-ip peer (forwarded-for-values req) proxies)
+      peer))
+
+;; SEC-13: ONE answer to "which address is calling" for a throttle and an audit
+;; entry. `"?"` rather than #f, so a caller composing a limiter KEY cannot
+;; silently key every unknown caller on the same `#f` by accident in one place
+;; and crash in another.
+(define (client-ip-of req) (or (client-ip/f req) "?"))
 
 ;; Did a proxy hand this request on? See peer.rkt: a loopback peer is only the
 ;; box itself when nothing forwarded the request.
@@ -179,8 +208,7 @@
   (for/or ([h (in-list FORWARDING-HEADERS)]) (and (req-header req h) #t)))
 
 (define (header-identity-allowed? req)
-  (define ip (with-handlers ([exn:fail? (lambda (_) #f)]) (request-client-ip req)))
-  (peer-trusted? ip (parse-peer-allowlist (tmach-env "TRUSTED_HEADER_PEERS"))
+  (peer-trusted? (peer-ip-of req) (parse-peer-allowlist (tmach-env "TRUSTED_HEADER_PEERS"))
                  #:forwarded? (forwarded-request? req)
                  #:loopback? (loopback-trust-on? (tmach-env "LOOPBACK_TRUST"))))
 
@@ -512,8 +540,7 @@
      (parameterize ([current-request-principal p]
                     [current-read-context
                      (read-context "api"
-                                   (with-handlers ([exn:fail? (lambda (_) #f)])
-                                     (request-client-ip req))
+                                   (client-ip/f req)
                                    (req-header req #"user-agent")
                                    (request-id-of req)
                                    (req-header req #"range")

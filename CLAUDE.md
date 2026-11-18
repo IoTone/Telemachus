@@ -11568,9 +11568,16 @@ TMACH_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org layer
   `TMACH_LOOPBACK_TRUST=off` withdraws loopback's standing altogether for a
   proxy that adds none. A peer NAMED in `TMACH_TRUSTED_HEADER_PEERS` is exempt
   from the first rule on purpose — it is a proxy trusted to assert identity.
-  Not fixed: the per-address sign-in and redemption throttles see one address
-  behind a proxy; trusting `X-Forwarded-For` for that needs a trusted-proxy
-  setting of its own.
+  The per-address throttles were the other half: behind a proxy they saw one
+  address for everybody. `TMACH_TRUSTED_PROXIES` names the proxies whose
+  `X-Forwarded-For` is believed, and `forwarded-client-ip` in `peer.rkt` reads
+  it FROM THE RIGHT — the last entry is the one our proxy appended, everything
+  to its left is the caller's to forge — skipping entries that are themselves
+  trusted proxies. An unreadable hop answers the peer, so a caller can never
+  choose their own limiter key. `kit.rkt` keeps two addresses apart:
+  `peer-ip-of` (the connection; the ONLY thing the peer gate asks) and
+  `client-ip-of` (throttle keys and audit entries). Off unless configured. The
+  S3 listener has its own address field and does not use it.
 - The smokes run on localhost, so they exercise the ALLOWED side; the refusal is
   pinned in `test/peer-tests.rkt` instead. A smoke on the same host can never be
   a stranger, which is exactly why the gap survived so long.

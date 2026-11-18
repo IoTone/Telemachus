@@ -300,9 +300,13 @@ proxies add, such as `X-Forwarded-For`. That catches most proxies even if you
 forget the setting. Set it anyway, so you are not relying on what a particular
 proxy happens to send.
 
-One limit remains. The sign-in rate limit counts attempts per calling address,
-and behind a proxy every caller has the same one. The per-account limit still
-applies.
+**Set `TMACH_TRUSTED_PROXIES=127.0.0.1` as well.** The sign-in rate limit counts
+attempts per calling address, and behind a proxy every caller arrives from the
+proxy's address, so one person's failed sign-ins would use up everyone's
+allowance. With this setting TMach reads the caller's real address from the
+`X-Forwarded-For` header that `tailscale serve` adds, and uses it for the rate
+limits and the audit log. The header is only believed from the addresses you
+list.
 
 Steps:
 
@@ -311,7 +315,8 @@ Steps:
 2. In the Tailscale admin console, under **DNS**, turn on **MagicDNS** and
    **HTTPS Certificates**.
 3. On the server machine, once: `sudo tailscale set --operator=$USER`.
-4. Run the app with `TMACH_BIND=127.0.0.1` and `TMACH_LOOPBACK_TRUST=off`. Set
+4. Run the app with `TMACH_BIND=127.0.0.1`, `TMACH_LOOPBACK_TRUST=off` and
+   `TMACH_TRUSTED_PROXIES=127.0.0.1`. Set
    `TMACH_PUBLIC_URL` to the `https://<machine>.<tailnet>.ts.net` address so
    links in emails are right.
 5. `tailscale serve --bg 8835`.
@@ -352,7 +357,7 @@ same setting applies.
   the workers have been run on the project's own demo machines.
 - The systemd unit for the server on this page is a starting point. The demo
   runs under systemd, but this exact file has not been run as written.
-- `TMACH_LOOPBACK_TRUST` and the forwarded-header rule are covered by the
+- `TMACH_LOOPBACK_TRUST`, `TMACH_TRUSTED_PROXIES` and the forwarded-header rule are covered by the
   project's automated tests, using requests that carry the headers a proxy
   adds. They have not been tested against a live `tailscale serve` or
   `tailscale funnel`.

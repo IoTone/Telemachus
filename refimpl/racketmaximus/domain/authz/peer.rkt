@@ -16,7 +16,8 @@
 (require racket/string)
 
 (provide loopback-address? loopback-host? peer-trusted? parse-peer-allowlist
-         FORWARDING-HEADERS loopback-trust-on?)
+         FORWARDING-HEADERS loopback-trust-on?
+         forwarded-address forwarded-client-ip)
 
 ;; IPv4 loopback is the whole 127/8 block; IPv6 is ::1, and a v4-mapped v6 peer
 ;; arrives as ::ffff:127.0.0.1 on a dual-stack listener.
@@ -88,3 +89,63 @@
   (and (string? ip)
        (or (and (member ip allowlist) #t)
            (and loopback? (not forwarded?) (loopback-address? ip)))))
+
+;; ---- which address is calling, behind a proxy -------------------------------
+;; Behind a reverse proxy every connection comes from the proxy, so every caller
+;; shares one address: the per-address sign-in and redemption limits treat all
+;; users as one, and the audit log records the proxy for every request. The
+;; proxy writes the real address into `X-Forwarded-For`, and this is the rule for
+;; when to believe it.
+;;
+;; ONLY FROM A PROXY THE OPERATOR NAMED (`TMACH_TRUSTED_PROXIES`). The header is
+;; plain text, so from any other peer it is whatever the caller typed, and
+;; believing it would let anyone pick a fresh address per attempt and walk past
+;; the limit. With nothing configured this answers the peer, which is what the
+;; platform did before.
+;;
+;; READ FROM THE RIGHT. Each proxy appends the address it received the request
+;; from, so the rightmost entry was written by our own proxy and the entries to
+;; its left are whatever arrived, including anything the caller put there. Skip
+;; entries that are themselves trusted proxies (a chain of two) and take the
+;; first that is not. Taking the leftmost is the common mistake: that entry is
+;; the caller's to forge.
+;;
+;; ANYTHING UNREADABLE ANSWERS THE PEER. A caller must never be able to choose
+;; their own limiter key, so a hop that is not an address ends the walk on the
+;; stricter side: the shared address of the proxy.
+;;
+;; This is NOT the peer gate's question. Whether a request may assert identity
+;; in a header, or bootstrap, is decided on the connection's real peer
+;; (`peer-trusted?`), never on an address read out of a header.
+
+;; One `X-Forwarded-For` entry as an address, or #f. Proxies write a bare
+;; address; some add a port (`1.2.3.4:5678`, `[2001:db8::1]:5678`).
+(define (forwarded-address raw)
+  (define s (string-downcase (string-trim (if (string? raw) raw ""))))
+  (define bare
+    (cond
+      [(regexp-match #px"^\\[([^\\]]*)\\](?::[0-9]+)?$" s) => cadr]
+      [(regexp-match #px"^([0-9.]+):[0-9]+$" s) => cadr]
+      [else s]))
+  (and (<= 2 (string-length bare) 45)
+       (regexp-match? #px"^[0-9a-f:.]+$" bare)
+       bare))
+
+;; `peer` is the connection's address (or #f), `values` the request's
+;; `X-Forwarded-For` header values in the order they arrived, `proxies` the
+;; addresses the operator trusts to report one.
+(define (forwarded-client-ip peer values proxies)
+  (cond
+    [(not (and (string? peer) (member peer proxies))) peer]
+    [else
+     (define hops
+       (reverse (apply append (map (lambda (v) (string-split v ",")) values))))
+     (let loop ([hops hops])
+       (cond
+         [(null? hops) peer]
+         [else
+          (define a (forwarded-address (car hops)))
+          (cond
+            [(not a) peer]
+            [(member a proxies) (loop (cdr hops))]
+            [else a])]))]))
