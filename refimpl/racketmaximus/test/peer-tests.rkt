@@ -69,3 +69,45 @@
   (check-equal? (parse-peer-allowlist "") '())
   (check-equal? (parse-peer-allowlist #f) '())
   (check-equal? (parse-peer-allowlist ",,") '()))
+
+(test-case "an address a proxy reports is believed only from a proxy the operator named"
+  (define P '("127.0.0.1"))
+  ;; nothing configured: the peer, whatever the header says
+  (check-equal? (forwarded-client-ip "127.0.0.1" '("203.0.113.9") '()) "127.0.0.1")
+  ;; a stranger sending the header directly gets no say in their own address
+  (check-equal? (forwarded-client-ip "198.51.100.4" '("203.0.113.9") P) "198.51.100.4")
+  (check-equal? (forwarded-client-ip #f '("203.0.113.9") P) #f)
+  ;; from the named proxy, the address it reported
+  (check-equal? (forwarded-client-ip "127.0.0.1" '("203.0.113.9") P) "203.0.113.9")
+  ;; a trusted proxy that sent no header is still just the peer
+  (check-equal? (forwarded-client-ip "127.0.0.1" '() P) "127.0.0.1"))
+
+(test-case "the address is read from the right, so the caller cannot forge it"
+  (define P '("127.0.0.1"))
+  ;; the caller typed 10.9.9.9; our proxy appended where the request really came from
+  (check-equal? (forwarded-client-ip "127.0.0.1" '("10.9.9.9, 203.0.113.9") P) "203.0.113.9")
+  ;; the same when the caller's header arrived as a line of its own
+  (check-equal? (forwarded-client-ip "127.0.0.1" '("10.9.9.9" "203.0.113.9") P) "203.0.113.9")
+  ;; a chain of two trusted proxies: skip ours, take the first that is not
+  (check-equal? (forwarded-client-ip "127.0.0.1" '("203.0.113.9, 10.0.0.5") '("127.0.0.1" "10.0.0.5"))
+                "203.0.113.9")
+  ;; every hop is one of ours: the request began on a proxy, so the peer
+  (check-equal? (forwarded-client-ip "127.0.0.1" '("10.0.0.5") '("127.0.0.1" "10.0.0.5")) "127.0.0.1"))
+
+(test-case "a hop that is not an address answers the peer, never a key the caller chose"
+  (define P '("127.0.0.1"))
+  (check-equal? (forwarded-client-ip "127.0.0.1" '("203.0.113.9, unknown") P) "127.0.0.1")
+  (check-equal? (forwarded-client-ip "127.0.0.1" '("") P) "127.0.0.1")
+  (check-equal? (forwarded-client-ip "127.0.0.1" '("x\r\nInjected: 1") P) "127.0.0.1"))
+
+(test-case "one forwarded entry, in the forms proxies write"
+  (check-equal? (forwarded-address " 203.0.113.9 ") "203.0.113.9")
+  (check-equal? (forwarded-address "203.0.113.9:51234") "203.0.113.9")
+  (check-equal? (forwarded-address "2001:DB8::1") "2001:db8::1")
+  (check-equal? (forwarded-address "[2001:db8::1]:51234") "2001:db8::1")
+  (check-equal? (forwarded-address "[2001:db8::1]") "2001:db8::1")
+  (check-false (forwarded-address "unknown"))
+  (check-false (forwarded-address "_hidden"))
+  (check-false (forwarded-address ""))
+  (check-false (forwarded-address (make-string 80 #\1)))
+  (check-false (forwarded-address #f)))
