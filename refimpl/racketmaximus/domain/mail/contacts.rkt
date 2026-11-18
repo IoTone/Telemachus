@@ -9,8 +9,9 @@
 ;; credential they must never have. So a contact is its own row, scoped to a
 ;; company, and it never becomes a user implicitly.
 ;;
-;; THE ADDRESS IS THE ERASURE SUBJECT. It lives here and on the delivery row and
-;; nowhere else, and `contact-delete!` removes both. The audit log is chained,
+;; THE ADDRESS IS THE ERASURE SUBJECT. It lives here, on the delivery row and on
+;; the `from_address` of a reply the person sent, and `contact-delete!` removes all
+;; three. The audit log is chained,
 ;; exported and kept through an erasure (DEL-7), so no entry about a contact
 ;; carries the address — only the contact id, which is what the deletion removes.
 ;; That is the same rule the reset route states for an address a stranger typed
@@ -173,13 +174,15 @@
                  #:resource-type "email_contact" #:resource-id id #:result "ok")
          #t)))
 
-;; THE ERASURE PATH. The contact, its tokens and its delivery rows go together,
-;; because each of them carries the address or a credential that names the person.
-;; The audit log keeps the fact that sends happened, without the address, which is
-;; the one record that outlives the erasure by design.
+;; THE ERASURE PATH. The contact, its tokens, its delivery rows and the replies it
+;; sent go together, because each of them carries the address or the person's own
+;; words: `inbound_messages.from_address` is the address again, and its body is what
+;; that person wrote. A reply is found through `contact_id`, which is why that
+;; column exists on the table. The audit log keeps the fact that sends happened,
+;; without the address, which is the one record that outlives the erasure by design.
 ;;
-;; -> (hasheq 'tokens n 'deliveries n), or #f when the contact is not this
-;; company's.
+;; -> (hasheq 'tokens n 'deliveries n 'messages n), or #f when the contact is not
+;; this company's.
 (define (contact-delete! conn p id)
   (define org (caller-org p))
   (define exists (query-maybe-value conn
@@ -188,13 +191,16 @@
        (let* ([tokens (query-maybe-value conn
                         "SELECT COUNT(*) FROM email_action_tokens WHERE contact_id = ?" id)]
               [deliveries (query-maybe-value conn
-                            "SELECT COUNT(*) FROM email_deliveries WHERE contact_id = ?" id)])
-         ;; ONE TRANSACTION, because a failure between the three deletes leaves
-         ;; half an erasure: the contact gone and its address still on a delivery
-         ;; row, which is the one outcome an erasure must not produce.
+                            "SELECT COUNT(*) FROM email_deliveries WHERE contact_id = ?" id)]
+              [messages (query-maybe-value conn
+                          "SELECT COUNT(*) FROM inbound_messages WHERE contact_id = ?" id)])
+         ;; ONE TRANSACTION, because a failure between the deletes leaves half an
+         ;; erasure: the contact gone and its address still on a delivery row or in
+         ;; a stored reply, which is the one outcome an erasure must not produce.
          (call-with-transaction
           conn
           (lambda ()
+            (query-exec conn "DELETE FROM inbound_messages WHERE contact_id = ?" id)
             (query-exec conn "DELETE FROM email_action_tokens WHERE contact_id = ?" id)
             (query-exec conn "DELETE FROM email_deliveries WHERE contact_id = ?" id)
             (query-exec conn "DELETE FROM email_contacts WHERE id = ? AND org_id = ?" id org)
@@ -202,8 +208,10 @@
                     #:actor-id (principal-user-id p) #:org-id org #:team-id (principal-team-id p)
                     #:resource-type "email_contact" #:resource-id id #:result "ok"
                     #:meta (jsexpr->string (hasheq 'tokens (or tokens 0)
-                                                   'deliveries (or deliveries 0))))))
-         (hasheq 'tokens (or tokens 0) 'deliveries (or deliveries 0)))))
+                                                   'deliveries (or deliveries 0)
+                                                   'messages (or messages 0))))))
+         (hasheq 'tokens (or tokens 0) 'deliveries (or deliveries 0)
+                 'messages (or messages 0)))))
 
 ;; The two reads a sender needs, so a caller does not reach into the hash and
 ;; invent a default for a missing key.

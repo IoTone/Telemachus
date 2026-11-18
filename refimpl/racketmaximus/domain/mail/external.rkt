@@ -136,10 +136,13 @@
           [else
            (define subject-id (let ([v (hash-ref data 'subject_id #f)]) (and (string? v) v)))
            (define dedupe (format "~a|~a|~a" contact-id template-id (or subject-id "")))
+           ;; SCOPED TO THE COMPANY as well as the key, because the key names a
+           ;; contact and a template and a lookup that can answer "somebody else's
+           ;; pending row" is a lookup that will one day hand out the wrong id.
            (define existing (query-maybe-value conn
                               (string-append "SELECT id FROM email_deliveries WHERE dedupe_key = ? "
-                                             "AND status = 'pending'")
-                              dedupe))
+                                             "AND org_id = ? AND status = 'pending'")
+                              dedupe org))
            (cond
              [existing (refuse 'duplicate existing)]
              [else
@@ -153,17 +156,22 @@
                 (let ([v (query-maybe-value conn "SELECT email FROM users WHERE id = ?"
                                             (principal-user-id p))])
                   (and v (not (sql-null? v)) v)))
-              (define reply-to
+              ;; THE TOKEN'S ID IS KEPT, because the row is written before the
+              ;; delivery exists and a queue failure after this point would leave a
+              ;; credential nothing carries. One address, one row, and a delete on
+              ;; the path that does not end in a queued message.
+              (define-values (reply-to token-id)
                 (if (inbound-consumer-on? conn "messages")
-                    (let ([raw (random-token)])
+                    (let* ([raw (random-token)]
+                           [tid (new-id)])
                       (query-exec conn
                         (string-append "INSERT INTO email_action_tokens (id, contact_id, org_id, purpose, "
                                        "token_hash, subject_id, expires_at, created_epoch) "
                                        "VALUES (?, ?, ?, 'reply', ?, ?, ?, ?)")
-                        (new-id) contact-id org (hash-token (string-append "reply:" raw))
+                        tid contact-id org (hash-token (string-append "reply:" raw))
                         (or subject-id sql-null) (+ (now) REPLY-TTL) (now))
-                      (format "reply+~a@~a" raw (from-domain t)))
-                    sender-address))
+                      (values (format "reply+~a@~a" raw (from-domain t)) tid))
+                    (values sender-address #f)))
               (define from-name (or (user-display conn (principal-user-id p)) "A colleague"))
               (define org-name* (or (org-name conn org) "your company"))
               (define full-data
@@ -180,7 +188,10 @@
                                #:team team #:org org #:template template-id
                                #:dedupe dedupe #:contact contact-id #:reply-to reply-to))
               (cond
-                [(not id) (refuse 'no-transport)]
+                [(not id)
+                 ;; nothing was queued, so nothing may redeem this token
+                 (when token-id (query-exec conn "DELETE FROM email_action_tokens WHERE id = ?" token-id))
+                 (refuse 'no-transport)]
                 [else
                  (tenant-quota-record!/team conn team MAIL-EXTERNAL-DIM 1)
                  ;; THE ADDRESS IS NOT IN THE META. The log is chained, exported

@@ -117,9 +117,15 @@
           [(char=? (string-ref s i) ch) i]
           [else (loop (add1 i))])))
 
+;; THE LAST INSTANCE, not the first. RFC 6376 5.4 signs and verifies a header by
+;; name counting UP from the bottom of the header block, so when a field appears
+;; more than once and `h=` names it once, the instance a verifier canonicalizes is
+;; the bottom one. Signing the top one would produce a signature that verifies
+;; while a duplicated `Subject` slipped past it, and that is the one thing a
+;; signature exists to prevent.
 (define (header-value hs name)
-  (define p (assoc name hs))
-  (and p (cdr p)))
+  (define hits (for/list ([p (in-list hs)] #:when (equal? (car p) name)) (cdr p)))
+  (and (pair? hits) (last hits)))
 
 ;; ---- the signing input --------------------------------------------------------
 ;; The bytes that are signed: each covered header canonicalized and CRLF-terminated,
@@ -216,18 +222,19 @@
       (format (no-i18n "~a._domainkey.~a. IN TXT \"v=DKIM1; k=rsa; p=~a\"") selector domain body))
     (lambda () (with-handlers ([exn:fail? void]) (delete-directory/files dir #:must-exist? #f)))))
 
-;; "Is there a key and a selector?" — the two things a signature needs. The domain
-;; defaults to the From address's domain, which is the only domain the instance may
-;; honestly claim.
-;; THE KEY IS AN ARGUMENT, because `transport-ref` never carries it: the read
-;; exposes `has_dkim_key` and nothing else, the rule the password follows. Asking
-;; the hash for `dkim_key` answered #f on every real transport, so signing was
-;; inert while every test of the signer passed — the defect a test that drives
-;; `smtp-deliver!` with a real transport hash is there to catch.
-(define (dkim-configured? t [key #f])
+;; "Is there a selector AND the key we were handed?" — the two things a signature
+;; needs.
+;;
+;; THE KEY IS A REQUIRED ARGUMENT, and it is the whole of this function's history.
+;; `transport-ref` never carries it: the read exposes `has_dkim_key` and nothing
+;; else, the rule the password follows. The first version asked the hash for
+;; `dkim_key`, which answered #f on every real transport, so signing was inert while
+;; every test of the signer passed. It then kept a fallback of that same lookup for
+;; the tests' convenience, which left the silent path open for the next caller. A
+;; caller with no key passes #f and is told no signature will be made.
+(define (dkim-configured? t key)
   (and t
-       (let ([s (hash-ref t 'dkim_selector #f)]
-             [k (or key (hash-ref t 'dkim_key #f))])
+       (let ([s (hash-ref t 'dkim_selector #f)])
          (and (string? s) (not (string=? s (no-i18n "")))
-              (string? k) (not (string=? k (no-i18n "")))
+              (string? key) (not (string=? key (no-i18n "")))
               #t))))

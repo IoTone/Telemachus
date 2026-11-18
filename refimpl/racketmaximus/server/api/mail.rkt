@@ -43,8 +43,7 @@
                   mail-deliveries mail-delivery-get mail-redeliver! mail-send-test!
                   mail-enqueue-verification!)
          (only-in "../../domain/mail/inbound.rkt"
-                  INBOUND-MODES INBOUND-CONSUMERS inbound-ref inbound-set! inbound-clear!
-                  inbound-problem)
+                  INBOUND-MODES INBOUND-CONSUMERS inbound-ref inbound-set! inbound-clear!)
          (only-in "../../domain/mail/addresses.rkt"
                   user-address-state address-claim! address-verify! address-clear!)
          "../kit.rkt")
@@ -147,10 +146,10 @@
   (with-auth req (lambda (p)
     (require-perm db-conn p "instance:manage")
     (define b (read-json-body req))
-    ;; `inbound-set!` validates; a second check here would be the redundant-guard
-    ;; shape, and the two would drift.
-    (with-handlers ([exn:fail:user? raise])
-      (json-response (hasheq 'inbound (inbound-set! db-conn b #:by (principal-user-id p))))))))
+    ;; `inbound-set!` validates and raises `exn:fail:user?`, which the dispatcher
+    ;; answers 400 with. A second check here would be the redundant-guard shape, and
+    ;; a `with-handlers` that re-raised it was dead code.
+    (json-response (hasheq 'inbound (inbound-set! db-conn b #:by (principal-user-id p)))))))
 
 (define (ep-email-inbound-delete req)
   (with-auth req (lambda (p)

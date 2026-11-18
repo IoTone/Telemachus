@@ -11746,7 +11746,7 @@ will photograph a broken page — use this to gate a deploy.
 
 `domain/mail/contacts.rkt`, `domain/mail/templates.rkt`, `domain/mail/external.rkt`,
 `domain/mail/inbound.rkt`, `domain/mail/dkim.rkt`, `server/api/contacts.rkt`;
-migrations 0077–0080; six company-plane routes and three instance routes.
+migrations 0077–0081; six company-plane routes and three instance routes.
 
 ```sh
 raco test test/email-contacts-tests.rkt test/email-external-tests.rkt \
@@ -11780,11 +11780,33 @@ bash test/server-smoke.sh
   row and the address are now decided together: with the `messages` consumer on the
   address is `reply+<token>@<domain>`, and without it the reply goes to the person
   who sent the message and no token row is written.
-- **THE DKIM PROOF IS A REAL VERIFICATION.** `test/dkim-tests.rkt` signs a message
-  and hands the signature, the public key and the signing input to
+- **THE DKIM PROOF IS A REAL VERIFICATION, ON THE WIRE TOO.** `test/dkim-tests.rkt`
+  signs a message and hands the signature, the public key and the signing input to
   `openssl dgst -verify`, requiring "Verified OK". The body hash is checked
   separately, because a signature over the wrong body hash verifies perfectly and
-  still fails at the receiver.
+  still fails at the receiver. `test/email-external-tests.rkt` then drives
+  `smtp-deliver!` into the mock relay and verifies the signature against the
+  message AS RECEIVED, which is the only assertion that catches a signature
+  computed over a header block that differs from the one sent.
+- **A HEADER NAME IN `h=` IS SIGNED FROM THE LAST INSTANCE** (RFC 6376 5.4): a
+  duplicated `Subject` must not be free to change after the fact, so
+  `dkim-parse-headers` is searched bottom-up.
+- **THE INBOUND SWITCHES GATE THE DISPATCH.** The poll asks the `bounces` switch
+  before it suppresses and the `messages` switch before it spends a reply token. A
+  switch that still changes state when it is off is worse than no switch.
+- **THE POLLER READS BY UID POSITION, NOT BY UNSEEN.** `UID SEARCH UNSEEN` skips
+  any message a person opened in webmail, so the shipped path is
+  `UID SEARCH UID <last+1>:*` with `(uidvalidity, last_uid)` stored. Two traps: a
+  range whose start is past the largest UID answers the largest (RFC 3501), so the
+  comparison is made after the fact; and `STATUS INBOX` on a configured folder
+  reports the wrong mailbox's generation, so the folder is interpolated.
+- **THE ERASURE TAKES THE REPLIES TOO.** `inbound_messages.from_address` is the
+  address again and its body is that person's words, so `contact-delete!` removes
+  them with the tokens and the deliveries, in one transaction.
+- **A CURL CONFIG VALUE MUST BE QUOTED AND ESCAPED.** `curl -K -` reads one
+  directive per line, so a password containing a `"` ends the string early and a
+  newline starts a directive; `imap.rkt` escapes both and every command carries
+  `connect-timeout`, `max-time` and `max-filesize`.
 - **`#px`/`#rx` LITERALS REJECT `(?i)`** and need the scoped `(?i:...)` form, and
   adjacent string literals are NOT concatenated in Racket — both cost a run here.
 - **`query-row` WITH TWO STRING ARGUMENTS TREATS THE SECOND AS A PARAMETER**, which

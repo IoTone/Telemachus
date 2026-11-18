@@ -96,15 +96,20 @@ const CONSLABEL = {bounces:'mlcons_bounces', messages:'mlcons_messages'};
 
 function emailInboundCard(){
   const I = (S.mailI && S.mailI.inbound) || null;
-  const modes = (S.mailI && S.mailI.modes) || ['none','imap','maildir','webhook'];
+  const modes = (S.mailI && S.mailI.modes) || ['none','imap'];
   const cons = (S.mailI && S.mailI.consumers) || ['bounces','messages'];
   const mode = (I && I.mode) || 'none';
   const C = (I && I.consumers) || {};
-  const needsHost = mode === 'imap' || mode === 'webhook';
+  const needsHost = mode === 'imap';
+  // A NOTE IS NOT A FAILURE. A poll that ran and left something behind — a message
+  // it could not classify, a mailbox it had to re-sync — is `last_poll_ok` true with
+  // a sentence in `last_error`, and a card that only drew the sentence on failure
+  // would hide the one thing an operator has to see.
   const poll = I && I.last_poll_epoch
-    ? `<p class="muted" style="font-size:12px;margin:6px 0 0">${t('mltested')}: ${esc(new Date(I.last_poll_epoch*1000).toLocaleString())} — ${
+    ? `<p class="muted" style="font-size:12px;margin:6px 0 0">${t('mllastpoll')}: ${esc(new Date(I.last_poll_epoch*1000).toLocaleString())} — ${
          I.last_poll_ok === true ? `<span class="badge ok">${t('mlok')}</span>`
-       : I.last_poll_ok === false ? `<span class="badge bad">${esc(I.last_error||tRaw('error'))}</span>` : '—'}</p>`
+       : I.last_poll_ok === false ? `<span class="badge bad">${t('error')}</span>` : '—'}${
+       I.last_error ? ` <span class="muted">${esc(I.last_error)}</span>` : ''}</p>`
     : '';
   return `<div class="card" id="mibcard" style="margin-top:14px"><h3>${t('mlinbound')}</h3>
     <p class="muted" style="margin-top:0">${t('mlinboundhint')}</p>

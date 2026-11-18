@@ -1400,7 +1400,7 @@
         "x-tmach-permission-checked": "role"
       },
       "get": {
-        "description": "The inbound mailbox: its mode (`none`, `imap`, `maildir` or `webhook`), the two consumer switches, the last poll and its error, and the closed vocabularies beside the row so a console card holds no second copy. The password is never in this reply.",
+        "description": "The inbound mailbox: its mode (`none` or `imap`), the two consumer switches, the stored UID position, the last poll and its error, and the closed vocabularies beside the row so a console card holds no second copy. The password is never in this reply.",
         "operationId": "get.api.email-inbound",
         "security": [
           {
@@ -1416,7 +1416,7 @@
         "x-tmach-permission-checked": "role"
       },
       "put": {
-        "description": "Configure the inbound mailbox as a whole document: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}. An absent password leaves the stored one alone, so an edit to the folder cannot silently clear the credential. `consumers` is `{bounces, messages}` and both default to off.",
+        "description": "Configure the inbound mailbox as a whole document: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}. An absent password leaves the stored one alone, so an edit to the folder cannot silently clear the credential. `consumers` is `{bounces, messages}`, both default to off, and a consumer that is off is not run: a mailbox read for bounces never spends a reply token, and one read for replies never suppresses a contact.",
         "operationId": "put.api.email-inbound",
         "security": [
           {
@@ -3137,7 +3137,7 @@
     },
     "/api/org/contacts/{id}": {
       "delete": {
-        "description": "Erase an external party: the contact, its action tokens and its delivery rows. The audit log keeps the fact that sends happened and never the address, because that log is chained, exported and kept through an erasure.",
+        "description": "Erase an external party: the contact, its action tokens, its delivery rows and the replies it sent, in one transaction. The audit log keeps the fact that sends happened and never the address, because that log is chained, exported and kept through an erasure.",
         "operationId": "delete.api.org.contacts.id",
         "parameters": [
           {
@@ -3353,7 +3353,7 @@
     },
     "/api/org/inbound": {
       "get": {
-        "description": "The replies that arrived in the company's inbound mailbox, newest first: who they came from, the subject, the body and when. The platform stores them and does not try to understand the prose; showing them is the product's job, because the inbox is a plugin and core may not require one.",
+        "description": "The replies that arrived in the company's inbound mailbox, newest first: who they came from, the subject, the body, when, and whether the message is `stored` or `quarantined` — a reply that arrived after its token expired, which may be shown and may not be acted on. The platform stores them and does not try to understand the prose; showing them is the product's job, because the inbox is a plugin and core may not require one.",
         "operationId": "get.api.org.inbound",
         "security": [
           {

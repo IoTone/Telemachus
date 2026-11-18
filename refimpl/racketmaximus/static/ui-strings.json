@@ -252,6 +252,7 @@
   "ui.mlhost": "SMTP host",
   "ui.mlinbound": "Inbound mail",
   "ui.mlinboundhint": "One optional mailbox, read for two things: bounce reports, which suppress an address that no longer exists, and replies, which arrive as an inbox item. A bounce and a reply are both mail that comes back, so they share one mailbox. Nothing is read until this is configured.",
+  "ui.mllastpoll": "Last poll",
   "ui.mlmine": "My notifications",
   "ui.mlminehint": "Where this account is notified, and what about. An address is not used until it has been confirmed.",
   "ui.mlmode": "Mode",

@@ -47,10 +47,13 @@
   (close-db! c))
 
 ;; ---- the modes --------------------------------------------------------------
-(test-case "a mode that reads a mailbox needs a host and a port"
+(test-case "a mode that reads a mailbox needs a host, a port and a username"
   (define c (fresh))
   (check-exn exn:fail? (lambda () (inbound-set! c (hasheq 'mode "imap" 'port 993))))
   (check-exn exn:fail? (lambda () (inbound-set! c (hasheq 'mode "imap" 'host "h.test"))))
+  (check-exn exn:fail? (lambda () (inbound-set! c (hasheq 'mode "imap" 'host "h.test" 'port 993))))
+  (check-exn exn:fail? (lambda () (inbound-set! c (hasheq 'mode "imap" 'host "h.test" 'port 993
+                                                          'username "  "))))
   ;; `none` needs neither, and it is a mode rather than an absent row so the
   ;; console has one thing to draw
   (check-true (and (inbound-set! c (hasheq 'mode "none")) #t))
@@ -59,7 +62,12 @@
 
 (test-case "an unknown field and an unknown consumer are refused, not dropped"
   (define c (fresh))
-  (check-exn exn:fail? (lambda () (inbound-set! c (hasheq 'mode "none" 'imap_host "h"))))
+  ;; A BAD DOCUMENT IS A USER ERROR, because that is the exception the dispatcher
+  ;; answers 400 with; a plain `error` would be an opaque 500 on the route an
+  ;; operator configures the mailbox from.
+  (check-exn exn:fail:user? (lambda () (inbound-set! c (hasheq 'mode "none" 'imap_host "h"))))
+  (check-exn exn:fail:user? (lambda () (inbound-set! c (hasheq 'mode "imap" 'host "h.test" 'port 993
+                                                          'folder "bad folder"))))
   (check-exn exn:fail?
              (lambda () (inbound-set! c (imap-doc #:consumers (hasheq 'bounces #t 'invoices #t)))))
   (check-false (inbound-ref c) "a refused write leaves no row")
@@ -100,6 +108,16 @@
   (void (inbound-set! c (imap-doc #:consumers (hasheq 'bounces #t))))
   (check-true (inbound-consumer-on? c "bounces"))
   (check-false (inbound-consumer-on? c "messages"))
+  (close-db! c))
+
+;; A SWITCH ON A MAILBOX NOTHING POLLS IS OFF, because the reply address it would
+;; turn on is an address nobody opens.
+(test-case "a consumer cannot be on when the mode reads no mailbox"
+  (define c (fresh))
+  (void (inbound-set! c (hasheq 'mode "none" 'active #t
+                                'consumers (hasheq 'bounces #t 'messages #t))))
+  (check-false (inbound-consumer-on? c "messages"))
+  (check-false (inbound-consumer-on? c "bounces"))
   (close-db! c))
 
 (test-case "active: false is still configured, and nothing is read"
@@ -153,7 +171,10 @@
   (check-false (inbound-reply-token (dsn-raw))))
 
 ;; ---- the poll, with the fetch injected --------------------------------------
-(test-case "a poll dispatches each message and marks it seen"
+;; A company with a contact, a delivery sent to them and the reply token that
+;; delivery carries — the state the send path leaves behind. Every poll case below
+;; starts here.
+(define (mailbox-fixture #:consumers [consumers (hasheq 'bounces #t 'messages #t)])
   (define c (fresh))
   (define-values (root sys) (bootstrap! c #:username "root" #:org-name "I" #:org-slug "s"
                                         #:team-name "I" #:team-slug "i"))
@@ -166,21 +187,24 @@
                                               #:role "admin" #:org-role "org_admin")
                           'user_id))
   (define p (user-principal c admin eng))
-  (void (inbound-set! c (imap-doc #:consumers (hasheq 'bounces #t 'messages #t))))
-  ;; a contact, a delivery and a reply token, as the send path would leave them
+  (void (inbound-set! c (imap-doc #:consumers consumers)))
   (define cid (contact-add! c p #:address "gone@example.test"))
   (define did "00000000-0000-4000-8000-000000000000")
   (query-exec c
     (string-append "INSERT INTO email_deliveries (id, team_id, user_id, contact_id, org_id, recipient, "
-                   "category, subject, body, status, attempts, created_epoch) "
-                   "VALUES (?, ?, NULL, ?, ?, 'gone@example.test', 'external', 's', 'b', 'sent', 1, ?)")
-    did eng cid oid (current-seconds))
+                   "category, subject, body, status, attempts, created_epoch, reply_to) "
+                   "VALUES (?, ?, NULL, ?, ?, 'gone@example.test', 'external', 's', 'b', 'sent', 1, ?, ?)")
+    did eng cid oid (current-seconds) (format "reply+tk_abc@example.test"))
   (define raw-token "tk_abc")
   (query-exec c
     (string-append "INSERT INTO email_action_tokens (id, contact_id, org_id, purpose, token_hash, "
                    "expires_at, created_epoch) VALUES (?, ?, ?, 'reply', ?, ?, ?)")
     (new-id) cid oid (hash-token (string-append "reply:" raw-token))
     (+ (current-seconds) 3600) (current-seconds))
+  (values c oid p cid did))
+
+(test-case "a poll dispatches each message and marks it seen"
+  (define-values (c oid p cid did) (mailbox-fixture))
   (define seen '())
   (define r (inbound-poll! c
                            #:uids '("1" "2" "3")
@@ -194,6 +218,7 @@
   (check-equal? (hash-ref r 'bounces) 1)
   (check-equal? (hash-ref r 'replies) 1)
   (check-equal? (hash-ref r 'other) 1)
+  (check-equal? (hash-ref r 'failed) 0)
   (check-equal? (sort seen string<?) '("1" "2" "3"))
   ;; the bounce suppressed the contact
   (check-equal? (hash-ref (contact-get c p cid) 'status) "suppressed")
@@ -201,12 +226,14 @@
   (define msgs (inbound-messages c oid))
   (check-equal? (length msgs) 1)
   (check-equal? (hash-ref (car msgs) 'from_address) "supplier@example.test")
+  (check-equal? (hash-ref (car msgs) 'state) "stored")
   (check-true (string-contains? (hash-ref (car msgs) 'body) "label artwork"))
   (check-true (exact-integer? (query-value c "SELECT used_at FROM email_action_tokens WHERE purpose = 'reply'")))
-  ;; a second poll of the same message is refused by the spent token, and the
-  ;; unique index on the raw hash is the second guard
+  ;; A REPLAY OF THE SAME MESSAGE IS NOT STORED AGAIN, and it is counted as
+  ;; ignored rather than as a second reply.
   (define r2 (inbound-poll! c #:uids '("2") #:fetch (lambda (uid) (reply-raw)) #:mark-seen void))
-  (check-equal? (hash-ref r2 'replies) 1)
+  (check-equal? (hash-ref r2 'replies) 0)
+  (check-equal? (hash-ref r2 'ignored) 1)
   (check-equal? (length (inbound-messages c oid)) 1 "a replayed reply is not stored twice")
   (close-db! c))
 
@@ -215,4 +242,99 @@
   (define r (inbound-poll! c))
   (check-equal? (hash-ref r 'seen) 0)
   (check-false (hash-ref r 'error))
+  (close-db! c))
+
+;; ---- the two switches actually switch ---------------------------------------
+;; A switch an operator turns off that still changes state is worse than no
+;; switch, so each consumer gates its own half of the dispatch.
+(test-case "bounces off means a report suppresses nobody, and messages off means a reply is not stored"
+  (define-values (c oid p cid did) (mailbox-fixture #:consumers (hasheq 'bounces #f 'messages #t)))
+  (define r (inbound-poll! c #:uids '("1" "2")
+                           #:fetch (lambda (uid) (if (equal? uid "1") (dsn-raw) (reply-raw)))
+                           #:mark-seen void))
+  (check-equal? (hash-ref r 'bounces) 0)
+  (check-equal? (hash-ref r 'ignored) 1)
+  (check-equal? (hash-ref r 'replies) 1)
+  (check-equal? (hash-ref (contact-get c p cid) 'status) "active"
+                "a report nobody asked to be read must not suppress anybody")
+  (close-db! c)
+
+  (define-values (c2 oid2 p2 cid2 did2) (mailbox-fixture #:consumers (hasheq 'bounces #t 'messages #f)))
+  (define r2 (inbound-poll! c2 #:uids '("1" "2")
+                            #:fetch (lambda (uid) (if (equal? uid "1") (dsn-raw) (reply-raw)))
+                            #:mark-seen void))
+  (check-equal? (hash-ref r2 'bounces) 1)
+  (check-equal? (hash-ref r2 'replies) 0)
+  (check-equal? (hash-ref r2 'ignored) 1)
+  (check-equal? (length (inbound-messages c2 oid2)) 0 "messages off means nothing is stored")
+  (check-true (sql-null? (query-value c2 "SELECT used_at FROM email_action_tokens WHERE purpose = 'reply'"))
+              "and the token is not spent by a consumer that is off")
+  (close-db! c2))
+
+;; ---- a late reply is kept, an unknown address is not -------------------------
+(test-case "a reply that arrives after the token expired is quarantined, not dropped"
+  (define-values (c oid p cid did) (mailbox-fixture))
+  (query-exec c "UPDATE email_action_tokens SET expires_at = ? WHERE purpose = 'reply'"
+              (- (current-seconds) 60))
+  (define r (inbound-poll! c #:uids '("1") #:fetch (lambda (uid) (reply-raw)) #:mark-seen void))
+  (check-equal? (hash-ref r 'quarantined) 1)
+  (check-equal? (hash-ref r 'replies) 0)
+  (define msgs (inbound-messages c oid))
+  (check-equal? (length msgs) 1 "the answer is kept: a person may be waiting for it")
+  (check-equal? (hash-ref (car msgs) 'state) "quarantined")
+  (check-true (sql-null? (query-value c "SELECT used_at FROM email_action_tokens WHERE purpose = 'reply'"))
+              "and a quarantined reply does not spend the token")
+  (close-db! c))
+
+(test-case "a message to a reply address nobody minted is counted, and the poll says so"
+  (define-values (c oid p cid did) (mailbox-fixture))
+  (define unknown (string-replace (reply-raw) "tk_abc" "tk_ffff"))
+  (define r (inbound-poll! c #:uids '("1") #:fetch (lambda (uid) unknown) #:mark-seen void))
+  (check-equal? (hash-ref r 'other) 1)
+  (check-equal? (length (inbound-messages c oid)) 0)
+  (check-true (string-contains? (or (hash-ref (inbound-ref c) 'last_error) "")
+                                "unknown reply address")
+              "an operator has to be able to see that something arrived and was not kept")
+  (close-db! c))
+
+;; ---- the position, and the two ways it could skip mail ----------------------
+(test-case "the position is recorded, and a changed UIDVALIDITY re-syncs"
+  (define-values (c oid p cid did) (mailbox-fixture))
+  (void (inbound-poll! c #:uids '("4" "5") #:uidvalidity "100"
+                       #:fetch (lambda (uid) (dsn-raw)) #:mark-seen void))
+  (define m (inbound-ref c))
+  (check-equal? (hash-ref m 'last_uid) "5")
+  (check-equal? (hash-ref m 'uidvalidity) "100")
+  ;; THE UID SPACE WAS RESET: every stored UID names a different message now, so the
+  ;; position must not be trusted. The poller re-syncs from the unseen set, which is
+  ;; what an injected empty `uids` stands for here — the assertion is that the pair
+  ;; moved to the new generation rather than being carried over.
+  (void (inbound-poll! c #:uids '("2") #:uidvalidity "200"
+                       #:fetch (lambda (uid) (dsn-raw)) #:mark-seen void))
+  (define m2 (inbound-ref c))
+  (check-equal? (hash-ref m2 'uidvalidity) "200")
+  (check-equal? (hash-ref m2 'last_uid) "2")
+  (close-db! c))
+
+(test-case "a message that cannot be fetched stops the poll without stepping over it"
+  (define-values (c oid p cid did) (mailbox-fixture))
+  (define marked '())
+  (define r (with-handlers ([exn:fail? (lambda (e) #f)])
+              (inbound-poll! c #:uids '("7" "8")
+                             #:fetch (lambda (uid) (error 'imap "the server hung up"))
+                             #:mark-seen (lambda (uid) (set! marked (cons uid marked))))))
+  (check-true (and r #t) "the poll answers rather than raising at the sweep")
+  (check-true (string-contains? (or (hash-ref r 'error) "") "the server hung up"))
+  (check-equal? marked '() "nothing is marked seen, so the next tick reads it again")
+  (check-equal? (hash-ref (inbound-ref c) 'last_uid) 'null
+                "and the position is not advanced past it")
+  (close-db! c))
+
+(test-case "one tick is bounded, so a full mailbox cannot hold the reaper seam"
+  (define-values (c oid p cid did) (mailbox-fixture))
+  (define uids (for/list ([i (in-range 40)]) (number->string (add1 i))))
+  (define r (inbound-poll! c #:uids uids
+                           #:fetch (lambda (uid) "From: a@b.test\r\nTo: c@d.test\r\n\r\nx\r\n")
+                           #:mark-seen void))
+  (check-equal? (hash-ref r 'seen) MAX-MESSAGES-PER-POLL)
   (close-db! c))

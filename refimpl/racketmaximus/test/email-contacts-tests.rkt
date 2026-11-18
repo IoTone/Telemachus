@@ -151,7 +151,7 @@
   (close-db! conn))
 
 ;; ---- erasure ----------------------------------------------------------------
-(test-case "deleting a contact takes its tokens and its deliveries, and the audit keeps no address"
+(test-case "deleting a contact takes its tokens, its deliveries and its replies, and the audit keeps no address"
   (define-values (conn root acme globex) (instance))
   (define p (hash-ref acme 'admin-p))
   (define id (contact-add! conn p #:address "erase@example.test"))
@@ -165,12 +165,23 @@
                    "subject, body, status, attempts, created_epoch) "
                    "VALUES (?, ?, NULL, ?, ?, 'external', 's', 'b', 'sent', 1, ?)")
     (new-id) (hash-ref acme 'team) id "erase@example.test" (current-seconds))
+  ;; AND A REPLY THE CONTACT SENT, which carries the address in `from_address` and
+  ;; the person's own words in `body`: the first version of this erasure left that
+  ;; table alone, and the scan below could not see it because no reply existed.
+  (query-exec conn
+    (string-append "INSERT INTO inbound_messages (id, org_id, contact_id, token_id, message_id, "
+                   "from_address, subject, body, raw_sha256, received_epoch, state) "
+                   "VALUES (?, ?, ?, NULL, '<r@example.test>', ?, 'Re: document request', "
+                   "'erase@example.test wrote this', ?, ?, 'stored')")
+    (new-id) (hash-ref acme 'org) id "erase@example.test" "deadbeef" (current-seconds))
   (define r (contact-delete! conn p id))
   (check-equal? (hash-ref r 'tokens) 1)
   (check-equal? (hash-ref r 'deliveries) 1)
+  (check-equal? (hash-ref r 'messages) 1)
   (check-false (contact-get conn p id))
   (check-equal? (query-value conn "SELECT COUNT(*) FROM email_action_tokens WHERE contact_id = ?" id) 0)
   (check-equal? (query-value conn "SELECT COUNT(*) FROM email_deliveries WHERE contact_id = ?" id) 0)
+  (check-equal? (query-value conn "SELECT COUNT(*) FROM inbound_messages WHERE contact_id = ?" id) 0)
   ;; THE LOG OUTLIVES THE ERASURE, so it must not hold the address. Every entry
   ;; this module wrote is checked, not just the deletion.
   ;; THE PROPERTY, not the mechanism: after the erasure the address appears in NO

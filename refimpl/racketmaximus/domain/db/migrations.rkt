@@ -2678,8 +2678,9 @@
 
       ;; THE ERASURE LINK. A contact's deliveries are found through this column,
       ;; and `contact-delete!` removes them: the delivery row is about that person,
-      ;; so a request to be forgotten takes it. The audit log keeps the fact that
-      ;; sends happened, without the address.
+      ;; so a request to be forgotten takes it, together with the replies they sent
+      ;; (found through the same column on `inbound_messages`). The audit log keeps
+      ;; the fact that sends happened, without the address.
       (exec* conn "ALTER TABLE email_deliveries ADD COLUMN contact_id TEXT")
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_contact ON email_deliveries (contact_id)"))))
 
@@ -2723,10 +2724,12 @@
       ;; an upgrade must not start reading a mailbox, the same rule the transport
       ;; follows.
       ;;
-      ;; `mode` is the ingestion mechanism: `imap` (the shipped one, read through
-      ;; `curl`, which is already in the closure and already shelled out to),
-      ;; `maildir` (for an operator who already runs a local delivery agent), and
-      ;; `webhook` (for a relay that reports). `none` is the shipped state.
+      ;; `mode` is the ingestion mechanism, and the vocabulary holds only the one
+      ;; that exists: `imap`, read through `curl`, which is already in the closure
+      ;; and already shelled out to. `none` is the shipped state. `maildir` and
+      ;; `webhook` are recorded in the design as the alternatives and are not in
+      ;; this column's vocabulary until they are implemented — a mode an operator
+      ;; can set and nothing reads is what a closed vocabulary prevents.
       ;;
       ;; `consumers` is a JSON document rather than two columns, because it is one
       ;; closed vocabulary and the writer normalizes it — the shape
@@ -2789,6 +2792,11 @@
       ;; traced to the exact outbound message it answers. `raw_sha256` is the
       ;; deduplication key: delivery is at-least-once, and a poller that restarts
       ;; sees the same message again.
+      ;;
+      ;; `state` is `stored` for a reply whose token was unspent, and `quarantined`
+      ;; for one that arrived after the token expired or was already used: the
+      ;; product may show it and may not act on it. A reply is never deleted for
+      ;; being late, because the person who wrote it is waiting for an answer.
       ;;
       ;; `body` is the message's own words, so it is CONTENT and not a composed
       ;; notification — the one place in this subsystem where that is true. It is

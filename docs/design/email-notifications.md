@@ -303,7 +303,11 @@ message a broker is expected to act on, so the mode drops it and carries a
 the `messages` consumer on it is `reply+<token>@<domain>`, 24 random bytes hashed
 at rest. Without it the reply goes to the person who sent the message, because a
 token nothing redeems sends a supplier's answer to an address nobody opens, which
-is worse than no token at all.
+is worse than no token at all. The consumer only counts when something polls: a
+switch on a mailbox whose mode is `none` is off. A sender with no address on their
+own account has nothing to reply to, so the message carries no `Reply-To` and a
+reply reaches the instance's own `From` address rather than a person — the reason
+the address is worth setting up before the first send.
 
 **EXT‑10. DKIM, because DMARC alignment needs it.** SPF authenticates the envelope
 sender, and an external message's envelope sender is the bounce address, so SPF
@@ -318,18 +322,46 @@ or both, and the shipped state is `none` — an upgrade must not start reading a
 mailbox. The shipped mode is `imap`, read through `curl`; `maildir` and `webhook`
 are recorded as the alternatives and are not in the vocabulary until they are
 implemented, because a mode an operator can set and nothing reads is the thing a
-closed vocabulary exists to prevent. `last_uid` and `uidvalidity` are stored together, because when UIDVALIDITY
-changes the UID space was reset and the poller must re-sync rather than trust a UID
-that now names a different message.
+closed vocabulary exists to prevent.
 
-**EXT‑12. The address is the erasure subject.** It lives on the contact row and the
-delivery row and nowhere else. Deleting a contact takes its tokens and its delivery
-rows, and the audit log keeps the fact that sends happened and never the address,
-because that log is chained, exported and kept through an erasure (DEL‑7). A
-retention rule purges settled delivery rows and never a `pending` one.
+**EXT‑11a. The switches gate the dispatch, not only the address.** A mailbox read
+for bounces must not spend a reply token, and one read for replies must not
+suppress a contact from a report nobody asked to be read. So the poll asks each
+switch before it handles each kind. A switch that still changes state when it is
+off is worse than no switch.
+
+**EXT‑11b. The poller reads by UID position, not by the UNSEEN flag.**
+`last_uid` and `uidvalidity` are stored together, and a poll reads every message
+newer than the stored UID. The flag alone would skip any message a person had
+already opened in webmail. When UIDVALIDITY changes the UID space was reset, so the
+stored UID names a different message and the poller re-syncs from the unseen set
+instead of trusting it. The first poll of a freshly configured mailbox uses the
+unseen set too, because reading an archive nobody meant to hand over is not a thing
+to do on a guess. One tick is bounded (25 messages), every `curl` conversation has
+a connect timeout, a total timeout and a size ceiling, a fetch failure stops the
+poll and leaves the position so the next tick retries, and a message that parsed
+and then failed to handle is marked seen and noted rather than retried for ever.
+
+**EXT‑11c. A late reply is kept.** A reply that arrives after its token expired or
+was spent is stored with `state = 'quarantined'`: the product may show it and may
+not act on it. The person who wrote it is waiting for an answer, so dropping it
+would be the wrong half of the trade. A message to a reply address nobody minted
+cannot be attributed to a company, so it is not stored; the poll counts it and
+leaves a note in the mailbox's `last_error`, which is what an operator reads.
+
+**EXT‑12. The address is the erasure subject.** It lives on the contact row, the
+delivery row and the `from_address` of a stored reply, and nowhere else. Deleting a
+contact takes its tokens, its delivery rows and its replies in one transaction, and
+the audit log keeps the fact that sends happened and never the address, because
+that log is chained, exported and kept through an erasure (DEL‑7). A retention rule
+purges settled delivery rows and never a `pending` one.
 
 ### Deliberately not built here
 
+- **A per-company send switch.** The permission is the gate: `org:mail` is held by
+  `org_admin` and `org_owner` and by nobody else, the company quota and the two
+  rate limiters bound what one company can spend, and a second switch on top of
+  three bounds would be a fourth place to look when mail does not go out.
 - **Attachments.** A presigned link to a repository document is the same outcome,
   and an outbound attachment needs multipart, a size limit, a virus scan and
   content in the queue.

@@ -117,11 +117,31 @@
   (delete-directory/files dir))
 
 ;; ---- the configuration --------------------------------------------------------
-(test-case "signing is configured only when a selector and a key are both present"
-  (check-false (dkim-configured? #f))
-  (check-false (dkim-configured? (hasheq 'dkim_selector "s")))
-  (check-false (dkim-configured? (hasheq 'dkim_key "-----BEGIN PRIVATE KEY-----")))
-  (check-true (dkim-configured? (hasheq 'dkim_selector "s" 'dkim_key "-----BEGIN PRIVATE KEY-----"))))
+;; THE KEY IS AN ARGUMENT AND THERE IS NO SECOND PLACE IT COULD COME FROM: asking
+;; the transport hash for it is what made signing inert on every real transport
+;; while every test of the signer passed.
+(test-case "signing is configured only when a selector is stored and a key is handed in"
+  (check-false (dkim-configured? #f "-----BEGIN PRIVATE KEY-----"))
+  (check-false (dkim-configured? (hasheq 'dkim_selector "s") #f))
+  (check-false (dkim-configured? (hasheq 'dkim_selector "s" 'dkim_key "-----BEGIN PRIVATE KEY-----") #f)
+               "a key in the transport hash is not a key: the read never carries one")
+  (check-false (dkim-configured? (hasheq 'has_dkim_key #t) "-----BEGIN PRIVATE KEY-----"))
+  (check-true (dkim-configured? (hasheq 'dkim_selector "s") "-----BEGIN PRIVATE KEY-----")))
+
+;; RFC 6376 5.4: a field named once in `h=` is canonicalized from the BOTTOM of
+;; the header block, so the signature covers the last instance. Signing the top one
+;; would leave a duplicated Subject free to be changed after the fact.
+(test-case "a header that appears twice is signed from the last instance"
+  (define two-subjects
+    (string-append "From: a@b.test\r\n"
+                   "Subject: the real one\r\n"
+                   "To: c@d.test\r\n"
+                   "Date: Mon, 17 Nov 2026 10:00:00 +0000\r\n"
+                   "Subject: what a relay added\r\n"
+                   "Message-ID: <x@b.test>\r\n\r\n"))
+  (define-values (input unsigned) (dkim-signing-input two-subjects BODY "b.test" "s"))
+  (check-true (string-contains? input "subject:what a relay added\r\n"))
+  (check-false (string-contains? input "subject:the real one\r\n")))
 
 (test-case "the transport refuses a key that is not a PEM, and a selector that is not a label"
   (check-true (and (transport-problem (hasheq 'host "h.test" 'port 587 'from_address "a@b.test"
