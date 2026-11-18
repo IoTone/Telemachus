@@ -1304,6 +1304,14 @@
       "text": "設定中…",
       "hash": "97d836e747ce7741bd4e6fbe5bfa9a364000a5b8"
     },
+    "ui.mllastpoll": {
+      "text": "最終ポーリング",
+      "hash": "edb60eeaef347d7e3021bc502dc8c9672389bb90"
+    },
+    "doc.route.delete.api.doc-triggers.id": {
+      "text": "トリガーとその履歴を削除します；開始した実行は残ります。",
+      "hash": "afe84f89cbf1f9cf94cca53d96bb0aea6890ed7e"
+    },
     "doc.route.post.api.admin.users.id.tokens": {
       "text": "サービスアカウント用のマシントークンを発行します：{name?, scopes?, ttl?}。ttl は秒数か \"never\" です。監視プローブ、ハーベスト、バックアップはサインインしないうえ、`POST /api/tokens` は呼び出した本人のために発行するので、これがなければ、そのようなアカウントが長寿命のトークンを持つ唯一の方法は、自分自身が `settings:manage` を持つことでした。監査には、発行した運用者と、そのトークンが代弁するアカウントの両方が記録されます。運用者アカウントは拒否されます。運用者はサインインして `POST /api/tokens` を使います。",
       "hash": "72f955221724d11ad7809fe7cdfbb7cfc4de9902"
@@ -1323,10 +1331,6 @@
     "ui.orgnoinclude": {
       "text": "ここでは #+INCLUDE: に対応していません — ノートはサーバー上のファイルを読み取れません",
       "hash": "854fb323be836ef017658090506af2580f086576"
-    },
-    "doc.route.delete.api.doc-triggers.id": {
-      "text": "トリガーとその履歴を削除します；開始した実行は残ります。",
-      "hash": "afe84f89cbf1f9cf94cca53d96bb0aea6890ed7e"
     },
     "ui.nonotes": {
       "text": "ノートはまだありません。上の欄から最初の 1 件を書いてください。",
@@ -5099,10 +5103,6 @@
     "doc.tool.doc_redact.step": {
       "text": "ワークフローステップ ID（由来の記録用）。",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
-    },
-    "ui.mllastpoll": {
-      "text": "最終ポーリング",
-      "hash": "edb60eeaef347d7e3021bc502dc8c9672389bb90"
     }
   }
 }
