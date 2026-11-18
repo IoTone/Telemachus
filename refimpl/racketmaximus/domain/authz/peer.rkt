@@ -15,7 +15,8 @@
 
 (require racket/string)
 
-(provide loopback-address? loopback-host? peer-trusted? parse-peer-allowlist)
+(provide loopback-address? loopback-host? peer-trusted? parse-peer-allowlist
+         FORWARDING-HEADERS loopback-trust-on?)
 
 ;; IPv4 loopback is the whole 127/8 block; IPv6 is ::1, and a v4-mapped v6 peer
 ;; arrives as ::ffff:127.0.0.1 on a dual-stack listener.
@@ -55,7 +56,35 @@
       (filter (lambda (s) (not (string=? s ""))) (map string-trim (string-split v ",")))
       '()))
 
-(define (peer-trusted? ip allowlist)
+;; A LOOPBACK PEER IS ONLY THE BOX ITSELF WHEN NOTHING FORWARDED THE REQUEST.
+;; A reverse proxy on this host (`tailscale serve`, nginx, caddy) connects from
+;; 127.0.0.1 on behalf of whoever called it, so behind one EVERY request has a
+;; loopback peer and the rule above would hand a principal to anyone who can
+;; reach the proxy and type a username into a header. Two defences, because
+;; neither is enough alone:
+;;
+;;   • a request carrying any header a proxy adds is not local, whatever its
+;;     peer address. The caller cannot remove what the proxy appends, and a
+;;     script on the box has no reason to send one.
+;;   • `TMACH_LOOPBACK_TRUST=off` withdraws loopback's standing altogether, for
+;;     a proxy that adds no such header. Identity then needs a token and
+;;     bootstrap needs TMACH_BOOTSTRAP_SECRET.
+;;
+;; A peer the operator NAMED in the allowlist is exempt from the first rule on
+;; purpose: it is a proxy trusted to assert identity, and it will be sending
+;; forwarding headers as a matter of course.
+(define FORWARDING-HEADERS
+  '(#"x-forwarded-for" #"x-forwarded-host" #"x-forwarded-proto" #"x-forwarded-server"
+    #"forwarded" #"x-real-ip" #"via"))
+
+;; On unless switched off by name. An unrecognised value keeps the default, as
+;; every default-bearing setting here does.
+(define (loopback-trust-on? v)
+  (not (and (string? v)
+            (member (string-downcase (string-trim v)) '("0" "off" "false" "no"))
+            #t)))
+
+(define (peer-trusted? ip allowlist #:forwarded? [forwarded? #f] #:loopback? [loopback? #t])
   (and (string? ip)
-       (or (loopback-address? ip)
-           (and (member ip allowlist) #t))))
+       (or (and (member ip allowlist) #t)
+           (and loopback? (not forwarded?) (loopback-address? ip)))))

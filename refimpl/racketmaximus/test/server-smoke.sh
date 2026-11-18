@@ -169,6 +169,11 @@ assert "…even unnormalized"           "$(curl -s --path-as-is -o /dev/null -w 
 # #282 item 2: an operator password is chosen, never defaulted — an empty or
 # short one is refused BEFORE any account exists, so the real bootstrap below
 # still finds a fresh instance.
+# A proxy on this host connects from loopback on behalf of whoever called it, so
+# a forwarded request is not "this host". Asserted BEFORE the real bootstrap,
+# while the instance is still unclaimed, which is the state that matters.
+assert "bootstrap through a proxy is refused"  "$(curl -s -X POST $B/api/bootstrap -H 'X-Forwarded-For: 203.0.113.7' -d '{"username":"mallory","password":"s3cret-enough"}')" 'through a proxy does not count'
+assert "…with a 403"                           "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/bootstrap -H 'Forwarded: for=203.0.113.7' -d '{"username":"mallory","password":"s3cret-enough"}')" '403'
 assert "bootstrap refuses an empty password" "$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":""}')" 'password too short'
 assert "bootstrap refuses a short password"  "$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"abc"}')" 'password too short'
 BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"s3cret-enough"}')
@@ -1912,6 +1917,10 @@ assert "model roles: cleared"                  "$(curl -s -X PUT $B/api/model-ro
 # the peer rule that refuses them from anywhere else is unit-tested in
 # test/peer-tests.rkt — a smoke running on the same host cannot be a stranger.
 assert "identity headers work from loopback" "$(curl -s $B/api/whoami -H 'X-Telemachus-User: alice' -H 'X-Telemachus-Team: default')" '"is_operator":true'
+for FH in 'X-Forwarded-For: 203.0.113.7' 'Forwarded: for=203.0.113.7' 'X-Real-IP: 203.0.113.7' 'X-Forwarded-Proto: https'; do
+  assert "identity headers are refused behind a proxy ($FH)" "$(curl -s -o /dev/null -w '%{http_code}' $B/api/whoami -H "$FH" -H 'X-Telemachus-User: alice' -H 'X-Telemachus-Team: default')" '401'
+done
+assert "…while a token still works behind a proxy" "$(curl -s $B/api/whoami -H 'X-Forwarded-For: 203.0.113.7' -H "Authorization: Bearer $OP")" '"is_operator":true'
 assert "…and no headers is still a 401"      "$(curl -s -o /dev/null -w '%{http_code}' $B/api/whoami)" '401'
 
 # ---- issue #41: bootstrap closed after first use, whatever the caller presents

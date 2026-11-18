@@ -57,8 +57,10 @@
   (cond
     [(saas-mode?) (err "interactive bootstrap is disabled in hosted mode" 403)]
     [(not (bootstrap-allowed? req body))
-     (err (string-append "bootstrap is allowed from this host only. Run it on the server, "
-                         "or set TMACH_BOOTSTRAP_SECRET and send it as X-Telemachus-Bootstrap.")
+     (err (string-append "bootstrap is allowed from this host only, and a request that came "
+                         "through a proxy does not count. Run it on the server against the "
+                         "app's own port, or set TMACH_BOOTSTRAP_SECRET and send it as "
+                         "X-Telemachus-Bootstrap.")
           403)]
     [(not username) (err "username required" 400)]
     [(query-maybe-value db-conn "SELECT id FROM users LIMIT 1") (err (msg-already-init) 409)]
