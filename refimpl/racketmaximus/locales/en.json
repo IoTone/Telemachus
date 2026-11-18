@@ -5048,8 +5048,8 @@
       "hash": "f2afcef162808b1a6720bb9cd2b948aea93b14d3"
     },
     "doc.route.put.api.email-inbound": {
-      "text": "Configure the inbound mailbox as a whole document: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}. An absent password leaves the stored one alone, so an edit to the folder cannot silently clear the credential. `consumers` is `{bounces, messages}`, both default to off, and a consumer that is off is not run: a mailbox read for bounces never spends a reply token, and one read for replies never suppresses a contact.",
-      "hash": "45203c95b606eb92e24d4913e071dc0a1746d95e"
+      "text": "Configure the inbound mailbox as a whole document: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}. An absent password leaves the stored one alone, so an edit to the folder cannot silently clear the credential, and an absent `active` leaves the stored switch alone for the same reason: a document that omits it must not stop a poller that is running, because mail arriving while nothing reads it is the one failure nobody sees. `active: false` is how it is stopped. `consumers` is `{bounces, messages}`, both default to off, and a consumer that is off is not run: a mailbox read for bounces never spends a reply token, and one read for replies never suppresses a contact.",
+      "hash": "d67996cca7cab8c84f79ff1d4ed797f5133f7611"
     },
     "ui.dimension": {
       "text": "Dimension",

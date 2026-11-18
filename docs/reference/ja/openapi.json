@@ -1416,7 +1416,7 @@
         "x-tmach-permission-checked": "role"
       },
       "put": {
-        "description": "受信メールボックスを文書全体として設定します: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}。パスワードを省略すると保存済みのものはそのまま残るので、フォルダの変更が認証情報を黙って消すことはありません。`consumers` は `{bounces, messages}` で、どちらも既定は無効です。無効な消費側は実行されません。バウンスを読まない設定が返信トークンを使うことはなく、返信を読まない設定が連絡先を抑止することもありません。",
+        "description": "受信メールボックスを文書全体として設定します: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}。パスワードを省略すると保存済みのものはそのまま残るので、フォルダの変更が認証情報を黙って消すことはありません。`active` を省略した場合も同じ理由で保存済みの値が残ります。省略された文書が動作中のポーラーを停止させてはならないからです。誰も読まない間に届いたメールは、気づかれないまま失われる唯一の障害です。停止するには `active: false` を送ります。`consumers` は `{bounces, messages}` で、どちらも既定は無効です。無効な消費側は実行されません。バウンスを読まない設定が返信トークンを使うことはなく、返信を読まない設定が連絡先を抑止することもありません。",
         "operationId": "put.api.email-inbound",
         "security": [
           {

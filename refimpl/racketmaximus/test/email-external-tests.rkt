@@ -212,14 +212,39 @@
   (check-equal? (delivery-count conn) 0)
   (close-db! conn))
 
-(test-case "a template missing a key is refused rather than sent with a placeholder"
+(test-case "a template missing a key is a 400 for the caller, and writes nothing"
+  ;; A MISSING ID IS THE CALLER'S MISTAKE, so it is `exn:fail:user?` and the
+  ;; dispatcher answers 400 with the sentence. A plain `error` would be an opaque
+  ;; 500 telling an API client the server broke.
   (define-values (conn acme) (instance))
   (define p (hash-ref acme 'admin-p))
   (define cid (contact-add! conn p #:address "a@example.test"))
-  (check-exn exn:fail?
+  (check-exn exn:fail:user?
              (lambda () (send! conn p cid #:data (hasheq 'subject_id "obj-1")))
              "a message reading 'Document request: {what}' is worse than none")
   (check-equal? (delivery-count conn) 0)
+  (close-db! conn))
+
+;; THE ORDER OF THE TWO WRITES. The reply token used to be minted before the words
+;; were composed, so a render that raised left a credential row nothing carried
+;; living for its month — one per attempt. The render now happens first.
+(test-case "a refused render leaves no reply token behind"
+  (define-values (conn acme) (instance))
+  (define p (hash-ref acme 'admin-p))
+  (define cid (contact-add! conn p #:address "a@example.test"))
+  ;; the mailbox reads replies, which is what makes the send mint a token at all
+  (void (inbound-set! conn (hasheq 'mode "imap" 'host "imap.example.test" 'port 993
+                                   'username "bounce@example.test" 'active #t
+                                   'consumers (hasheq 'messages #t))))
+  (check-equal? (token-count conn) 0)
+  (check-exn exn:fail:user?
+             (lambda () (send! conn p cid #:data (hasheq 'subject_id "obj-1"))))
+  (check-equal? (token-count conn) 0 "a message that was never composed must not leave a credential")
+  (check-equal? (delivery-count conn) 0)
+  ;; and the same send with the id it needs does mint one, so the assertion above
+  ;; is about the refusal rather than about tokens never being written
+  (check-equal? (hash-ref (send! conn p cid) 'queued) 1)
+  (check-equal? (token-count conn) 1)
   (close-db! conn))
 
 ;; ---- the limiters -----------------------------------------------------------

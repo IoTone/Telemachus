@@ -224,10 +224,20 @@
         [(or (eq? v 'null) (and (string? v) (string=? v ""))) sql-null]
         [else (seal-password INBOUND-ID v)])))
   (define consumers (jsexpr->string (normalize-consumers (hash-ref doc 'consumers #f))))
+  ;; AN ABSENT `active` LEAVES THE STORED ONE ALONE, the rule the password follows,
+  ;; because the whole-document write points the wrong way here: an API client that
+  ;; omits the field would otherwise SILENTLY STOP THE POLLER, and mail that arrives
+  ;; while nothing reads it is the one failure an operator cannot see. Turning it
+  ;; off is `active: false`, which is a value and cannot be mistaken for an absence.
+  (define active
+    (let ([v (hash-ref doc 'active 'absent)])
+      (cond [(eq? v 'absent) (if cur (if (= 1 (vector-ref cur 11)) 1 0) 0)]
+            [v 1]
+            [else 0])))
   (define args
     (list (hash-ref doc 'mode "none") (f 'host) (f 'port) (hash-ref doc 'security "tls")
           (f 'username) pw (hash-ref doc 'folder "INBOX") consumers
-          (if (hash-ref doc 'active #f) 1 0) (or by sql-null) (now)))
+          active (or by sql-null) (now)))
   (if cur
       (apply query-exec conn
              (string-append "UPDATE inbound_mailbox SET mode = ?, host = ?, port = ?, security = ?, "
@@ -535,16 +545,20 @@
                  [v (and addr (query-maybe-value conn
                              "SELECT team_id FROM email_deliveries WHERE reply_to = ?" addr))])
             (and v (not (sql-null? v)) v)))
+        ;; -> the stored row's id, so the audit entry names the MESSAGE and not the
+        ;; credential that authorized it.
         (define (store! state)
+          (define mid (new-id))
           (query-exec conn
             (string-append "INSERT INTO inbound_messages (id, org_id, contact_id, token_id, message_id, "
                            "from_address, subject, body, raw_sha256, received_epoch, state) "
                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-            (new-id) org contact token-id
+            mid org contact token-id
             (or (bounded-header raw "Message-ID") sql-null)
             (or (bounded-header raw "From") sql-null)
             (or (bounded-header raw "Subject") sql-null)
-            (bounded-body raw) sha (now) state))
+            (bounded-body raw) sha (now) state)
+          mid)
         (cond
           [(already-stored? conn sha) 'replay]
           [(and (sql-null? used) (> expires (now)))
@@ -556,11 +570,10 @@
                        (string-append "UPDATE email_action_tokens SET used_at = ? "
                                       "WHERE id = ? AND used_at IS NULL RETURNING id")
                        (now) token-id)
-                     (begin
-                       (store! "stored")
+                     (let ([mid (store! "stored")])
                        (audit! conn #:action "email.inbound.received" #:actor-type "system"
                                #:actor-id "inbound" #:org-id org #:team-id (or team sql-null)
-                               #:resource-type "inbound_message" #:resource-id token-id
+                               #:resource-type "inbound_message" #:resource-id mid
                                #:result "ok")
                        #t)))))
            (if won 'stored 'replay)]

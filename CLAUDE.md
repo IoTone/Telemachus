@@ -11801,7 +11801,7 @@ will photograph a broken page — use this to gate a deploy.
 
 `domain/mail/contacts.rkt`, `domain/mail/templates.rkt`, `domain/mail/external.rkt`,
 `domain/mail/inbound.rkt`, `domain/mail/dkim.rkt`, `server/api/contacts.rkt`;
-migrations 0077–0081; six company-plane routes and three instance routes.
+migrations 0077–0081; seven company-plane routes and three instance routes.
 
 ```sh
 raco test test/email-contacts-tests.rkt test/email-external-tests.rkt \
@@ -11878,6 +11878,26 @@ bash test/server-smoke.sh
 - **`jsexpr->string` REFUSES A STRING KEY**, so a stored JSON document is built with
   symbol keys and the API's own vocabulary stays strings; the conversion is in
   `normalize-consumers` and nowhere else.
+- **CURL'S OUTPUT FOR A UID FETCH IS NOT THE MESSAGE.** `-X "UID FETCH n
+  (BODY.PEEK[])"` prints `* 1 FETCH (BODY[] {101}` before the literal; the trailing
+  `)` and the tagged OK are consumed by curl and do not appear (`test/mock-imap.rkt`
+  is what settled it, against a server that answers RFC 3501 semantics).
+  `strip-fetch-framing` removes the prefix, and it matters beyond tidiness: the
+  prefix carries the SEQUENCE NUMBER, so `raw_sha256` would change whenever another
+  message was expunged and the `raw_sha256` dedupe would never fire.
+- **`test/imap-tests.rkt` is the only test that crosses the wire** for the inbound
+  mailbox: every other case injects `#:fetch` and `#:uids` into `inbound-poll!`,
+  which is right for the dispatch and leaves the client untested. Keep it that way —
+  the framing bug above was invisible to a scripted fetch by construction.
+- **`\r?\n` DID NOT MATCH IN A `#rx` LITERAL** while `(\r\n|\n)` does, measured
+  on the fetch line in `strip-fetch-framing`. `#rx` is Racket's own engine (`\r` and
+  `\n` are real CR and LF there, unlike `#px`, which REJECTS them as "illegal
+  alphabetic escape"), and the `?` after the CR is what failed.
+- **AN ABSENT `active` ON `/api/email-inbound` LEAVES THE STORED SWITCH ALONE**, the
+  rule the password follows. The route is a whole-document write, so defaulting an
+  absent field to `false` means a client that omits it silently stops the poller, and
+  mail arriving while nothing reads it is the failure nobody sees. `active: false`
+  stops it.
 
 ## Git
 

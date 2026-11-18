@@ -128,6 +128,25 @@
   (check-false (inbound-consumer-on? c "bounces"))
   (close-db! c))
 
+;; AN ABSENT `active` IS NOT "OFF". The route is a whole-document write, so an API
+;; client that sends the fields it changed and omits this one would otherwise stop
+;; the poller in silence — and mail arriving while nothing reads it is the one
+;; failure an operator cannot see. Explicit `false` is the way to stop it.
+(test-case "an absent active leaves the stored switch alone"
+  (define c (fresh))
+  (void (inbound-set! c (imap-doc)))
+  (check-true (inbound-configured? c))
+  (void (inbound-set! c (hasheq 'mode "imap" 'host "imap.example.test" 'port 993
+                                'username "bounce@example.test"
+                                'consumers (hasheq 'bounces #t))))
+  (check-true (hash-ref (inbound-ref c) 'active) "a document without the field kept it on")
+  (check-true (inbound-configured? c) "so the poller still runs")
+  (check-true (inbound-consumer-on? c "bounces"))
+  ;; and the explicit value is what turns it off
+  (void (inbound-set! c (imap-doc #:active #f)))
+  (check-false (inbound-configured? c))
+  (close-db! c))
+
 ;; ---- the way back -----------------------------------------------------------
 (test-case "delete is the only way back to the shipped state"
   (define c (fresh))
@@ -235,6 +254,19 @@
   (check-equal? (hash-ref r2 'replies) 0)
   (check-equal? (hash-ref r2 'ignored) 1)
   (check-equal? (length (inbound-messages c oid)) 1 "a replayed reply is not stored twice")
+  (close-db! c))
+
+;; THE AUDIT ENTRY NAMES THE MESSAGE. `resource-type "inbound_message"` with a
+;; token id is a record an operator cannot follow to what arrived.
+(test-case "the audit entry for a stored reply names the message, not the credential"
+  (define-values (c oid p cid did) (mailbox-fixture))
+  (void (inbound-poll! c #:uids '("1") #:fetch (lambda (uid) (reply-raw)) #:mark-seen void))
+  (define stored (car (inbound-messages c oid)))
+  (define ids (for/list ([r (in-list (query-rows c
+                                        "SELECT resource_id FROM audit_log WHERE action = ?"
+                                        "email.inbound.received"))])
+                (vector-ref r 0)))
+  (check-equal? ids (list (hash-ref stored 'id)))
   (close-db! c))
 
 (test-case "a poll with no mailbox does nothing, and says so"

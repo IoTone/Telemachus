@@ -1416,7 +1416,7 @@
         "x-tmach-permission-checked": "role"
       },
       "put": {
-        "description": "Configure the inbound mailbox as a whole document: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}. An absent password leaves the stored one alone, so an edit to the folder cannot silently clear the credential. `consumers` is `{bounces, messages}`, both default to off, and a consumer that is off is not run: a mailbox read for bounces never spends a reply token, and one read for replies never suppresses a contact.",
+        "description": "Configure the inbound mailbox as a whole document: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}. An absent password leaves the stored one alone, so an edit to the folder cannot silently clear the credential, and an absent `active` leaves the stored switch alone for the same reason: a document that omits it must not stop a poller that is running, because mail arriving while nothing reads it is the one failure nobody sees. `active: false` is how it is stopped. `consumers` is `{bounces, messages}`, both default to off, and a consumer that is off is not run: a mailbox read for bounces never spends a reply token, and one read for replies never suppresses a contact.",
         "operationId": "put.api.email-inbound",
         "security": [
           {

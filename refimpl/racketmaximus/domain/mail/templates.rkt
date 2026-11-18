@@ -78,15 +78,21 @@
   (and (string? id) (assoc id EXTERNAL-TEMPLATES) #t))
 
 ;; -> (values subject body). Refuses an unknown id and a missing key, because both
-;; are programming errors rather than conditions a recipient should ever see.
+;; are caller errors rather than conditions a recipient should ever see.
+;;
+;; A USER ERROR, not a plain one: the dispatcher maps `exn:fail:user?` to a 400
+;; carrying the sentence, and a bare `error` becomes an opaque 500. A caller that
+;; forgot one id in `data` is told which one; it is not told the server broke. The
+;; same call `inbound-set!` and `contact-add!` make, for the same reason.
 (define (template-render id data)
   (define e (assoc id EXTERNAL-TEMPLATES))
-  (unless e (error 'template-render (no-i18n "unknown external template: ~a") id))
+  (unless e
+    (raise-user-error 'template-render (no-i18n "unknown external template: ~a") id))
   (define required (cadr e))
   (for ([k (in-list required)])
     (define v (hash-ref data k #f))
     (unless (and (string? v) (not (string=? (string-trim v) (no-i18n ""))))
-      (error 'template-render (no-i18n "template ~a needs a non-empty ~a") id k)))
+      (raise-user-error 'template-render (no-i18n "template ~a needs a non-empty ~a") id k)))
   ((caddr e) data))
 
 ;; ---- the notification's wrapper words ----------------------------------------

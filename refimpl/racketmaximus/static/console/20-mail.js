@@ -140,7 +140,7 @@ function emailInboundCard(){
 }
 
 // The host and credential rows are hidden for a mode that reads no mailbox, so the
-// card does not ask for an IMAP host when the answer is `none` or `maildir`.
+// card does not ask for an IMAP host when the answer is `none`.
 function mailInboundMode(sel){
   const show = sel.value === 'imap';
   // BY ID, not by DOM index: a row added above these would silently move the

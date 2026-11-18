@@ -156,6 +156,19 @@
                 (let ([v (query-maybe-value conn "SELECT email FROM users WHERE id = ?"
                                             (principal-user-id p))])
                   (and v (not (sql-null? v)) v)))
+              ;; COMPOSED BEFORE THE TOKEN IS MINTED, and the order is the point. A
+              ;; render that raises — a missing id in `data` is a caller error —
+              ;; never reaches the delete-on-a-refused-queue path below, so minting
+              ;; first left a reply credential nothing carries, living for its
+              ;; month, one per attempt. Nothing is written until the words exist.
+              (define from-name (or (user-display conn (principal-user-id p)) "A colleague"))
+              (define org-name* (or (org-name conn org) "your company"))
+              (define full-data
+                (hash-set* (if (hash? data) data (hasheq))
+                           'link link 'from_name from-name 'org_name org-name*))
+              (define-values (subject body)
+                (with-locale (contact-locale c)
+                  (lambda () (template-render template-id full-data))))
               ;; THE TOKEN'S ID IS KEPT, because the row is written before the
               ;; delivery exists and a queue failure after this point would leave a
               ;; credential nothing carries. One address, one row, and a delete on
@@ -172,14 +185,6 @@
                         (or subject-id sql-null) (+ (now) REPLY-TTL) (now))
                       (values (format "reply+~a@~a" raw (from-domain t)) tid))
                     (values sender-address #f)))
-              (define from-name (or (user-display conn (principal-user-id p)) "A colleague"))
-              (define org-name* (or (org-name conn org) "your company"))
-              (define full-data
-                (hash-set* (if (hash? data) data (hasheq))
-                           'link link 'from_name from-name 'org_name org-name*))
-              (define-values (subject body)
-                (with-locale (contact-locale c)
-                  (lambda () (template-render template-id full-data))))
               (define id
                 (mail-enqueue! conn
                                #:recipient (contact-address c)

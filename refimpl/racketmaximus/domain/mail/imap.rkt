@@ -39,7 +39,11 @@
          racket/list)
 
 (provide imap-uidvalidity imap-unseen-uids imap-uids-after
-         imap-fetch imap-mark-seen imap-command)
+         imap-fetch imap-mark-seen imap-command
+         ;; exported FOR `test/imap-tests.rkt`: the two parsers are where the
+         ;; protocol semantics live, and one of them is the `n:*` trap nothing
+         ;; exercised before (#110 r4's rule — an export with a test behind it).
+         parse-search-reply uids-after-uid strip-fetch-framing)
 
 (define (curl)
   (or (find-executable-path "curl")
@@ -99,13 +103,25 @@
   (define mm (regexp-match #px"UIDVALIDITY[ \t]+([0-9]+)" out))
   (and mm (cadr mm)))
 
-;; One search reply: `* SEARCH 1 2 3`, with nothing after it on an empty answer.
-(define (imap-search m command)
-  (define out (imap-command m command))
+;; `* SEARCH 1 2 3`, with nothing after it on an empty answer.
+(define (parse-search-reply out)
   (define mm (regexp-match #px"\\* SEARCH([ 0-9]*)" out))
   (if (not mm)
       '()
       (filter (lambda (s) (not (string=? s ""))) (string-split (string-trim (cadr mm))))))
+
+(define (imap-search m command)
+  (parse-search-reply (imap-command m command)))
+
+;; THE `n:*` TRAP, and the reason the filter is here rather than trusted to the
+;; server. RFC 3501 defines a range by its two ENDPOINTS, so `5:*` on a mailbox
+;; whose largest UID is 3 means `3:5` and answers 3 — a message that was already
+;; handled. Comparing after the fact is what stops the poller handling it twice.
+;; A reply that carries something which is not a number is dropped for the same
+;; reason: a UID this module cannot order is a UID it must not act on.
+(define (uids-after-uid uids last)
+  (filter (lambda (s) (and (regexp-match? #px"^[0-9]+$" s) (> (string->number s) last)))
+          uids))
 
 ;; -> a list of UID strings, oldest first. The FIRST poll of a mailbox uses UNSEEN,
 ;; because reading an archive the operator did not mean to hand over is not a thing
@@ -113,26 +129,53 @@
 (define (imap-unseen-uids m)
   (imap-search m "UID SEARCH UNSEEN"))
 
-;; -> a list of UID strings newer than `uid`, oldest first.
-;;
-;; `n:*` IS NOT "n and up" ON A SERVER THAT HAS FEWER MESSAGES: RFC 3501 defines a
-;; range by its endpoints, so `5:*` on a mailbox whose largest UID is 3 means 3:5
-;; and answers 3. That message was already handled, so the comparison is made here
-;; rather than trusted to the server.
+;; -> a list of UID strings newer than `uid`, oldest first. `uids-after-uid` is
+;; what makes this safe against the range trap above.
 (define (imap-uids-after m uid)
-  (define from (if (and (string? uid) (regexp-match? #px"^[0-9]+$" uid))
-                   (add1 (string->number uid))
-                   1))
-  (define last (if (and (string? uid) (regexp-match? #px"^[0-9]+$" uid))
-                   (string->number uid)
-                   0))
-  (filter (lambda (s) (and (string->number s) (> (string->number s) last)))
-          (imap-search m (format "UID SEARCH UID ~a:*" from))))
+  (define numeric? (and (string? uid) (regexp-match? #px"^[0-9]+$" uid)))
+  (define last (if numeric? (string->number uid) 0))
+  (define from (add1 last))
+  (uids-after-uid (imap-search m (format "UID SEARCH UID ~a:*" from)) last))
 
-;; -> the raw message for one UID. `BODY.PEEK[]` so a message is not marked read
-;; before it is handled — the mark happens after the platform has it.
+;; -> the message, with curl's IMAP framing removed. `BODY.PEEK[]` so a message is
+;; not marked read before it is handled — the mark happens after the platform has it.
+;;
+;; CURL'S OUTPUT IS NOT THE MESSAGE. `-X "UID FETCH n (BODY.PEEK[])"` prints the
+;; untagged response line before the literal:
+;;
+;;     * 1 FETCH (BODY[] {101}<CRLF>
+;;     From: …<CRLF><CRLF>body
+;;
+;; so the first line is protocol, not a header. Measured against a mock server
+;; (`test/mock-imap.rkt`), not assumed: the trailing `)` and the tagged OK are
+;; consumed by curl and do not appear. Left in, that line makes `raw-sha256`
+;; depend on the SEQUENCE NUMBER, which changes whenever another message is
+;; expunged, so the same message fetched twice hashes differently and the
+;; `raw_sha256` dedupe cannot see it — which is the one thing that hash is for.
+(define (strip-fetch-framing out)
+  ;; `[^\r\n]*` is greedy, so this anchors on the LAST `{n}` on the line: a server
+  ;; that answers `* 1 FETCH (UID 5 BODY[] {101}` is as ordinary as one that
+  ;; answers without the UID, and the literal length is the last one.
+  ;; THE LINE ENDING IS AN ALTERNATION, not `\r?\n`, for a measured reason: a
+  ;; `#rx` LITERAL did not match `\r?\n` here while `(\r\n|\n)` does, and the
+  ;; mock server is what showed it. `#rx`, NOT `#px` — pregexp rejects `\r` and
+  ;; `\n` as "illegal alphabetic escape" (the trap `dsn.rkt` records) — and `^`
+  ;; is the string start there without needing `(?m:)`.
+  (define m (regexp-match-positions
+             #rx"^\\* [0-9]+ FETCH \\([^\r\n]*\\{([0-9]+)\\}(\r\n|\n)"
+             out))
+  (cond
+    [(not m) out]
+    [else
+     ;; group 0 is the whole line, group 1 is the literal length
+     (define n (string->number (substring out (car (cadr m)) (cdr (cadr m)))))
+     (define start (cdr (car m)))
+     ;; A LITERAL SHORTER THAN ITS OWN LENGTH MEANS THE FETCH WAS CUT, and the
+     ;; remainder is the honest answer rather than a truncation nobody sees.
+     (substring out start (min (string-length out) (+ start n)))]))
+
 (define (imap-fetch m uid)
-  (imap-command m (format "UID FETCH ~a (BODY.PEEK[])" uid)))
+  (strip-fetch-framing (imap-command m (format "UID FETCH ~a (BODY.PEEK[])" uid))))
 
 ;; Mark it seen, so an operator's own client does not show unread mail the platform
 ;; has already taken. A message that parsed and then failed to handle is marked seen
