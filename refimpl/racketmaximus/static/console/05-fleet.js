@@ -362,12 +362,14 @@ async function adminView(){
   // The email reads JOIN the round rather than becoming two more sequential
   // round trips — they depend on nothing here, and this tab is already the
   // slowest in the console (#177's own argument for the same move).
-  const [xr,fr,qr,ifr,mtr,mnr]=await Promise.all([api('/api/executors'), api('/api/admin/workers'+fleetQuery()),
+  const [xr,fr,qr,ifr,mtr,mnr,mir]=await Promise.all([api('/api/executors'), api('/api/admin/workers'+fleetQuery()),
                                       api('/api/admin/queue'+queueQuery()), api('/api/instance-features'),
-                                      api('/api/email-transport'), api('/api/email-notify')]);
+                                      api('/api/email-transport'), api('/api/email-notify'),
+                                      api('/api/email-inbound')]);
   if(ifr.ok) S.instFeat=ifr.json;
   if(mtr.ok) S.mailT=mtr.json;
   if(mnr.ok) S.mailN=mnr.json;
+  if(mir.ok) S.mailI=mir.json;
   const compute=workersCard(xr, fr) + queueCard(qr, fr);
   const B = S.brand;
   const brandCard=`<div class="card" style="margin-top:14px"><h3>${t('branding')}</h3>
@@ -420,7 +422,7 @@ async function adminView(){
   const seedCard=`<div class="card" style="margin-top:14px"><h3>${t('testing')}</h3>
     <p class="muted" style="margin-top:0">Populate this team with sample notes, documents, and queued jobs (chat · translate · agent).</p>
     <button class="btn" data-h-click="${H((el,ev)=>doSeedSamples())}">${t('seed')}</button></div>`;
-  return `<h2>${t('admin')}</h2>${body}${compute}${instFeatCard()}${emailTransportCard()}${emailNotifyCard()}${brandCard}${locCard}${secCard}${seedCard}`;
+  return `<h2>${t('admin')}</h2>${body}${compute}${instFeatCard()}${emailTransportCard()}${emailInboundCard()}${emailNotifyCard()}${brandCard}${locCard}${secCard}${seedCard}`;
 }
 
 // #177: the OPERATOR's feature switches. They have existed since #63 and were

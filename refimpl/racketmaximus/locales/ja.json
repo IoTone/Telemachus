@@ -224,13 +224,17 @@
       "text": "言及",
       "hash": "e2aee0fb859bc1f04b25c2de06f5fd64a66759f3"
     },
-    "doc.route.post.api.executors.id.resume": {
-      "text": "停止したエグゼキュータをローテーションに戻す（FLEET-3）。次回の要求から再び仕事を受け取る。",
-      "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
+    "mail.reset.ttl_many": {
+      "text": "{n} 時間",
+      "hash": "bc7107f4a791a1034616e2c069ba6e03643fedaa"
     },
     "ui.edwrap": {
       "text": "折り返し",
       "hash": "c3447e7954fa5698ae957a33210094d617b1dc00"
+    },
+    "doc.route.post.api.executors.id.resume": {
+      "text": "停止したエグゼキュータをローテーションに戻す（FLEET-3）。次回の要求から再び仕事を受け取る。",
+      "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
     },
     "doc.tool.doc_classify.text": {
       "text": "文書のテキスト（既定では文書から抽出します。テキストレイヤーのないスキャンでも、コンテンツタイプのルールには一致し得ます）",
@@ -368,6 +372,10 @@
       "text": "1つのリポジトリドキュメントの抽出済みテキストをチャンクに分割し、チャンクごとに埋め込みベクトルを保存します。そのバージョンの既存のベクトルは全体が置き換えられます。",
       "hash": "33d693225f27c0dcad7f1a1f5ef95c7e0cf86929"
     },
+    "mail.verb.deleted": {
+      "text": "が削除されました",
+      "hash": "5b1035caff485c017a65c1b503ae6bed930fc31f"
+    },
     "ui.stop": {
       "text": "停止",
       "hash": "9e253470c876ee6d5c720eb777aeb82d4c26e28f"
@@ -451,6 +459,10 @@
     "doc.route.put.api.session-policy": {
       "text": "インスタンスのセッションタイムアウトを設定する。フィールドに null を指定するとその軸に上限を設けない。会社はこれを厳しくできるが、緩めることはできない。",
       "hash": "1220312b0666ecb536e3e0bfa33a1399f684dda7"
+    },
+    "mail.invite.intro": {
+      "text": "{inviter} さんが TMach の {team} に招待しました。次のリンクからパスワードを設定してサインインしてください。このリンクは 1 回だけ有効で、{expiry}で失効します。",
+      "hash": "f1635542c6003471d7d090a9a5899f458be93078"
     },
     "doc.route.post.api.tokens": {
       "text": "API トークンを発行する。任意でスコープと ttl（秒。既定は90日；長寿命のマシントークンには \"never\"）を指定；生のトークンは一度だけ表示されます。",
@@ -600,6 +612,10 @@
       "text": "呼び出し元自身の TOTP を無効化します。古いシードとそのリカバリコードは使えなくなり、再登録が必要です。",
       "hash": "2eca165a43b26e72f8c6702f56b853671c7797c6"
     },
+    "doc.perm.org:mail": {
+      "text": "会社外の相手（通関業者、サプライヤー、顧客）にメッセージを送信します。メッセージはテンプレートと ID から構成され、自由文は使えません。From アドレスはこのインスタンス自身の識別情報です。",
+      "hash": "5ea6a2bcef1391df88ddee3d3908307eb2391bf1"
+    },
     "ui.qage": {
       "text": "待機時間",
       "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
@@ -632,6 +648,14 @@
       "text": "ワークフロー実行 ID（由来の記録用）。",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "doc.route.post.api.org.contacts": {
+      "text": "会社外の相手を追加します: {address, name?, org_name?, locale?}。アドレスは会社内で一意で、大文字小文字を区別せずに比較します。重複は統合せず拒否します。同じサプライヤーを二度追加するのは誤りであり、黙って統合すると同じアドレスに別の名前を入力した事実が隠れるためです。",
+      "hash": "5e40dbced47d2136b2d1d36611580b0e60a6f38d"
+    },
+    "doc.route.get.api.email-notify": {
+      "text": "このインスタンスが送る通知カテゴリ、固定されたカテゴリ一覧、各カテゴリが対象とするイベント、および呼び出し元にとっての解決結果。この層では不在は無効を意味します。機能スイッチとは異なる点です。通知はインスタンスが人にメールを送るかどうかを決めるものであり、これまでの挙動は「送らない」だったからです。そのためオペレーターが送るカテゴリを指定します。",
+      "hash": "445fa835aa9c2be83ddd9dbfe74f4a24fec5260b"
+    },
     "doc.route.get.api.x.feeds.queue": {
       "text": "チームのフィード作業キュー。優先度の高い順、次に期限の近い順。?status= は open|claimed|done|dropped|all（既定：対応中の 2 つ）、?feed= はフィードのスラッグ、?skill= は 1 つのスキル、?limit= と ?offset= でページングします。各行は参照先のドキュメントに対してあらためて権限確認されるので、件数は「そこにある数」ではなく「呼び出し側が読める数」です。",
       "hash": "cfadd1e60a39c8c5785a921b25b0867d4b1086b6"
@@ -643,10 +667,6 @@
     "doc.tool.kg_query.type": {
       "text": "名前検索を1つのエンティティ種別に絞る。例：organization",
       "hash": "bf3b06e97454031c475151174af5ebabf873a414"
-    },
-    "doc.route.get.api.email-notify": {
-      "text": "このインスタンスが送る通知カテゴリ、固定されたカテゴリ一覧、各カテゴリが対象とするイベント、および呼び出し元にとっての解決結果。この層では不在は無効を意味します。機能スイッチとは異なる点です。通知はインスタンスが人にメールを送るかどうかを決めるものであり、これまでの挙動は「送らない」だったからです。そのためオペレーターが送るカテゴリを指定します。",
-      "hash": "445fa835aa9c2be83ddd9dbfe74f4a24fec5260b"
     },
     "ui.hoff": {
       "text": "オフ",
@@ -695,6 +715,10 @@
     "doc.route.get.api.runs": {
       "text": "チームの実行、新しい順。",
       "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
+    },
+    "mail.document_request.subject": {
+      "text": "書類のご依頼: {what}",
+      "hash": "a82fa3542593d0494b3c4a0358618bc3977a408a"
     },
     "doc.route.put.api.timezone": {
       "text": "インスタンス既定のタイムゾーンを設定する: {timezone}。これは下限ではなくフォールバックです — タイムゾーンは制御ではなく、間違った時計を強制して守られる人はいないため、会社も個人もそれぞれ自分のものを選べます。",
@@ -759,6 +783,10 @@
     "doc.route.get.api.email-deliveries.id": {
       "text": "1件の配送を、送信されるとおりのメッセージ付きで返します。「送ったものをそのまま見せてほしい」場合向けです。他チームのidは403ではなく404です。",
       "hash": "83c0c358a521d9e1a00de6a897d993ee2e86190b"
+    },
+    "mail.reset.ignore": {
+      "text": "身に覚えがない場合はこのメールを破棄してください。パスワードは変わっておらず、これからも変わりません。現在のパスワードはそのまま使え、このリンクは誰かが使うまで何もしません。",
+      "hash": "a9c61e9fcdc9102dbeddc77e04915fd76b005529"
     },
     "doc.route.get.api.share-targets": {
       "text": "文書を誰と共有できるか：チームのメンバーと組織内のチーム。",
@@ -847,6 +875,10 @@
     "doc.route.get.api.jobs": {
       "text": "チームのジョブを新しい順に返す。プラットフォームが保留しているキュー内ジョブには `waiting` が付きます — {reason: \"quota\"|\"concurrency\", …}。何も保留しておらず空きワーカーを待っているだけの場合、このキーはありません。",
       "hash": "d43d2fb4962c8810b1ff4079a3608ea56175ad72"
+    },
+    "mail.noun.something": {
+      "text": "何か",
+      "hash": "1af17e73721dbe0c40011b82ed4bb1a7dbe3ce29"
     },
     "doc.route.post.api.x.matrix.rooms": {
       "text": "ルームへ通知します: {room_id, events?, label?, user_id?}。room_id は Matrix のルーム ID（`!abc:example.org`）で、エイリアスは受け付けません。ボットがあらかじめそのルームに参加している必要があります。",
@@ -944,6 +976,14 @@
       "text": "{n} 件中 {d} 件",
       "hash": "f0209bf5d33971e13a03d6f5d9dfa99c9eaa5582"
     },
+    "mail.invite.ttl_one": {
+      "text": "1 日",
+      "hash": "6744c1571488291dd18631e6a88081a3eb0db33d"
+    },
+    "doc.route.post.api.workers.jobs.id.derive": {
+      "text": "このジョブが指定したドキュメントから派生した文書を書き込む（issue #62）：{source, key, bytes_b64, claim_token, content_type?, filename?}。上記の読み取りの書き込み版で、同じ3条件の下にある — 呼び出し元がこの試行を保持していること、`source` がそのジョブ自身のペイロードに現れること、そして書き込みがそのジョブのユーザーとして行われること（files:write、ストレージクォータ、組織ゲートがすべて適用される）。出力はソースの公開範囲を受け取り、次にその付与を継承する。派生としてマークされるため、オプトインしたトリガーがワーカー自身の出力で発火することはない。TMACH_MAX_UPLOAD が上限となる：ワーカーは正面玄関の上限を迂回する手段ではない。独立した put は意図的に存在しない — 何にも結び付かない出力は、ワーカートークンをチームのリポジトリへの鍵にしてしまうためである。",
+      "hash": "8ee5e319cdcdfac6c8c0917743484a7380901f26"
+    },
     "ui.trigger_derived": {
       "text": "派生文書にも",
       "hash": "95f4b5d99f5b830c28053256d1ad913fdac25d7c"
@@ -955,10 +995,6 @@
     "doc.tool.doc_set_type": {
       "text": "レビュー後に、人が判断した文書の種類を記録する。ラベルは分類が提示したラベル集合に照らして検証されるため、どのトリガーも一致し得ない種類は保存されずに拒否されます。空のラベルは種類を取り下げます — doc_type に「unknown」は存在しないため、却下の正直な記録はこれです。doc_type / doc_type_confidence / doc_type_source を source「review」、確信度 1.00 で書き込み、文書の隣の <key>.classification.json を新しいバージョンとして保存するので、バックエンドの当初の推測もその履歴に残ります。",
       "hash": "2e9e3a1c65607294e84f75aaf0e451cbe24dd34c"
-    },
-    "doc.route.post.api.workers.jobs.id.derive": {
-      "text": "このジョブが指定したドキュメントから派生した文書を書き込む（issue #62）：{source, key, bytes_b64, claim_token, content_type?, filename?}。上記の読み取りの書き込み版で、同じ3条件の下にある — 呼び出し元がこの試行を保持していること、`source` がそのジョブ自身のペイロードに現れること、そして書き込みがそのジョブのユーザーとして行われること（files:write、ストレージクォータ、組織ゲートがすべて適用される）。出力はソースの公開範囲を受け取り、次にその付与を継承する。派生としてマークされるため、オプトインしたトリガーがワーカー自身の出力で発火することはない。TMACH_MAX_UPLOAD が上限となる：ワーカーは正面玄関の上限を迂回する手段ではない。独立した put は意図的に存在しない — 何にも結び付かない出力は、ワーカートークンをチームのリポジトリへの鍵にしてしまうためである。",
-      "hash": "8ee5e319cdcdfac6c8c0917743484a7380901f26"
     },
     "ui.started": {
       "text": "開始",
@@ -1056,6 +1092,14 @@
       "text": "新しいパスワードを設定",
       "hash": "1e83ae49d16225081033781c393444f03c5385ea"
     },
+    "mail.invite.ttl_many": {
+      "text": "{n} 日",
+      "hash": "c752c6dea2f93583c2da965c3b0ac6a837aa088d"
+    },
+    "doc.route.put.api.instance-features": {
+      "text": "インスタンス全体で機能を無効にする。組織もチームも再び有効にはできない。",
+      "hash": "3fd2086209d81528b5888e710a6801d66f40d345"
+    },
     "ui.qvleaseshint": {
       "text": "リースが更新されないことが、フェイルオーバーの 90 秒前の兆候です",
       "hash": "7b5419581c8cbebb0c7937c9a61c348251af58b3"
@@ -1067,10 +1111,6 @@
     "doc.perm.jobs:execute": {
       "text": "プル型エグゼキュータに提供されたジョブの取得・ハートビート・完了・失敗報告。ワーカートークンのみが保持し、1つのエグゼキュータに紐づきます；チームのデータには届かず、実行も開始しません。",
       "hash": "f5c72d603508d57a3cd01ecf4e75f59d0a9e155b"
-    },
-    "doc.route.put.api.instance-features": {
-      "text": "インスタンス全体で機能を無効にする。組織もチームも再び有効にはできない。",
-      "hash": "3fd2086209d81528b5888e710a6801d66f40d345"
     },
     "ui.buildsource": {
       "text": "ソース",
@@ -1192,6 +1232,18 @@
       "text": "有効化",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
     },
+    "mail.noun.document": {
+      "text": "文書 {id}",
+      "hash": "da9aa987dc3ee77da9d487dd83941d6d67aec0f7"
+    },
+    "ui.edexportfail": {
+      "text": "ダウンロードが拒否されました",
+      "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
+    },
+    "doc.route.get.api.org.contacts": {
+      "text": "会社外の相手を新しい順に、抑止状態とともに返します。`?status=active` または `?status=suppressed` で絞り込めます。アドレスがこの応答に含まれるのは、これが会社自身の取引先の記録であり、このルートが会社の管理面だからです。",
+      "hash": "a2a3f8cc7d55db468a973bd8a79fe71762fcfaf2"
+    },
     "doc.plugin.doc-pipeline": {
       "text": "アップロードされた文書を処理：テキストを抽出し、JSONスキーマに従って構造化フィールドを取得（適合しない場合は拒否）、フォームテンプレートに埋め込み、結果をチームの言語に翻訳します。すべての出力はソースと共にレポジトリ文書で、元情報が示されます。",
       "hash": "c9b9762ad18d537059b785fffcd94955ff92dd45"
@@ -1272,6 +1324,14 @@
       "text": "設定中…",
       "hash": "97d836e747ce7741bd4e6fbe5bfa9a364000a5b8"
     },
+    "ui.mllastpoll": {
+      "text": "最終ポーリング",
+      "hash": "edb60eeaef347d7e3021bc502dc8c9672389bb90"
+    },
+    "doc.route.delete.api.doc-triggers.id": {
+      "text": "トリガーとその履歴を削除します；開始した実行は残ります。",
+      "hash": "afe84f89cbf1f9cf94cca53d96bb0aea6890ed7e"
+    },
     "doc.route.post.api.admin.users.id.tokens": {
       "text": "サービスアカウント用のマシントークンを発行します：{name?, scopes?, ttl?}。ttl は秒数か \"never\" です。監視プローブ、ハーベスト、バックアップはサインインしないうえ、`POST /api/tokens` は呼び出した本人のために発行するので、これがなければ、そのようなアカウントが長寿命のトークンを持つ唯一の方法は、自分自身が `settings:manage` を持つことでした。監査には、発行した運用者と、そのトークンが代弁するアカウントの両方が記録されます。運用者アカウントは拒否されます。運用者はサインインして `POST /api/tokens` を使います。",
       "hash": "72f955221724d11ad7809fe7cdfbb7cfc4de9902"
@@ -1292,17 +1352,9 @@
       "text": "ここでは #+INCLUDE: に対応していません — ノートはサーバー上のファイルを読み取れません",
       "hash": "854fb323be836ef017658090506af2580f086576"
     },
-    "doc.route.delete.api.doc-triggers.id": {
-      "text": "トリガーとその履歴を削除します；開始した実行は残ります。",
-      "hash": "afe84f89cbf1f9cf94cca53d96bb0aea6890ed7e"
-    },
     "ui.nonotes": {
       "text": "ノートはまだありません。上の欄から最初の 1 件を書いてください。",
       "hash": "0d8510bd34b33506905680504e7bbe7159af85b5"
-    },
-    "ui.edexportfail": {
-      "text": "ダウンロードが拒否されました",
-      "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
     },
     "doc.route.get.api.translate": {
       "text": "チームの翻訳履歴",
@@ -1371,6 +1423,10 @@
     "ui.l10nall": {
       "text": "すべての状態",
       "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
+    },
+    "mail.verify.code": {
+      "text": "次のコードで確認してください: {token}",
+      "hash": "50b42713c8d4618efb2329bcecb8957b2504682a"
     },
     "doc.workflow.feed-propose": {
       "text": "エージェントが取得済みの項目 1 件を読み、その隣に提案を書き出します。その後、実行は人の判断を待って停止します。提案に対して何も実行されません — v1 に実行するツールはなく、将来できたとしても approve の分岐にのみ置かれます。",
@@ -1496,6 +1552,10 @@
       "text": "このチームは {dimension} の割り当てを使い切りました（{limit} のうち {used}）。キュー内のジョブは失敗したのではなく待機しており、期間がリセットされると再開します。",
       "hash": "66b9019ebeec34d2bca09f92ab6d5030f9759227"
     },
+    "mail.verb.ping": {
+      "text": "— これは TMach からのテスト通知です",
+      "hash": "274ad0edb2001e445576df6e8317551969058a6d"
+    },
     "ui.autotagorg": {
       "text": "org ノートのタグは #+FILETAGS: 行から取得されるため、ここからは書き込めません",
       "hash": "2c80238f24016ca86dda4bbec395ae8eba7fa558"
@@ -1547,6 +1607,10 @@
     "ui.palhhelp": {
       "text": "この一覧を表示",
       "hash": "213103f1cbe3ed858dba77dec93600b93b4a6e74"
+    },
+    "mail.invite.ignore": {
+      "text": "心当たりがない場合はこのメールを破棄してください。リンクを開くまでアカウントは作成されません。",
+      "hash": "9d4846a288772d49a6b0c1fa3fa217d9e8fe3e91"
     },
     "ui.uploaded": {
       "text": "アップロードしました",
@@ -1636,6 +1700,10 @@
       "text": "チーム自身の言葉による振り分けの手がかり。例：[\"racket\",\"ops\"]",
       "hash": "e8d5c44545ccca3af2573bc5fe383aff33e54a28"
     },
+    "mail.document_request.reply": {
+      "text": "このメッセージに返信すると {from_name} に直接届きます。",
+      "hash": "f0921b692a106a5e6dc9b4809bd7faa7236ffc73"
+    },
     "doc.perm.instance:read": {
       "text": "読み取り専用のインスタンス運用操作 — ステータス、メトリクス、ワーカーフリート、キュー、監査チェーンの検証。監査ログそのものを渡すエクスポートは含まない。",
       "hash": "8b3e4319de14d9acdc7262dc02ad685abd3332c6"
@@ -1692,6 +1760,10 @@
       "text": "承認",
       "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
     },
+    "doc.route.get.api.email-inbound": {
+      "text": "受信メールボックスを返します: モード（`none` または `imap`）、2 つの消費側スイッチ、保存済みの UID 位置、最後のポーリングとそのエラー、および閉じた語彙。コンソールのカードがコアの所有する一覧の複製を持たないよう、語彙は行と並べて返します。パスワードはこの応答に含まれません。",
+      "hash": "dae13bfb9dc7ea29cb569fcb04797afe57400e47"
+    },
     "ui.jobwhen": {
       "text": "時刻",
       "hash": "30603fa9e0f620c305cd627ab0ff138a960c48bd"
@@ -1723,6 +1795,10 @@
     "ui.cap_edit": {
       "text": "編集",
       "hash": "9ead47a82a0d25985f22f10651d1f93b3abba317"
+    },
+    "ui.mlverifyhint": {
+      "text": "信頼された認証局につながらない証明書、またはホスト名と一致しない証明書を拒否します。社内リレーは自己署名証明書を使うことが多いため、既定では無効です。",
+      "hash": "cc4c970f3750a4ea67fbf595149f11d5a4dc4fcb"
     },
     "doc.tool.kg_query": {
       "text": "チームの文書がエンティティについて述べていること：その関係と、それに言及する文書を抜粋付きで。名前（またはエンティティ ID）を指定；hops 1 は近傍を、hops 2 はその近傍まで返します。",
@@ -1992,13 +2068,17 @@
       "text": "インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。",
       "hash": "7c6d3770630d5cb263185cef132426d1bc816c41"
     },
-    "doc.tool.doc_text": {
-      "text": "リポジトリ文書のテキストを返す（PDF、DOCX、HTML、Markdown、プレーンテキスト）。文書パイプラインの最初のステップで、検索インデックスの実行に依存しません。",
-      "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
-    },
     "ui.edit": {
       "text": "編集",
       "hash": "5301648dcf6b53cefc9ed52999aaa92d4603cae0"
+    },
+    "mail.invite.subject": {
+      "text": "{inviter} さんが TMach の {team} に招待しました",
+      "hash": "726aafbca9a60a28ff428f92f985026a5871cc56"
+    },
+    "doc.tool.doc_text": {
+      "text": "リポジトリ文書のテキストを返す（PDF、DOCX、HTML、Markdown、プレーンテキスト）。文書パイプラインの最初のステップで、検索インデックスの実行に依存しません。",
+      "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
     },
     "doc.route.post.api.x.inbox.items.id.resolve": {
       "text": "項目を確定して閉じます。`{note?}` を渡します。解決済みは終端の状態です。同じ `(source, key)` が後から登録されると、次の occurrence を持つ新しい行になります。",
@@ -2040,6 +2120,10 @@
       "text": "新しい状態",
       "hash": "22dad84c7f9e73b5959e03bd54fd9e4bdd67f15c"
     },
+    "mail.document_request.body": {
+      "text": "{org_name} の {from_name} が書類を依頼しています。",
+      "hash": "5895b9c21641381cd8e5ba1949659317c9c9f17c"
+    },
     "ui.qvclaims": {
       "text": "取得",
       "hash": "06e8db2dfd69dc1703edf9418fb7533fa5d026de"
@@ -2067,6 +2151,10 @@
     "ui.helpnone": {
       "text": "その質問に近いものはドキュメントにありません。",
       "hash": "c7f3ca885c6d94efd37d9641e8de577f51b6aba6"
+    },
+    "mail.reset.ttl_one": {
+      "text": "1 時間",
+      "hash": "90335b649adeb76ebc45092a6c57be0d689110ab"
     },
     "ui.trjobs": {
       "text": "このセッションで送信した翻訳",
@@ -2120,6 +2208,14 @@
       "text": "チームの送信 Webhook 購読の一覧。あわせて購読がフィルタに使えるイベント名の閉じたリストと、デッドレターになるまでの配信試行回数を返します。シークレットが一覧に含まれることはありません。",
       "hash": "7d1abec01a54f3310bb4e0bde1714d3995790c4b"
     },
+    "mail.notification.nolink": {
+      "text": "このインスタンスにはベース URL が設定されていないため、開くリンクがありません。管理者が「管理 > メール」で設定できます。",
+      "hash": "ddba8903aeeb2e1866ada9433ea652e2fc043e3d"
+    },
+    "ui.rs_unread": {
+      "text": "Index Knowledge はまだこのページを読んでいません。",
+      "hash": "d629bd02d30d4dc30b181bce99a60fce2e5a6ae8"
+    },
     "ui.wkmodels": {
       "text": "モデル",
       "hash": "5ba2688dffd71df813a468578a87c653e1575e1e"
@@ -2164,13 +2260,13 @@
       "text": "エンティティ",
       "hash": "9d88f3cc176f53090e9fd457c305bbeb86126bcd"
     },
+    "mail.invite.code": {
+      "text": "サインイン画面で次のコードを使用してください: {token}",
+      "hash": "6e7d83bec4794a92e079770828d5c1a6c75e5f5d"
+    },
     "ui.stepsused": {
       "text": "使用ステップ数",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
-    },
-    "ui.rs_unread": {
-      "text": "Index Knowledge はまだこのページを読んでいません。",
-      "hash": "d629bd02d30d4dc30b181bce99a60fce2e5a6ae8"
     },
     "doc.route.post.api.beta.signup": {
       "text": "オンボーディングフォームを送信する：公開された体験に対して検証され、不正利用対策で制限され、モデルが設定されていればモデルが判定します。",
@@ -2200,6 +2296,10 @@
       "text": "コンソール（TMACH_HOME=beta のときはベータ申込フロー）。HTML のタイトルはインスタンスのブランディングから書き換えられます。",
       "hash": "02e8b32f35af9fafca11af11f096a74b5847347d"
     },
+    "mail.noun.review": {
+      "text": "レビュー {id}",
+      "hash": "f4247e9947c2c404deb14ba753544546aa3262c1"
+    },
     "doc.route.get.api.email-deliveries": {
       "text": "チームのメール配送を新しい順に返します: 宛先、カテゴリ、イベント、状態（`pending`/`sent`/`dead`）、試行回数、リレーの直近の応答、次回試行の予定。`?status=dead` が不達一覧です。本文は一覧に含まれません。不達一覧は「何が失敗していて、なぜか」に答えるものであり、メッセージ本文が並んだページはそれではないからです。どのチームにも属さない2種類の事務的メッセージ（確認と送信経路テスト）は、構造上ここには現れません。オペレーターの視点は `GET /api/admin/email-deliveries` です。",
       "hash": "15030654c43b734e4af94f879ce60222e9c216a2"
@@ -2228,6 +2328,14 @@
       "text": "新しいパスワード",
       "hash": "d850ee188c7c55b64bc3624534de5c5051a57dc6"
     },
+    "doc.tool.doc_redact.detectors": {
+      "text": "実行する検出器: \"email\"、\"date\"、\"id_number\"、\"dictionary\"、\"phone\"（既定は dictionary 以外のすべて。dictionary には語句が必要です）",
+      "hash": "9995fe44288c76e96f3ae9c3408a6e689cb17fd9"
+    },
+    "mail.verify.intro": {
+      "text": "おそらくご本人によるものと思いますが、このアドレスで TMach の通知を受け取るための確認の依頼が届いています。確認すると通知が有効になります。",
+      "hash": "15efb33232d3408dc2d382574511d4e209a2b436"
+    },
     "doc.route.post.api.profile": {
       "text": "呼び出し元自身の永続的な設定を更新する: `locale` と `timezone`（IANA ゾーン名、例: \"Europe/London\"）。どちらか一方だけでも送信できます。未知のタイムゾーンは暗黙に置き換えられず拒否されます — 入力ミスで黙って UTC を割り当てられた人は、間違った時刻に届いたレポートで初めて気づくことになります。応答には有効なタイムゾーンと、どの層がそれを決めたかが含まれます。",
       "hash": "99fb02766ee54f83b68c9ffe525bf3b592fcbcb6"
@@ -2235,10 +2343,6 @@
     "ui.trcount": {
       "text": "{n} / {max} 文字",
       "hash": "37992f8af2be4f932bbc75295200d6fef95ad76f"
-    },
-    "doc.tool.doc_redact.detectors": {
-      "text": "実行する検出器: \"email\"、\"date\"、\"id_number\"、\"dictionary\"、\"phone\"（既定は dictionary 以外のすべて。dictionary には語句が必要です）",
-      "hash": "9995fe44288c76e96f3ae9c3408a6e689cb17fd9"
     },
     "ui.ngraphempty": {
       "text": "まだ描画するものがありません。org ノートの [[ターゲット]] がエッジになります。",
@@ -2336,6 +2440,10 @@
       "text": "読み込まれたプラグインの認証付きバンドル（plugins/<id>/bundle/）内のファイル。ベアラートークン、または bundle-ticket が発行したチケット（?ticket= か、それが設定するクッキー）が必要で、応答が共有キャッシュに保存されることはありません。",
       "hash": "bf8d94c14199e90c07c97c82400f54b2317e8fea"
     },
+    "mail.document_request.link": {
+      "text": "次のリンクから送信してください: {link}",
+      "hash": "05d31ccc4bca72e452f1a0c429610dbbcf132195"
+    },
     "ui.nodefs": {
       "text": "このチームにはまだワークフローが公開されていません。ワークフローを同梱するプラグインは初回利用時にここへ表示されます。それ以外の場合は /api/workflows に仕様をPOSTしてください。",
       "hash": "a326f7ace2f357a8bc110f10e47a258716abbf40"
@@ -2407,6 +2515,10 @@
     "doc.route.put.api.org.features": {
       "text": "呼び出し元の会社で機能を無効にする。その配下のチームは再び有効にはできない。",
       "hash": "ca7cfdfb5359b0de1761d996af74b3bf1d9ec895"
+    },
+    "mail.verify.subject": {
+      "text": "TMach 通知先アドレスの確認",
+      "hash": "3e5721391ea08e1dcf31cde30d9019b56e0bfc08"
     },
     "doc.route.delete.api.executors.id": {
       "text": "エグゼキュータを退役させる：ワーカートークンは失効し、保持していたジョブはキューに戻ります。",
@@ -2532,6 +2644,10 @@
       "text": "ノートを削除します。",
       "hash": "edadf3ea6746bb44145806818cfca51cc6e85140"
     },
+    "doc.route.get.api.org.contacts.id": {
+      "text": "会社外の相手を 1 件返します。他社の ID は 404 になります。スコープは SQL 文の中にあるためです。",
+      "hash": "7f69e2dcd582d6a378e6b15258722839946ac99d"
+    },
     "ui.qvauto": {
       "text": "更新",
       "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
@@ -2556,9 +2672,17 @@
       "text": "メールアドレス",
       "hash": "c94d3175a6560565410511df2cebab9cda96027e"
     },
+    "ui.mlverify": {
+      "text": "リレーの証明書を検証する",
+      "hash": "cd968a977cafd690b28bd69298f46eb5a05b21b8"
+    },
     "doc.route.post.api.repo-obj.id.legal-hold": {
       "text": "オブジェクトにリーガルホールドを設定または解除します：`{\"hold\": true|false}`。ホールド中は「ルールによる」削除が拒否され、保持スイープはそのオブジェクトを飛ばし、件数を報告します。これは r4 がプレフィックス単位の操作を構築する土台となるフラグであり、保持ルールと同時に提供されます。削除をともなうスケジュールは一方通行であり、それを止められるのはホールドだけだからです。",
       "hash": "c571267be0e2aa366a173a800e261cbeb9b57829"
+    },
+    "ui.mlcons_bounces": {
+      "text": "不達報告を読む",
+      "hash": "e669018545c297adf8a88506d8fbad11a7abd829"
     },
     "doc.tool.doc_redact.text": {
       "text": "伏せる対象のテキスト（既定では文書から抽出します）",
@@ -2651,6 +2775,10 @@
     "doc.workflow.transcribe-documents": {
       "text": "チームの音声ドキュメントを検索インデックス内のテキストに変換します。まだ文字起こしのない録音を見つけ、一つずつ文字起こしします。TMACH_TRANSCRIBE_URL が必要です。再実行は安全で、一回の実行で最大20件の録音を処理し、チームの文字起こし予算を消費します。ボイスノートについては Index Documents と Embed Documents より前にこれを実行してください — これが済むまで、録音にはどちらが読むテキストもありません。",
       "hash": "85238c78d2068f3a2b17cd1d77dc53fd9e66c8d6"
+    },
+    "mail.noun.job": {
+      "text": "ジョブ {id}",
+      "hash": "d5e935b8000e719c26b0cc2929559817e6593b7c"
     },
     "doc.tool.doc_classify.object": {
       "text": "リポジトリオブジェクトID",
@@ -2823,6 +2951,10 @@
     "doc.route.get.api.org.branding": {
       "text": "会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。",
       "hash": "ed143a926240ffabe318645984be613401b30646"
+    },
+    "ui.mlfolder": {
+      "text": "フォルダ",
+      "hash": "30baa24967e08965d1594408031f0324ae11ccac"
     },
     "doc.route.get.api.org.retention": {
       "text": "会社自身の保持ルール（#86 r3）。組織は自社のデータについてインスタンスが許す期間を短縮できますが、延長はできません。",
@@ -3056,6 +3188,10 @@
       "text": "稼働中",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
     },
+    "mail.reset.intro": {
+      "text": "このアドレスの TMach パスワード再設定が依頼されました。このリンクは 1 回だけ有効で、{ttl}で失効します。",
+      "hash": "2ae0ceea80193d92bec61591e6c60acea5e364f8"
+    },
     "doc.route.get.api.doc-triggers.id": {
       "text": "1つのトリガーとその発火履歴（どのバージョン、どの実行、あるいはなぜ発火しなかったか）。",
       "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
@@ -3159,6 +3295,10 @@
     "ui.qvleases": {
       "text": "リース",
       "hash": "45c6034dee3192e14bc2c94fe6ebc276c007d29c"
+    },
+    "mail.document_request.what": {
+      "text": "依頼内容: {what}",
+      "hash": "37a4651ec85f704b492d4cac976b038b4ef4aa5e"
     },
     "ui.quotaraiseop": {
       "text": "下の設定で引き上げられます。",
@@ -3500,6 +3640,10 @@
       "text": "ワークフロー定義、実行とトリガーを確認します。",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
     },
+    "mail.verb.arrived": {
+      "text": "が届きました",
+      "hash": "1b2853c43d4f5ce1ffff2e3ad07fb2f02eecd372"
+    },
     "ui.edempty": {
       "text": "保存する内容がありません",
       "hash": "a0e92e059b9b0c33b6d0d368dbe5bc292b7141e9"
@@ -3600,13 +3744,17 @@
       "text": "オペレーターが引き上げられます。",
       "hash": "5a5414bdc24f0f0ed674ea06fec55db68b668ef3"
     },
-    "doc.route.post.api.jobs.id.cancel": {
-      "text": "ジョブをキャンセルする。自分のものであればキュー内でも実行中でも可能で、他人のものには jobs:cancel が必要です。キュー内のジョブは直ちにキャンセルされ、実行中のジョブは `canceling` に移ります — 結果は即座に破棄され、ハンドラが実際に停止した時点でチームの同時実行枠が解放されます。",
-      "hash": "04ae85238b4668c1a2d014a249527a78fa1a7a28"
+    "mail.document_request.footer": {
+      "text": "{org_name} の代理で送信しています。",
+      "hash": "5e9f1651dfb981031c82f04afc9c7d1efc43b1b8"
     },
     "ui.localize": {
       "text": "翻訳管理",
       "hash": "856ae94430567b78d47f89dd136d96687ff5caee"
+    },
+    "doc.route.post.api.jobs.id.cancel": {
+      "text": "ジョブをキャンセルする。自分のものであればキュー内でも実行中でも可能で、他人のものには jobs:cancel が必要です。キュー内のジョブは直ちにキャンセルされ、実行中のジョブは `canceling` に移ります — 結果は即座に破棄され、ハンドラが実際に停止した時点でチームの同時実行枠が解放されます。",
+      "hash": "04ae85238b4668c1a2d014a249527a78fa1a7a28"
     },
     "ui.mltestto": {
       "text": "テストの宛先",
@@ -3684,6 +3832,10 @@
       "text": "リポジトリに保存",
       "hash": "9d0e8997855a6a8c3235ddfe2eedf66ded7cb315"
     },
+    "mail.verb.failed": {
+      "text": "が失敗しました",
+      "hash": "8d33f3064fd0cf2aaa41f82a9b338d50cbbafde5"
+    },
     "doc.route.delete.api.webhooks.id": {
       "text": "購読とその配信履歴を削除する。監査エントリは残ります。",
       "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
@@ -3728,6 +3880,14 @@
       "text": "ローカライゼーションマネージャーのカバレッジとメッセージを見る。",
       "hash": "da2cba8e84f038c877872c710f02f7f21d1049f8"
     },
+    "doc.route.get.api.org.inbound": {
+      "text": "会社の受信メールボックスに届いた返信を新しい順に返します: 差出人、件名、本文、受信時刻、およびそのメッセージが `stored` か `quarantined` か。`quarantined` はトークンの有効期限が切れた後に届いた返信で、表示はできますが操作はできません。プラットフォームは保存するだけで、文面を理解しようとはしません。表示するのはプロダクトの仕事です。受信箱はプラグインであり、コアがプラグインを要求してはならないためです。",
+      "hash": "847b4e8f18c5cab6561f7e34351aac79ac6e1a4b"
+    },
+    "ui.mltested": {
+      "text": "前回のテスト",
+      "hash": "0574834056c9a2320bef1d182f0b1b5441df7987"
+    },
     "ui.thcontrasthint": {
       "text": "このテキストが読めない利用者がいる可能性があります。サーバーは最低値を下回るテーマを拒否します。",
       "hash": "931f620bbf6a582ae8b0d682fcec3c2206887dd4"
@@ -3743,10 +3903,6 @@
     "doc.tool.create_note": {
       "text": "現在のユーザーのチームにメモを作成します。",
       "hash": "b647e9b2764c0eb907c2306751d03cbc7e8fee48"
-    },
-    "ui.mltested": {
-      "text": "前回のテスト",
-      "hash": "0574834056c9a2320bef1d182f0b1b5441df7987"
     },
     "ui.instfeatures": {
       "text": "インスタンスの機能",
@@ -3775,6 +3931,14 @@
     "ui.thradius": {
       "text": "角の丸み",
       "hash": "c7a86e072be0a7a476c9e29aa6514eb2d3fde8ab"
+    },
+    "mail.noun.run": {
+      "text": "実行 {id}",
+      "hash": "273f659f1c5ebc20e2d15795271ce25674625124"
+    },
+    "mail.notification.why": {
+      "text": "アカウントで通知が有効になっているため、このメールが届いています。",
+      "hash": "a1cc2c7081761f9f9db820bb330225df02251d5e"
     },
     "doc.route.post.api.org.teams": {
       "text": "呼び元の会社でチームを作成します。",
@@ -3844,6 +4008,14 @@
       "text": "ワークフローステップ ID（由来の記録用）。",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
+    "doc.route.post.api.org.mail": {
+      "text": "会社外の相手にメッセージを送信します: {contact, template, data, link}。文言は固定のテンプレート登録から取得し、`data` は ID のみを運び、文章は運びません。呼び出し側が任意の本文と任意の宛先を渡せるメール API は、インスタンス自身の From 識別情報を背負ったスパム送信装置になるためです。抑止された連絡先、送信経路の未設定、重複は、いずれも通常の状態なのでエラーではなく `{queued: 0, reason}` を返します。",
+      "hash": "420095a5d2a8300ccc86cb5d774f2959cc894561"
+    },
+    "ui.vis_shared": {
+      "text": "限定共有 — 下記の相手のみ",
+      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
+    },
     "doc.route.post.api.uploads.id.complete": {
       "text": "パートを昇順に組み立ててリポジトリオブジェクトにし、アップロードを完了します。クライアントは順序を指定しません — ストリーム取り込みには書き手が一人しかおらず昇順が順序そのものであり、一方 S3 の面はパートが並行して届くためリストを取らなければなりません。通常の `repo-put!` を通して書かれるので、オブジェクトはバージョン管理され、クォータが確認され、監査され、トリガーに評価されます。",
       "hash": "98b01cc00f9ac1c65c8f7471bc72401d53b37add"
@@ -3851,10 +4023,6 @@
     "doc.perm.settings:manage": {
       "text": "チーム設定：トークン、機能フラグ、ツールの有効化、用語集、シード投入、監査ログ。",
       "hash": "0062da01a09f0649738228059fa7da1360bbf57c"
-    },
-    "ui.vis_shared": {
-      "text": "限定共有 — 下記の相手のみ",
-      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
     },
     "doc.route.post.api.features.name": {
       "text": "チームの機能を有効または無効にする。チームは上位の層が許可する範囲で厳しくできるが、緩めることはできない。",
@@ -3935,6 +4103,10 @@
     "doc.route.post.api.repo-obj.id.share": {
       "text": "組織内のユーザーまたはチームと共有する：{principal_type, principal_id, capability: view|edit|manage, expires_at?}。{user_id} は従来どおり view を意味します。",
       "hash": "cd82f7d35429e191de508ed5238a7b3b4dabbdd8"
+    },
+    "mail.notification.signature": {
+      "text": "— TMach",
+      "hash": "0acc611310883669132e3adf685a1fd6abcd4f6d"
     },
     "doc.route.post.api.x.feeds.items.id.status": {
       "text": "キューの 1 件を別の状態へ移します：{\"status\": \"claimed\"}。オブジェクト ID はインスタンス全体で一意なので、ドキュメントに加えて行そのもののチームでも保護しています。",
@@ -4104,13 +4276,17 @@
       "text": "名前順で最初の {cap} 件を表示しています。ほかにもあります。",
       "hash": "1f1094b98b125340213b8bdf1de11bfe5bd76654"
     },
-    "ui.wkerrhint": {
-      "text": "この期間にこのホストが失敗と報告したジョブ数です。ジョブ自体に問題があったか、モデルが拒否した場合です。実行できないホストは、失敗させるのではなくジョブを解放します。",
-      "hash": "cfdbef058d05adb2200693df3e67b3ab5c0d7782"
-    },
     "doc.route.post.api.email-deliveries.id.redeliver": {
       "text": "不達をもう一度送ります。試行回数はリセットされます。再送するオペレーターは判断を下したのであり、10回のうちすでに使われた1回だけを渡してもその操作は役に立たないからです。配送idは変わらないため Message-ID も同じで、すでに受け付けたリレーはそれを認識します。",
       "hash": "ca98beab446bcdb0a55cc35232f64a0c31147baf"
+    },
+    "doc.route.delete.api.email-inbound": {
+      "text": "受信メールボックスを削除します。インスタンスの初期状態に戻る唯一の方法です。`active: false` を指定した `PUT` でも、設定済みのメールボックスは残ります。",
+      "hash": "8b562fc742092bcc10b071fdfd893675c37b8cbf"
+    },
+    "ui.wkerrhint": {
+      "text": "この期間にこのホストが失敗と報告したジョブ数です。ジョブ自体に問題があったか、モデルが拒否した場合です。実行できないホストは、失敗させるのではなくジョブを解放します。",
+      "hash": "cfdbef058d05adb2200693df3e67b3ab5c0d7782"
     },
     "doc.perm.org:manage": {
       "text": "会社の管理：チームとメンバー。チームデータは管理するが読まない（TEN-2a）。",
@@ -4119,6 +4295,10 @@
     "ui.ngraphnodes": {
       "text": "{total} 件のノートのうち {n} 件、リンク {e} 本を描画しました",
       "hash": "4c34463118bdb05e43928a95d19a545eac99e3bb"
+    },
+    "ui.mlinboundhint": {
+      "text": "任意で 1 つのメールボックスを読み、2 つのことに使います。1 つは不達報告で、存在しなくなったアドレスを抑止します。もう 1 つは返信で、受信トレイの項目として届きます。不達報告も返信も「戻ってくるメール」なので、同じメールボックスを共有します。設定するまで何も読みません。",
+      "hash": "9589de0c852ab0dab5103d1fd53dacedd5c73676"
     },
     "doc.route.get.beta-sdk.js": {
       "text": "Tier-B オンボーディングバンドルが読み込むブラウザ SDK（window.Telemachus.beta）。",
@@ -4147,6 +4327,10 @@
     "ui.palnone": {
       "text": "一致するものがありません",
       "hash": "90226a1418b7b508766c0dcbd18eb7b87205b182"
+    },
+    "mail.reset.code": {
+      "text": "次のコードで新しいパスワードを設定してください: {token}",
+      "hash": "a63e66a479e5af355d67b910323c92979f74506d"
     },
     "doc.perm.notes:manage": {
       "text": "自分が所有していないノートを共有する。",
@@ -4248,6 +4432,10 @@
       "text": "このリクエストが使っているセッションを終了する。これ以前はコンソールのサインアウトが何も呼んでいなかったため、ベアラーは期限まで有効なままだった。",
       "hash": "574667b54d3eb3f4e23149c72279775c2f2a340b"
     },
+    "mail.reset.subject": {
+      "text": "TMach パスワードの再設定",
+      "hash": "95d7041cda5b0464ad07a1f0102a47c4dc73814e"
+    },
     "ui.reviewrecorded": {
       "text": "判断を記録しました",
       "hash": "71097cf7bca165c70df9a12dfca0ce52f9a89f55"
@@ -4268,6 +4456,14 @@
       "text": "無題",
       "hash": "621521f9a8788695ec292cbec54d2792cfdf0a7d"
     },
+    "ui.hdrain": {
+      "text": "ドレイン待機時間",
+      "hash": "6a47b6b48e47e9726a7b8ee8aebae4e2b396e6fa"
+    },
+    "mail.notification.subject_team": {
+      "text": "[{team}] {sentence}",
+      "hash": "b6157b43081439404b35130d11768e656ebb7cf8"
+    },
     "doc.route.post.api.workers.jobs.id.heartbeat": {
       "text": "このワーカーが保持するジョブのリースを延長する：{claim_token}、取得時に返されたトークン。トークンが無い、または古い場合は 409 になります。",
       "hash": "7c5cab8cfb5e9fe78bdf2903b748b2144efbe4e1"
@@ -4279,10 +4475,6 @@
     "doc.route.put.api.org.retention": {
       "text": "会社の保持ルールを設定します。語彙と拒否条件はチーム向けの経路と同一で、チームに適用される実効値はインスタンス・組織・チームのうち最短のものになります。",
       "hash": "5ba096d4acfe3546f0865de072a8ba5b9dc2c1a2"
-    },
-    "ui.hdrain": {
-      "text": "ドレイン待機時間",
-      "hash": "6a47b6b48e47e9726a7b8ee8aebae4e2b396e6fa"
     },
     "ui.nosharedwithme": {
       "text": "まだ何も共有されていません。",
@@ -4340,6 +4532,10 @@
       "text": "組織レベルのクォータを設定；チームはその下に配置されます",
       "hash": "b56168537a1f06874aa58142c8c2c7a24d720c1c"
     },
+    "mail.notification.off": {
+      "text": "コンソールのご自身のプロフィールで通知を停止できます。",
+      "hash": "e5ec6a25d6e84351f20a00293832376986faf764"
+    },
     "ui.palhpalette": {
       "text": "コマンドパレットを開く",
       "hash": "2b5a7d38f23f257ed27a4b5c21774239fe9b1a93"
@@ -4360,6 +4556,14 @@
       "text": "フィードの設定を削除します。すでに取得済みの項目は通常のリポジトリ文書であり、影響を受けません — フィードの削除は、その項目の取り消しではありません。",
       "hash": "c9df0d8c31f26321241f7ba3b658661fe6138cc6"
     },
+    "doc.route.post.api.l10n.discard": {
+      "text": "ロケールの機械翻訳の下書きを削除する（人の作業には触れません）。",
+      "hash": "6cd563b71dcf816676f66108dd48970be53285c1"
+    },
+    "ui.mlinbound": {
+      "text": "受信メール",
+      "hash": "996bfe98fe4a12ca0ab2b800d9163d248d66cb2a"
+    },
     "doc.route.post.api.activate": {
       "text": "ホストモード：アクティベーショントークンを交換し、所有者のパスワードを設定します",
       "hash": "4abf505567758f834dd33521715f9792cffaebac"
@@ -4375,10 +4579,6 @@
     "ui.qvwindow": {
       "text": "直近 {h} 時間",
       "hash": "cd66cdaf1149abea4ee263ebcc7a3cbdfe87c70a"
-    },
-    "doc.route.post.api.l10n.discard": {
-      "text": "ロケールの機械翻訳の下書きを削除する（人の作業には触れません）。",
-      "hash": "6cd563b71dcf816676f66108dd48970be53285c1"
     },
     "ui.workflows": {
       "text": "ワークフロー",
@@ -4468,6 +4668,10 @@
       "text": "インスタンス層のすべて；オペレーター（スーパー管理者）。",
       "hash": "5957c7a87ad3f05d89db595d3267a61bee7d7b74"
     },
+    "ui.mlmode": {
+      "text": "モード",
+      "hash": "a7b93d2128e820f861fc8dfccd9f5521e89ad21f"
+    },
     "doc.tool.doc_render.data": {
       "text": "埋め込むデータ。例：抽出されたフィールド。",
       "hash": "92e78b4a50fac07647cf4d491ef3909265beb400"
@@ -4480,13 +4684,17 @@
       "text": "差し戻し済み",
       "hash": "784f79a850955807e6a9c2610522ad187f5cf14e"
     },
-    "doc.route.put.api.i18n": {
-      "text": "インスタンスのデフォルト言語と、ユーザーが切り替える可否を設定します。",
-      "hash": "3ceb223bf235f7f52e4001672cb5ed6276472812"
-    },
     "doc.perm.files:read": {
       "text": "リポジトリの文書を開く・ダウンロードする・検索する；由来と知識グラフを読む。",
       "hash": "2efb78bec3b8ff4d1b71b73d0a5d3106dbb524e2"
+    },
+    "ui.mlcons_messages": {
+      "text": "返信を読む",
+      "hash": "b5fe6a2279cd60f5f2fecb6dfaebb6a215dde17a"
+    },
+    "doc.route.put.api.i18n": {
+      "text": "インスタンスのデフォルト言語と、ユーザーが切り替える可否を設定します。",
+      "hash": "3ceb223bf235f7f52e4001672cb5ed6276472812"
     },
     "doc.perm.documents:read": {
       "text": "文書を読みます。",
@@ -4495,6 +4703,10 @@
     "ui.file": {
       "text": "ファイル",
       "hash": "2c3cafa4db3f3e1e51b3dff4303502dbe42b7a89"
+    },
+    "mail.verb.finished": {
+      "text": "が完了しました",
+      "hash": "f957097d7a22775f6bea41b46cae4d14274dac9f"
     },
     "doc.route.post.api.webhooks.id.ping": {
       "text": "この購読に `ping` イベントを今すぐ同期的に配信し、その結果を返す。実際のイベントが依存する前に、受信側の署名検証を確認する手段です。購読が無効、または `ping` を購読していない場合は 409 で拒否されます。",
@@ -4511,6 +4723,10 @@
     "ui.wkretire": {
       "text": "廃止",
       "hash": "c9714c15af397514e267a29a83a2669dfe33365a"
+    },
+    "mail.verify.ignore": {
+      "text": "この確認に心当たりがない場合は、このメールを破棄してください。確認が済んでいないアドレスには何も送信されません。",
+      "hash": "37c5da75f3c7c6c23ea68735a8d5bb862f36a2e0"
     },
     "ui.searchmin": {
       "text": "2文字以上入力してください。",
@@ -4660,6 +4876,10 @@
       "text": "翻訳先の言語",
       "hash": "f137c97e3de044babb50524619905eefd5aa79dd"
     },
+    "doc.route.patch.api.org.contacts.id": {
+      "text": "抑止または抑止の解除: {status, reason?}。抑止は、クォータを消費する前にそのアドレスへの送信をすべて拒否します。また、1 回の失敗報告は配信されなかった証明ではなく試行の証拠にすぎないため（RFC 3464）、抑止は解除できます。",
+      "hash": "cbcae3dcfde08acd161cbcaa60a4de634eabbbcf"
+    },
     "doc.route.put.api.org.session-policy": {
       "text": "会社のセッションタイムアウトを設定する。厳しくする変更だけが有効になる：インスタンスより緩い値を指定すると、インスタンスの値が返されます。",
       "hash": "23fd5bd1c7e8fee805e5dd4078b9fd51b7cf2030"
@@ -4752,13 +4972,17 @@
       "text": "スケジュールを調整する: `cadence`、`interval_seconds`、`at_minute`、`days_of_week`、`timezone`、`paused`、`payload`、`priority`、`name`。検証は変更後の状態に対して行われるため、`daily` への切り替えと `at_minute` を同じリクエストで送るのは受け付けられ、`at_minute` なしの切り替えは拒否されます — パッチで作成できない状態に到達することはありません。実行タイミングに関わる変更は次回実行を再計算します。古い時刻で一度実行してから編集に従う、という挙動にはなりません。プリンシパルは変更できません: タイマーが誰の権限を使うかを変えることは編集ではなく新しいスケジュールです。一時停止を解除すると、見送ったティックをまとめて実行するのではなく次回実行が先に進みます。",
       "hash": "ee5d997d17b098a4fbd4c77017676b1039f131fd"
     },
-    "doc.route.post.api.l10n.draft": {
-      "text": "ロケールの未翻訳文字列に対して AI の下書きを、20件ずつのスケジューラジョブでキューに入れる。クォータで計量されます。",
-      "hash": "742d6ecb83ed152c1255676ccadbf17b2ad7034b"
-    },
     "doc.plugin.research": {
       "text": "ブックマークしたページを蒸留するワークフロー。まだ処理が追いついていない保存済みページを見つけ、検索用にテキストを抽出し、そこから事実をナレッジグラフへ取り出す。いつ再実行してもよく、追いついていないものだけに触れる。",
       "hash": "e7229c1e3aa372ef7ee2d0fc4e131858cfda0e76"
+    },
+    "doc.route.delete.api.org.contacts.id": {
+      "text": "会社外の相手を消去します: 連絡先、そのアクショントークン、その配信行、およびその相手が送った返信を 1 つのトランザクションで削除します。監査ログは送信が行われた事実だけを保持し、アドレスは保持しません。監査ログは連鎖・エクスポートされ、消去後も保存されるためです。",
+      "hash": "a2bf56345cd6593dde65d194446165a569c807f1"
+    },
+    "doc.route.post.api.l10n.draft": {
+      "text": "ロケールの未翻訳文字列に対して AI の下書きを、20件ずつのスケジューラジョブでキューに入れる。クォータで計量されます。",
+      "hash": "742d6ecb83ed152c1255676ccadbf17b2ad7034b"
     },
     "doc.route.get.api.s3.credentials": {
       "text": "呼び出し元の S3 アクセスキー（シークレットは二度と表示されません）と、それを使うエンドポイント／バケット。",
@@ -4888,6 +5112,10 @@
       "text": "保留：{dimension} の予算",
       "hash": "f2afcef162808b1a6720bb9cd2b948aea93b14d3"
     },
+    "doc.route.put.api.email-inbound": {
+      "text": "受信メールボックスを文書全体として設定します: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}。パスワードを省略すると保存済みのものはそのまま残るので、フォルダの変更が認証情報を黙って消すことはありません。`active` を省略した場合も同じ理由で保存済みの値が残ります。省略された文書が動作中のポーラーを停止させてはならないからです。誰も読まない間に届いたメールは、気づかれないまま失われる唯一の障害です。停止するには `active: false` を送ります。`consumers` は `{bounces, messages}` で、どちらも既定は無効です。無効な消費側は実行されません。バウンスを読まない設定が返信トークンを使うことはなく、返信を読まない設定が連絡先を抑止することもありません。",
+      "hash": "d67996cca7cab8c84f79ff1d4ed797f5133f7611"
+    },
     "ui.dimension": {
       "text": "指標",
       "hash": "45e147abd920eeb1aca320340e18cf67b4c77252"
@@ -4899,6 +5127,10 @@
     "doc.route.get.index.html": {
       "text": "コンソール",
       "hash": "22e231ec8661962729182ce14c43ad6f9a6ebd62"
+    },
+    "mail.verb.decided": {
+      "text": "が決定しました: {verdict}",
+      "hash": "a27ecbebc090dc4555364f748d708baa29d9667e"
     },
     "ui.wkaddhint": {
       "text": "このホストが接続に使うワーカートークンを作成します。トークンはこの場で一度だけ表示され、以後は表示されません。",

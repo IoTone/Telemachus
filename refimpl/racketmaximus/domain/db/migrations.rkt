@@ -2616,6 +2616,208 @@
                    "  PRIMARY KEY (tbl, col))"))
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_plugin_seals_plugin ON plugin_seals (plugin_id)"))))
 
+(define m-0077-email-contacts
+  (migration "0077-email-contacts"
+    (lambda (conn)
+      ;; AN EXTERNAL PARTY IS NOT A USER, and the difference is the whole reason
+      ;; this table exists. `users` is a person who can sign in; a broker, a
+      ;; supplier and a customer cannot, and giving them a user row to hold an
+      ;; address would hand them a credential they must never have.
+      ;;
+      ;; THE ADDRESS IS THE ERASURE SUBJECT, so it lives here and on the delivery
+      ;; row and nowhere else. The audit log is chained, exported and kept through
+      ;; an erasure (DEL-7), so no entry about a contact carries the address —
+      ;; only the contact id, which is what `contact-delete!` removes.
+      ;;
+      ;; THE UNIQUE INDEX IS ON `lower(address)`, because an address is compared
+      ;; case-insensitively in practice and the platform already lowercases for
+      ;; the reset limiter. Both dialects support an expression index, and storing
+      ;; a lowercased copy would change the address the operator typed.
+      ;;
+      ;; `status` is the suppression, and it is a column rather than a second
+      ;; table: a suppression is a fact about this contact, and a separate list
+      ;; would need its own erasure path and its own join.
+      (exec* conn (string-append
+                   "CREATE TABLE email_contacts ("
+                   "  id TEXT PRIMARY KEY,"
+                   "  org_id TEXT NOT NULL,"
+                   "  address TEXT NOT NULL,"
+                   "  name TEXT,"
+                   "  org_name TEXT,"
+                   "  locale TEXT NOT NULL DEFAULT 'en',"
+                   "  status TEXT NOT NULL DEFAULT 'active',"
+                   "  suppressed_reason TEXT,"
+                   "  suppressed_epoch BIGINT,"
+                   "  created_by TEXT,"
+                   "  created_epoch BIGINT NOT NULL,"
+                   "  updated_epoch BIGINT NOT NULL)"))
+      (exec* conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_email_contacts_addr ON email_contacts (org_id, lower(address))")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_contacts_org ON email_contacts (org_id, created_epoch)")
+
+      ;; A LINK THAT LETS SOMEBODY WITHOUT AN ACCOUNT ACT. It cannot live in
+      ;; `activation_tokens`, which is keyed on `user_id` and whose purposes are
+      ;; `activate` and `reset`: a token that names a user is a token that can be
+      ;; redeemed into a session, and an external party must never have one.
+      ;;
+      ;; `purpose` is a closed vocabulary checked by the writer, and it is what
+      ;; stops a reply token being spent as an action token — the same defect
+      ;; migration 0070 fixed for the two mailed-token purposes.
+      (exec* conn (string-append
+                   "CREATE TABLE email_action_tokens ("
+                   "  id TEXT PRIMARY KEY,"
+                   "  contact_id TEXT NOT NULL,"
+                   "  org_id TEXT NOT NULL,"
+                   "  purpose TEXT NOT NULL,"
+                   "  token_hash TEXT NOT NULL,"
+                   "  subject_id TEXT,"
+                   "  expires_at BIGINT NOT NULL,"
+                   "  used_at BIGINT,"
+                   "  created_epoch BIGINT NOT NULL)"))
+      (exec* conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_email_action_tokens_hash ON email_action_tokens (token_hash)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_action_tokens_contact ON email_action_tokens (contact_id, created_epoch)")
+
+      ;; THE ERASURE LINK. A contact's deliveries are found through this column,
+      ;; and `contact-delete!` removes them: the delivery row is about that person,
+      ;; so a request to be forgotten takes it, together with the replies they sent
+      ;; (found through the same column on `inbound_messages`). The audit log keeps
+      ;; the fact that sends happened, without the address.
+      (exec* conn "ALTER TABLE email_deliveries ADD COLUMN contact_id TEXT")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_contact ON email_deliveries (contact_id)"))))
+
+(define m-0078-email-external
+  (migration "0078-email-external"
+    (lambda (conn)
+      ;; AN EXTERNAL MESSAGE IS A DELIVERY ROW WITH THREE MORE FACTS: which company
+      ;; spent it, which template composed it, and what makes it the same message
+      ;; as one already queued.
+      ;;
+      ;; `org_id` is the budget holder and the erasure subject, and it is NOT
+      ;; derivable from `team_id` at read time without a join that every list would
+      ;; have to remember.
+      ;;
+      ;; `template` is the closed registry id, so a dead letter says which message
+      ;; kind failed rather than only its subject.
+      ;;
+      ;; `dedupe_key` is what stops a double-click or a retry queueing the same
+      ;; message twice. The claim already prevents a double SEND of one row; this
+      ;; prevents a second ROW. The index is PARTIAL — only pending rows — because
+      ;; a settled row must not block a legitimate later send of the same kind.
+      (exec* conn "ALTER TABLE email_deliveries ADD COLUMN org_id TEXT")
+      (exec* conn "ALTER TABLE email_deliveries ADD COLUMN template TEXT")
+      (exec* conn "ALTER TABLE email_deliveries ADD COLUMN dedupe_key TEXT")
+      ;; THE REPLY ADDRESS IS PART OF THE MESSAGE, so it is stored with it. It
+      ;; cannot be derived at send time: the token is hashed at rest, and a header
+      ;; composed from a hash is a header nobody can reply to.
+      (exec* conn "ALTER TABLE email_deliveries ADD COLUMN reply_to TEXT")
+      (exec* conn (string-append
+                   "CREATE UNIQUE INDEX IF NOT EXISTS idx_email_dedupe ON email_deliveries (dedupe_key) "
+                   "WHERE dedupe_key IS NOT NULL AND status = 'pending'"))
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_org ON email_deliveries (org_id, created_epoch)"))))
+
+(define m-0079-inbound-mailbox
+  (migration "0079-inbound-mailbox"
+    (lambda (conn)
+      ;; ONE OPTIONAL MAILBOX, TWO CONSUMERS. A bounce report and a reply are both
+      ;; "mail that comes back", so they share one mailbox, one credential and one
+      ;; poller; the split is at the first parse, not at the mailbox. An instance
+      ;; may run neither consumer, one, or both, and the shipped state is `none` —
+      ;; an upgrade must not start reading a mailbox, the same rule the transport
+      ;; follows.
+      ;;
+      ;; `mode` is the ingestion mechanism, and the vocabulary holds only the one
+      ;; that exists: `imap`, read through `curl`, which is already in the closure
+      ;; and already shelled out to. `none` is the shipped state. `maildir` and
+      ;; `webhook` are recorded in the design as the alternatives and are not in
+      ;; this column's vocabulary until they are implemented — a mode an operator
+      ;; can set and nothing reads is what a closed vocabulary prevents.
+      ;;
+      ;; `consumers` is a JSON document rather than two columns, because it is one
+      ;; closed vocabulary and the writer normalizes it — the shape
+      ;; `instance-categories` already uses.
+      ;;
+      ;; `last_uid` AND `uidvalidity` ARE STORED TOGETHER, and that is the whole
+      ;; safety of an IMAP consumer: when UIDVALIDITY changes the UID space was
+      ;; reset, so the poller re-syncs rather than trusting a UID that now names a
+      ;; different message. Losing that pair is how an IMAP consumer duplicates or
+      ;; silently skips mail.
+      (exec* conn (string-append
+                   "CREATE TABLE inbound_mailbox ("
+                   "  id TEXT PRIMARY KEY,"
+                   "  mode TEXT NOT NULL DEFAULT 'none',"
+                   "  host TEXT,"
+                   "  port INTEGER,"
+                   "  security TEXT NOT NULL DEFAULT 'tls',"
+                   "  username TEXT,"
+                   "  password TEXT,"
+                   "  folder TEXT NOT NULL DEFAULT 'INBOX',"
+                   "  consumers TEXT NOT NULL DEFAULT '{}',"
+                   "  last_uid TEXT,"
+                   "  uidvalidity TEXT,"
+                   "  active INTEGER NOT NULL DEFAULT 0,"
+                   "  last_poll_epoch BIGINT,"
+                   "  last_poll_ok INTEGER,"
+                   "  last_error TEXT,"
+                   "  updated_by TEXT,"
+                   "  updated_epoch BIGINT)")))))
+
+(define m-0080-dkim
+  (migration "0080-dkim"
+    (lambda (conn)
+      ;; DKIM IS WHAT MAKES DMARC ALIGNMENT POSSIBLE FOR AN EXTERNAL MESSAGE. SPF
+      ;; authenticates the ENVELOPE sender, and an external message's envelope
+      ;; sender is the VERP bounce address, so SPF alone cannot carry DMARC for it.
+      ;; A signature with `d=<the From domain>` aligns whatever the envelope says.
+      ;;
+      ;; `dkim_key` IS A SEALED COLUMN and is listed in `CREDENTIAL-SECRETS` in the
+      ;; same commit as this table, or `rewrap` cannot rotate it and every message
+      ;; stops being signed at the first key rotation with nothing failing.
+      ;;
+      ;; `dkim_domain` is nullable and defaults to the From address's domain, which
+      ;; is the only domain the instance may honestly claim. It exists so a
+      ;; deployment that sends from a subdomain can sign as the parent, which is
+      ;; what relaxed alignment allows and what a DMARC record on the parent needs.
+      (exec* conn "ALTER TABLE email_transport ADD COLUMN dkim_selector TEXT")
+      (exec* conn "ALTER TABLE email_transport ADD COLUMN dkim_key TEXT")
+      (exec* conn "ALTER TABLE email_transport ADD COLUMN dkim_domain TEXT"))))
+
+(define m-0081-inbound-messages
+  (migration "0081-inbound-messages"
+    (lambda (conn)
+      ;; A REPLY THAT ARRIVED, stored so the product can show it. The platform does
+      ;; not try to understand prose: it resolves the reply token, records who it
+      ;; came from and what it said, and stops. Raising an inbox item is the
+      ;; product's job, because the inbox is a plugin and core may not require one.
+      ;;
+      ;; `token_id` is the credential that authorized the message, so a reply can be
+      ;; traced to the exact outbound message it answers. `raw_sha256` is the
+      ;; deduplication key: delivery is at-least-once, and a poller that restarts
+      ;; sees the same message again.
+      ;;
+      ;; `state` is `stored` for a reply whose token was unspent, and `quarantined`
+      ;; for one that arrived after the token expired or was already used: the
+      ;; product may show it and may not act on it. A reply is never deleted for
+      ;; being late, because the person who wrote it is waiting for an answer.
+      ;;
+      ;; `body` is the message's own words, so it is CONTENT and not a composed
+      ;; notification — the one place in this subsystem where that is true. It is
+      ;; bounded at the write and it is the reason `inbound_messages` is a separate
+      ;; table from `email_deliveries`.
+      (exec* conn (string-append
+                   "CREATE TABLE inbound_messages ("
+                   "  id TEXT PRIMARY KEY,"
+                   "  org_id TEXT NOT NULL,"
+                   "  contact_id TEXT,"
+                   "  token_id TEXT,"
+                   "  message_id TEXT,"
+                   "  from_address TEXT,"
+                   "  subject TEXT,"
+                   "  body TEXT,"
+                   "  raw_sha256 TEXT NOT NULL,"
+                   "  received_epoch BIGINT NOT NULL,"
+                   "  state TEXT NOT NULL DEFAULT 'stored')"))
+      (exec* conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_inbound_sha ON inbound_messages (raw_sha256)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_inbound_org ON inbound_messages (org_id, received_epoch)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2627,4 +2829,6 @@
                              m-0068-note-tags m-0069-email
                              m-0070-token-purpose m-0071-research-sources
                              m-0072-mail-verify-tls m-0073-note-format
-                             m-0074-note-links m-0075-job-progress m-0076-plugin-seals))
+                             m-0074-note-links m-0075-job-progress m-0076-plugin-seals
+                             m-0077-email-contacts m-0078-email-external
+                             m-0079-inbound-mailbox m-0080-dkim m-0081-inbound-messages))

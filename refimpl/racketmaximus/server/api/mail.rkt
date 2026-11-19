@@ -17,6 +17,7 @@
 
 (provide ep-email-transport-get ep-email-transport-put ep-email-transport-delete
          ep-email-transport-test
+         ep-email-inbound-get ep-email-inbound-put ep-email-inbound-delete
          ep-email-notify-get ep-email-notify-put
          ep-org-email-notify-get ep-org-email-notify-put
          ep-email-prefs-get ep-email-prefs-put
@@ -41,6 +42,8 @@
                   user-pref-set! categories-for prefs-problem
                   mail-deliveries mail-delivery-get mail-redeliver! mail-send-test!
                   mail-enqueue-verification!)
+         (only-in "../../domain/mail/inbound.rkt"
+                  INBOUND-MODES INBOUND-CONSUMERS inbound-ref inbound-set! inbound-clear!)
          (only-in "../../domain/mail/addresses.rkt"
                   user-address-state address-claim! address-verify! address-clear!)
          "../kit.rkt")
@@ -128,6 +131,31 @@
                #:resource-type "email_transport" #:resource-id "default"
                #:result (if ok? "ok" "error"))
        (json-response (hasheq 'ok ok? 'error (or e 'null)))]))))
+
+;; ---- the inbound mailbox ------------------------------------------------------
+;; The read carries the VOCABULARIES beside the row, the shape the transport read
+;; uses, so a console card holds no second copy of a closed list that core owns.
+(define (ep-email-inbound-get req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:read")
+    (json-response (hasheq 'inbound (or (inbound-ref db-conn) 'null)
+                           'modes INBOUND-MODES
+                           'consumers INBOUND-CONSUMERS)))))
+
+(define (ep-email-inbound-put req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define b (read-json-body req))
+    ;; `inbound-set!` validates and raises `exn:fail:user?`, which the dispatcher
+    ;; answers 400 with. A second check here would be the redundant-guard shape, and
+    ;; a `with-handlers` that re-raised it was dead code.
+    (json-response (hasheq 'inbound (inbound-set! db-conn b #:by (principal-user-id p)))))))
+
+(define (ep-email-inbound-delete req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (inbound-clear! db-conn #:by (principal-user-id p))
+    (json-response (hasheq 'ok #t)))))
 
 ;; ---- the instance and org layers ----------------------------------------------
 ;; `categories` is the stored document; `effective` is what it RESOLVES to for

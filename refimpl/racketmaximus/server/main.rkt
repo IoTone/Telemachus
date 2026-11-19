@@ -50,6 +50,7 @@
          ;; (#133) was made plural for. The sweep is its own thing on the reaper
          ;; seam, beside the webhook one and for the same reason.
          (only-in "../domain/mail/mail.rkt" mail-notify! mail-deliver-due!)
+         (only-in "../domain/mail/inbound.rkt" inbound-poll!)
          (only-in "../domain/s3/server.rkt" make-s3-handler s3-region)
          ;; #192 slice 2: the staged-upload reaper lives with the tables now, not
          ;; in the listener — which is OFF BY DEFAULT, and the JSON plane stages
@@ -163,6 +164,7 @@
          "api/annotations.rkt"
          "api/localization.rkt"
          "api/orgs.rkt"
+         "api/contacts.rkt"
          "api/policy.rkt"
          "api/repo.rkt"
          "api/reviews.rkt"
@@ -312,8 +314,14 @@
    'my-org-members ep-my-org-members
    'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role
    'my-org-member-resend ep-my-org-member-resend 'my-org-audit ep-my-org-audit
+   'my-org-contacts ep-my-org-contacts 'my-org-contact-add ep-my-org-contact-add
+   'my-org-contact ep-my-org-contact 'my-org-contact-update ep-my-org-contact-update
+   'my-org-contact-delete ep-my-org-contact-delete 'my-org-mail ep-my-org-mail
+   'my-org-inbound ep-my-org-inbound
    'email-transport-get ep-email-transport-get 'email-transport-put ep-email-transport-put
    'email-transport-delete ep-email-transport-delete 'email-transport-test ep-email-transport-test
+   'email-inbound-get ep-email-inbound-get 'email-inbound-put ep-email-inbound-put
+   'email-inbound-delete ep-email-inbound-delete
    'email-notify-get ep-email-notify-get 'email-notify-put ep-email-notify-put
    'org-email-notify-get ep-org-email-notify-get 'org-email-notify-put ep-org-email-notify-put
    'email-prefs-get ep-email-prefs-get 'email-prefs-put ep-email-prefs-put
@@ -904,6 +912,11 @@
   ;; it is one indexed lookup either way.
   (define last-email-sweep (box 0))
   (define EMAIL-SWEEP-EVERY 5)
+  ;; The inbound mailbox is polled on the same seam and on a slower clock: a reply
+  ;; is not time-critical, and every tick is an IMAP conversation with somebody
+  ;; else's server.
+  (define last-inbound-poll (box 0))
+  (define INBOUND-POLL-EVERY 120)
   ;; The anchor receipt (#66) is the EIGHTH thing on this seam, and the longest
   ;; interval of the lot. It is OFF unless `TELEMACHUS_ANCHOR_KEY` is configured
   ;; (ANCHOR-7): a real default would start emitting a receipt series on every
@@ -1003,6 +1016,18 @@
          ;; rule, that a field (or a line) a reader learns to skip is worse than
          ;; none.
          (when (> dead 0) (printf "email: ~a sent, ~a dead-lettered\n" sent dead))))
+     (when (> (- (current-seconds) (unbox last-inbound-poll)) INBOUND-POLL-EVERY)
+       (set-box! last-inbound-poll (current-seconds))
+       ;; Its own handler, like every other sweep here: a mailbox that is refusing
+       ;; connections must not take the lease reaper down with it.
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (eprintf "inbound poll: ~a\n" (exn-message e)))])
+         (define r (inbound-poll! conn))
+         ;; A BOUNCE AND A REPLY ARE PRINTED; an empty poll is not, for the reason
+         ;; the email sweep prints only dead letters.
+         (when (or (> (hash-ref r 'bounces) 0) (> (hash-ref r 'replies) 0))
+           (printf "inbound: ~a bounce(s), ~a reply(ies)\n"
+                   (hash-ref r 'bounces) (hash-ref r 'replies)))))
      (when (> (- (current-seconds) (unbox last-audit-seal)) AUDIT-SEAL-EVERY)
        (set-box! last-audit-seal (current-seconds))
        ;; its own handler too, for the reason the other two have one

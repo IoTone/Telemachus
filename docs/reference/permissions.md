@@ -41,6 +41,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `notes:read` | team | Read notes. |
 | `notes:write` | team | Create and edit notes. |
 | `org:*` | org | Everything at the company tier. Never reaches instance:*. |
+| `org:mail` | org | Send a message to somebody outside the company: a broker, a supplier, a customer. The message is composed from a template and ids, never free text, and the From address is this instance's own identity. |
 | `org:manage` | org | Administer the company: teams and members. Manages, does not read, team data (TEN-2a). |
 | `org:read` | org | See the company, its teams, members and audit trail. |
 | `org:read-data` | org | Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role. |
@@ -75,7 +76,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | Member (`member`) | team | `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `notes:read`, `notes:write`, `tasks:read`, `tasks:write`, `inbox:read`, `inbox:write`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `localization:read`, `localization:translate`, `reviews:read`, `reviews:decide`, `workflows:read`, `workflows:run` |
 | Viewer (`viewer`) | team | `*:read` |
 | Organization Owner (`org_owner`) | org | `org:*`, `team:read`, `team:write`, `team:create`, `team:delete`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
-| Organization Admin (`org_admin`) | org | `org:read`, `org:manage`, `team:read`, `team:write`, `team:create`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
+| Organization Admin (`org_admin`) | org | `org:read`, `org:manage`, `org:mail`, `team:read`, `team:write`, `team:create`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
 | Organization Reader (`org_reader`) | org | `org:read`, `org:read-data`, `team:read` |
 
 ## Role matrix
@@ -115,6 +116,7 @@ Which built-in role covers which permission (wildcards expanded).
 | `notes:manage` | ✓ |  |  |  |  |  |  |
 | `notes:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
 | `notes:write` | ✓ | ✓ | ✓ |  |  |  |  |
+| `org:mail` |  |  |  |  | ✓ | ✓ |  |
 | `org:manage` |  |  |  |  | ✓ | ✓ |  |
 | `org:read` |  |  |  |  | ✓ | ✓ | ✓ |
 | `org:read-data` |  |  |  |  |  |  | ✓ |

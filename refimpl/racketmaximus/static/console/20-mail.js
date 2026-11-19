@@ -26,6 +26,19 @@ function catLabel(c){ return CATLABEL[c] ? tRaw(CATLABEL[c]) : c; }
 function emailPendingDraft(){ return (document.getElementById('mlad')||{}).value ?? S.mailDraft ?? ''; }
 
 // ---- the operator's transport -------------------------------------------------
+// THE VERIFICATION SWITCH IS ON THE CARD BECAUSE THE API REPORTS IT, and a control
+// absent from the only surface an operator uses is a setting nobody turns on. It is
+// disabled while the security mode is `none`, because the server refuses
+// verification with no handshake to verify (MAIL-28) and a checkbox whose only
+// outcome is a 400 is worse than a disabled one.
+function mailVerifyToggle(sel){
+  const box = document.getElementById('mlv');
+  if (!box) return;
+  const off = sel.value === 'none';
+  box.disabled = off;
+  if (off) box.checked = false;
+}
+
 function emailTransportCard(){
   const T = (S.mailT && S.mailT.transport) || null;
   const modes = (S.mailT && S.mailT.security_modes) || ['none','starttls','tls'];
@@ -41,8 +54,11 @@ function emailTransportCard(){
     <div class="row">
       <div><label>${t('mlhost')}</label><input id="mlh" value="${esc((T&&T.host)||'')}" placeholder="smtp.example.com"></div>
       <div><label>${t('mlport')}</label><input id="mlp" type="number" min="1" max="65535" value="${esc(String((T&&T.port)||587))}"></div>
-      <div><label>${t('mlsec')}</label><select id="mls">${modes.map(m=>`<option value="${esc(m)}"${sel===m?' selected':''}>${esc(m)}</option>`).join('')}</select></div>
+      <div><label>${t('mlsec')}</label><select id="mls" data-h-change="${H((el)=>mailVerifyToggle(el))}">${modes.map(m=>`<option value="${esc(m)}"${sel===m?' selected':''}>${esc(m)}</option>`).join('')}</select></div>
     </div>
+    <label class="muted" style="display:flex;align-items:center;gap:8px;font-weight:normal;margin-top:8px">
+      <input type="checkbox" id="mlv"${T && T.verify_tls ? ' checked':''}${sel==='none'?' disabled':''}> ${t('mlverify')}</label>
+    <p class="muted" style="font-size:12px;margin:4px 0 0">${t('mlverifyhint')}</p>
     <div class="row">
       <div><label>${t('mluser')}</label><input id="mlu" value="${esc((T&&T.username)||'')}" autocomplete="off"></div>
       <div><label>${t('mlpass')}</label><input id="mlw" type="password" autocomplete="new-password" placeholder="${T&&T.has_password?t('mlpasskeep'):''}"></div>
@@ -66,6 +82,91 @@ function emailTransportCard(){
       <div><label>${t('mltestto')}</label><input id="mlt" placeholder="you@example.com"></div>
       <div style="flex:0 0 auto"><button class="btn" data-h-click="${H((el,ev)=>doMailTest())}">${t('mltest')}</button></div>
     </div>`:''}</div>`;
+}
+
+// ---- the inbound mailbox ------------------------------------------------------
+// ONE OPTIONAL MAILBOX, TWO CONSUMERS. A bounce report and a reply are both "mail
+// that comes back", so they share one mailbox; the two switches say which of them
+// this instance reads. `none` is the shipped state, and the card says so rather
+// than looking like an empty form.
+// THE CONSUMER LABELS ARE LITERALS IN A MAP, not a key composed at runtime: a
+// composed key cannot be scanned for, and #184's lesson is that a catalog test has
+// to run in BOTH directions or a hard-coded English literal goes through unnoticed.
+const CONSLABEL = {bounces:'mlcons_bounces', messages:'mlcons_messages'};
+
+function emailInboundCard(){
+  const I = (S.mailI && S.mailI.inbound) || null;
+  const modes = (S.mailI && S.mailI.modes) || ['none','imap'];
+  const cons = (S.mailI && S.mailI.consumers) || ['bounces','messages'];
+  const mode = (I && I.mode) || 'none';
+  const C = (I && I.consumers) || {};
+  const needsHost = mode === 'imap';
+  // A NOTE IS NOT A FAILURE. A poll that ran and left something behind — a message
+  // it could not classify, a mailbox it had to re-sync — is `last_poll_ok` true with
+  // a sentence in `last_error`, and a card that only drew the sentence on failure
+  // would hide the one thing an operator has to see.
+  const poll = I && I.last_poll_epoch
+    ? `<p class="muted" style="font-size:12px;margin:6px 0 0">${t('mllastpoll')}: ${esc(new Date(I.last_poll_epoch*1000).toLocaleString())} — ${
+         I.last_poll_ok === true ? `<span class="badge ok">${t('mlok')}</span>`
+       : I.last_poll_ok === false ? `<span class="badge bad">${t('error')}</span>` : '—'}${
+       I.last_error ? ` <span class="muted">${esc(I.last_error)}</span>` : ''}</p>`
+    : '';
+  return `<div class="card" id="mibcard" style="margin-top:14px"><h3>${t('mlinbound')}</h3>
+    <p class="muted" style="margin-top:0">${t('mlinboundhint')}</p>
+    <div class="row">
+      <div><label>${t('mlmode')}</label><select id="mim" data-h-change="${H((el)=>mailInboundMode(el))}">${modes.map(m=>`<option value="${esc(m)}"${mode===m?' selected':''}>${esc(m)}</option>`).join('')}</select></div>
+      <div><label>${t('mlfolder')}</label><input id="mif" value="${esc((I&&I.folder)||'INBOX')}"></div>
+    </div>
+    <div class="row" id="mihost"${needsHost?'':' style="display:none"'}>
+      <div><label>${t('mlhost')}</label><input id="mih" value="${esc((I&&I.host)||'')}" placeholder="imap.example.com"></div>
+      <div><label>${t('mlport')}</label><input id="mip" type="number" min="1" max="65535" value="${esc(String((I&&I.port)||993))}"></div>
+      <div><label>${t('mlsec')}</label><select id="mis">${['tls','starttls','none'].map(m=>`<option value="${esc(m)}"${((I&&I.security)||'tls')===m?' selected':''}>${esc(m)}</option>`).join('')}</select></div>
+    </div>
+    <div class="row" id="micred"${needsHost?'':' style="display:none"'}>
+      <div><label>${t('mluser')}</label><input id="miu" value="${esc((I&&I.username)||'')}" autocomplete="off"></div>
+      <div><label>${t('mlpass')}</label><input id="miw" type="password" autocomplete="new-password" placeholder="${I&&I.has_password?t('mlpasskeep'):''}"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      ${cons.map(c=>`<div><label class="muted" style="display:flex;align-items:center;gap:8px;font-weight:normal">
+        <input type="checkbox" data-cons="${esc(c)}"${C[c]===true?' checked':''}> ${esc(tRaw(CONSLABEL[c]||c))}</label></div>`).join('')}
+    </div>
+    <label class="muted" style="display:flex;align-items:center;gap:8px;font-weight:normal;margin-top:8px">
+      <input type="checkbox" id="mia"${I && I.active ? ' checked':''}> ${t('mlactive')}</label>
+    ${poll}
+    <div style="margin-top:10px">
+      <button class="btn" data-h-click="${H((el,ev)=>doInboundSave())}">${t('save')}</button>
+      ${I?`<button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>doInboundClear())}">${t('mlremove')}</button>`:''}
+    </div></div>`;
+}
+
+// The host and credential rows are hidden for a mode that reads no mailbox, so the
+// card does not ask for an IMAP host when the answer is `none`.
+function mailInboundMode(sel){
+  const show = sel.value === 'imap';
+  // BY ID, not by DOM index: a row added above these would silently move the
+  // toggle onto the wrong one, which is the coupling `S.wfKeys` records as a trap.
+  ['mihost','micred'].forEach(id=>{ const r = document.getElementById(id); if(r) r.style.display = show ? '' : 'none'; });
+}
+
+async function doInboundSave(){
+  const mode = val('mim');
+  const body = {mode, folder:val('mif')||'INBOX', active:document.getElementById('mia').checked,
+                consumers:{}};
+  document.querySelectorAll('input[type=checkbox][data-cons]').forEach(b=>{ body.consumers[b.dataset.cons] = b.checked; });
+  if(mode === 'imap'){
+    body.host = val('mih'); body.port = parseInt(val('mip'),10); body.security = val('mis');
+    body.username = val('miu')||null;
+    // AN ABSENT PASSWORD LEAVES THE STORED ONE ALONE, the rule the transport card
+    // follows: a blank box sends NO field rather than an empty string.
+    const pw = val('miw'); if(pw) body.password = pw;
+  }
+  const r = await api('/api/email-inbound',{method:'PUT',body});
+  if(r.ok){ toast(tRaw('saved'),true); renderTab(); } else toast((r.json&&r.json.error)||tRaw('error'));
+}
+async function doInboundClear(){
+  if(!confirm(tRaw('mlremoveask'))) return;
+  const r = await api('/api/email-inbound',{method:'DELETE'});
+  if(r.ok){ toast(tRaw('saved'),true); renderTab(); } else toast((r.json&&r.json.error)||tRaw('error'));
 }
 
 // ---- the operator's categories ------------------------------------------------
@@ -125,9 +226,13 @@ function myNotifyCard(){
 
 // ---- the handlers -------------------------------------------------------------
 async function doMailSave(){
+  // `verify_tls` IS SENT EXPLICITLY, and its absence was a silent downgrade: the
+  // server writes 0 for an absent field, so every save from this card turned
+  // verification off while the card showed nothing about it.
   const body = {host:val('mlh'), port:parseInt(val('mlp'),10), security:val('mls'),
                 from_address:val('mlf'), from_name:val('mln')||null,
                 base_url:val('mlb')||null, active:document.getElementById('mla').checked,
+                verify_tls:document.getElementById('mlv').checked,
                 username:val('mlu')||null};
   // AN ABSENT PASSWORD LEAVES THE STORED ONE ALONE, which is why a blank box
   // sends NO field rather than an empty string: otherwise saving a changed port

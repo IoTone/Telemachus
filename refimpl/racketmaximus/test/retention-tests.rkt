@@ -180,3 +180,38 @@
   ;; a second pass does nothing — purged_at excludes it
   (check-equal? (hash-ref (retention-plan c team org) 'payloads) '())
   (close-db! c))
+
+;; ---- 7. a delivery row that carries an address has a horizon ----------------------
+;; The address on an external delivery is the only personal data the mail
+;; subsystem holds, and "kept for ever" is not an answer a privacy review accepts.
+;; The rule deletes SETTLED rows only: a `pending` delivery is a message somebody
+;; is waiting for, and a retention rule that dropped one would be a rule that
+;; silently loses mail.
+(test-case "settled delivery rows are purged, and a pending one is not"
+  (define c (fresh))
+  (define-values (p team org) (owner-of c))
+  (define (row! status age-days)
+    (define id (new-id))
+    (query-exec c
+      (string-append "INSERT INTO email_deliveries (id, team_id, user_id, recipient, category, "
+                     "subject, body, status, attempts, created_epoch) "
+                     "VALUES (?, ?, NULL, 'gone@example.test', 'external', 's', 'b', ?, 1, ?)")
+      id team status (- (current-seconds) (* age-days DAY)))
+    id)
+  (define old-sent (row! "sent" 30))
+  (define old-dead (row! "dead" 30))
+  (define old-pending (row! "pending" 30))
+  (define new-sent (row! "sent" 1))
+  (retention-set! c 'team team (hasheq 'purge_email_deliveries_after_days 7))
+  (check-equal? (hash-ref (retention-plan c team org) 'deliveries) 2
+                "the two settled rows past the horizon, and not the pending one")
+  (define r (retention-apply! c p team org))
+  (check-equal? (hash-ref r 'deliveries) 2)
+  (check-equal? (query-value c "SELECT COUNT(*) FROM email_deliveries WHERE id = ?" old-sent) 0)
+  (check-equal? (query-value c "SELECT COUNT(*) FROM email_deliveries WHERE id = ?" old-dead) 0)
+  (check-equal? (query-value c "SELECT COUNT(*) FROM email_deliveries WHERE id = ?" old-pending) 1
+                "a message somebody is waiting for is never purged")
+  (check-equal? (query-value c "SELECT COUNT(*) FROM email_deliveries WHERE id = ?" new-sent) 1)
+  (check-true (> (query-value c "SELECT COUNT(*) FROM audit_log WHERE action = ? AND team_id = ?"
+                              "retention.deliveries" team) 0))
+  (close-db! c))

@@ -117,9 +117,7 @@
 ;; checkout's locales/ a smoke run could clobber a tracked catalog with whatever
 ;; its throwaway database held. It did once — idempotently, by luck. Suites point
 ;; this at a temp copy; a deployment leaves it unset.
-(define (locales-dir)
-  (define e (tmach-env "LOCALES"))
-  (if e (anchor-path e) (build-path impl-root "locales")))
+(define (locales-dir) (locales-root))
 
 ;; What this request is actually answered in. The instance policy decides: with
 ;; negotiation off the header is ignored outright, and an unknown locale lands on

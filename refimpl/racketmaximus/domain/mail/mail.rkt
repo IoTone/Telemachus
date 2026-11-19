@@ -57,14 +57,15 @@
          (only-in "../events/events.rkt" EVENTS event?)
          (only-in "../events/describe.rkt" event-subject event-console-path short-id)
          (only-in "../settings/settings.rkt" setting-ref setting-set!)
-         (only-in "../authz/authz.rkt" team-org user-principal audit!)
+         (only-in "../authz/authz.rkt" team-org user-principal audit! user-locale)
          ;; the team-keyed half of the tenant admission pair (MAIL-25). orgs.rkt
          ;; requires authz, quota and db and nothing of this subsystem, so this
          ;; direction is the only one there is.
          (only-in "../orgs/orgs.rkt" tenant-quota-check/team tenant-quota-record!/team)
          ;; the ONE predicate for "may this principal read this document"
          (only-in "../repo/repo.rkt" repo-readable?)
-         "transport.rkt")
+         "transport.rkt"
+         "templates.rkt")
 
 (provide MAIL-CATEGORIES CATEGORY-EVENTS TRANSACTIONAL-CATEGORIES MAX-ATTEMPTS
          MAIL-QUOTA-DIM
@@ -235,20 +236,11 @@
   (define sentence (event-subject event data))
   (define path (event-console-path event data))
   (define link (and base path (string-append (string-trim base "/" #:left? #f) "/" path)))
-  (define subject (if team-name (format "[~a] ~a" team-name sentence) sentence))
-  (define body
-    (string-join
-     (append
-      (list sentence "")
-      (if link
-          (list link "")
-          (list "This instance has no base URL configured, so there is no link to"
-                "follow — an operator can set one in Admin > Email." ""))
-      (list "— TMach"
-            "You are receiving this because notifications are on for your account."
-            "Turn them off under your own profile in the console."))
-     "\n"))
-  (values subject body))
+  ;; THE WORDS ARE IN `templates.rkt`, which is a surface the localization gate
+  ;; scans. This module is not: it is mostly SQL, and holding every literal here
+  ;; to `t` or `no-i18n` would be a sweep that says nothing about the message.
+  (values (notification-subject sentence team-name)
+          (notification-body sentence link)))
 
 ;; ---- the queue ----------------------------------------------------------------
 ;; Ten attempts, 60 * 2^(n-1) with a 24h ceiling — webhooks' curve, and the same
@@ -278,7 +270,14 @@
 ;; for every event, for ever — and `mail_deliveries` would fill with them. The
 ;; caller is told by the answer being #f.
 (define (mail-enqueue! conn #:recipient recipient #:category category #:subject subject
-                       #:body body #:team [team #f] #:user [user #f] #:event [event #f])
+                       #:body body #:team [team #f] #:user [user #f] #:event [event #f]
+                       ;; THE EXTERNAL FOUR. A notification leaves all of them #f, so
+                       ;; the one INSERT keeps one shape and a reader of a delivery
+                       ;; row does not have to know which kind it is to find the
+                       ;; company, the template or the dedupe key.
+                       #:org [org #f] #:template [template #f]
+                       #:dedupe [dedupe #f] #:contact [contact #f]
+                       #:reply-to [reply-to #f])
   (cond
     [(not (transport-configured? conn)) #f]
     [(mail-address-problem recipient) #f]
@@ -286,16 +285,24 @@
      (define id (new-id))
      (query-exec conn
        (string-append "INSERT INTO email_deliveries (id, team_id, user_id, recipient, category, "
-                      "event, subject, body, status, attempts, next_attempt_epoch, created_epoch) "
-                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)")
+                      "event, subject, body, status, attempts, next_attempt_epoch, created_epoch, "
+                      "org_id, template, dedupe_key, contact_id, reply_to) "
+                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?)")
        id (or team sql-null) (or user sql-null) recipient category (or event sql-null)
-       subject body (now) (now))
+       subject body (now) (now)
+       (or org sql-null) (or template sql-null) (or dedupe sql-null) (or contact sql-null)
+       (or reply-to sql-null))
      id]))
 
 ;; ---- who gets it --------------------------------------------------------------
-;; -> (listof (cons user-id address)). The team's ACTIVE members who have a
+;; -> (listof (list user-id address locale)). The team's ACTIVE members who have a
 ;; VERIFIED address and whose layers all allow this category and who may READ the
 ;; subject.
+;;
+;; THE LOCALE RIDES ALONG because the composer runs in the delivery path with no
+;; request, so the recipient is the only place a language can come from. It is
+;; `users.locale` (migration 0018), which is the same column `POST /api/profile`
+;; writes.
 ;;
 ;; `can?` IS ASKED PER RECIPIENT AND IT IS THE EXPENSIVE HALF, deliberately
 ;; (MAIL-17). The window is the team's membership, which is bounded by what a team
@@ -306,7 +313,7 @@
 (define (notification-recipients conn team category event data)
   (define rows
     (query-rows conn
-      (string-append "SELECT u.id, u.email FROM users u "
+      (string-append "SELECT u.id, u.email, u.locale FROM users u "
                      "JOIN memberships m ON m.user_id = u.id "
                      "WHERE m.team_id = ? AND m.status = 'active' AND u.status = 'active' "
                      "AND u.email IS NOT NULL AND u.email_verified_epoch IS NOT NULL")
@@ -332,12 +339,13 @@
     [else
      (for*/list ([r (in-list rows)]
                  #:do [(define uid (vector-ref r 0))
-                       (define addr (vector-ref r 1))]
+                       (define addr (vector-ref r 1))
+                       (define loc (vector-ref r 2))]
                  #:when (and (string? addr)
                              (not (mail-address-problem addr))
                              (not (member category (hash-ref disabled uid '())))
                              (may-read? conn uid team event data)))
-       (cons uid addr))]))
+       (list uid addr loc))]))
 
 ;; uid -> (listof category) the person has turned off, in ONE query. An empty
 ;; list for a user with no row at all, because absence means "I have not
@@ -529,12 +537,16 @@
        [else
         (define base (transport-base-url conn))
         (define team-name (team-label conn team))
-        (define-values (subject body)
-          (compose-notification event data #:base base #:team-name team-name))
+        ;; COMPOSED PER RECIPIENT, because each one reads in their own language.
+        ;; The sentence is the same event; only the words around it differ, and
+        ;; `with-locale` is the one lookup that resolves them.
         (define n
           (for/sum ([ua (in-list recips)])
-            (if (mail-enqueue! conn #:recipient (cdr ua) #:category category #:subject subject
-                               #:body body #:team team #:user (car ua) #:event event)
+            (define-values (subject body)
+              (with-locale (third ua)
+                (lambda () (compose-notification event data #:base base #:team-name team-name))))
+            (if (mail-enqueue! conn #:recipient (second ua) #:category category #:subject subject
+                               #:body body #:team team #:user (first ua) #:event event)
                 1 0)))
         ;; THE COUNT OF ROWS THAT WERE WRITTEN — which today is provably the
         ;; same number as `(length recips)`, and a control is what established
@@ -577,25 +589,15 @@
   ;; the card that shows the result lives.
   (define link (and base (format "~a/?verify_email=~a#/usage"
                                  (string-trim base "/" #:left? #f) token)))
-  (define body
-    (string-join
-     (append
-      (list "Somebody — probably you — asked for this address to receive TMach"
-            "notifications. Confirm it to turn them on." "")
-      (if link
-          (list link "")
-          ;; With no base URL the token is the only thing that can be acted on, so
-          ;; it is printed. It is single-use, short-lived and in the body of a
-          ;; message already addressed to its own subject, which is the only
-          ;; place it could go.
-          (list "Confirm it with this code:" token ""))
-      (list "If you did not ask for this, ignore this message — nothing is sent"
-            "to an address that has not been confirmed."
-            "" "— TMach"))
-     "\n"))
+  ;; THE WORDS ARE IN `templates.rkt` AND THE LANGUAGE IS THE READER'S. This address
+  ;; is on a user row, so `users.locale` answers; a person who has never set one gets
+  ;; English, which is the column's default and the honest fallback.
+  (define-values (subject body)
+    (with-locale (user-locale conn user)
+      (lambda () (values (verification-subject)
+                         (verification-body #:link link #:token token)))))
   (mail-enqueue! conn #:recipient address #:category "verify"
-                 #:subject "Confirm your TMach notification address"
-                 #:body body #:user user))
+                 #:subject subject #:body body #:user user))
 
 ;; A PASSWORD RESET LINK (RESET-5…7).
 ;;
@@ -621,27 +623,12 @@
   (define base (transport-base-url conn))
   (define link (and base (format "~a/?reset_token=~a#/"
                                  (string-trim base "/" #:left? #f) token)))
-  (define body
-    (string-join
-     (append
-      (list "Somebody asked to reset the TMach password for this address."
-            (format "This link works once, and stops working in ~a."
-                    (if (= ttl-hours 1) "an hour" (format "~a hours" ttl-hours)))
-            "")
-      (if link
-          (list link "")
-          ;; With no base URL the token is the only actionable thing, so it is
-          ;; printed — single-use, short-lived, and in a message already
-          ;; addressed to its own subject, which is the only place it could go.
-          (list "Use this code to set a new password:" token ""))
-      (list "If it was not you, ignore this message. Nothing has changed and"
-            "nothing will: your current password still works, and this link"
-            "does nothing until somebody uses it."
-            "" "— TMach"))
-     "\n"))
+  (define-values (subject body)
+    (with-locale (user-locale conn user)
+      (lambda () (values (reset-subject)
+                         (reset-body #:link link #:token token #:ttl-hours ttl-hours)))))
   (mail-enqueue! conn #:recipient address #:category "reset"
-                 #:subject "Reset your TMach password"
-                 #:body body #:user user))
+                 #:subject subject #:body body #:user user))
 
 ;; AN INVITATION (INVITE-1…6).
 ;;
@@ -661,29 +648,23 @@
 ;; own since hosted onboarding.
 (define (mail-enqueue-invitation! conn #:user user #:address address #:token token
                                   #:team-name team-name #:inviter inviter
+                                  #:inviter-id [inviter-id #f]
                                   #:ttl-hours [ttl-hours 72])
   (define base (transport-base-url conn))
   (define link (and base (format "~a/activate?token=~a"
                                  (string-trim base "/" #:left? #f) token)))
-  (define days (max 1 (quotient ttl-hours 24)))
-  (define body
-    (string-join
-     (append
-      (list (format "~a has invited you to join ~a on TMach." inviter team-name)
-            "" "Follow this link to choose a password and sign in."
-            (format "It works once, and stops working in ~a."
-                    (if (= days 1) "a day" (format "~a days" days)))
-            "")
-      (if link
-          (list link "")
-          (list "Use this code on the sign-in screen:" token ""))
-      (list "If you were not expecting this, ignore this message. No account is"
-            "created for you until you follow the link."
-            "" "— TMach"))
-     "\n"))
+  ;; THE INVITEE HAS NO LOCALE, so the message is written in the INVITER's. That is
+  ;; the person the platform knows and the one whose team is being described, and it
+  ;; is the only answer available: the address is a string somebody typed, and there
+  ;; is no account behind it yet to hold a language.
+  (define-values (subject body)
+    (with-locale (if inviter-id (user-locale conn inviter-id) "en")
+      (lambda ()
+        (values (invitation-subject #:inviter inviter #:team team-name)
+                (invitation-body #:inviter inviter #:team team-name
+                                 #:link link #:token token #:ttl-hours ttl-hours)))))
   (mail-enqueue! conn #:recipient address #:category "invite"
-                 #:subject (format "~a invited you to join ~a on TMach" inviter team-name)
-                 #:body body #:user user))
+                 #:subject subject #:body body #:user user))
 
 ;; THE TRANSPORT TEST IS SYNCHRONOUS AND STORES ONLY THE OUTCOME — #85's ping,
 ;; for #85's reason: a transport nobody can test is a transport nobody trusts, and
@@ -752,8 +733,8 @@
 ;; the test isolates; #110 r1's rule is about a guard that duplicates the next
 ;; one, and this one does not.
 (define MAIL-SELECT
-  (string-append "SELECT id, team_id, user_id, recipient, category, event, subject, body, attempts "
-                 "FROM email_deliveries WHERE id = ? AND status = 'pending'"))
+  (string-append "SELECT id, team_id, user_id, recipient, category, event, subject, body, attempts, "
+                 "reply_to FROM email_deliveries WHERE id = ? AND status = 'pending'"))
 
 (define (claim-mail! conn id row)
   (define was (vector-ref row 8))
@@ -784,12 +765,42 @@
     [else
      (define attempts (add1 (vector-ref r 8)))
      (define t0 (current-inexact-milliseconds))
+     ;; AN EXTERNAL MESSAGE IS COMPOSED DIFFERENTLY AND SENT FROM A DIFFERENT
+     ;; ENVELOPE. `Auto-Submitted: auto-generated` is the header that says "do not
+     ;; reply", which is wrong for a message a broker is expected to act on, so the
+     ;; mode drops it and carries the stored `Reply-To` instead. The envelope sender
+     ;; is the VERP address, so a bounce comes back naming the delivery rather than
+     ;; the instance's own From address.
+     (define external? (equal? (vector-ref r 4) "external"))
+     ;; A SUPPRESSION STOPS A MESSAGE THAT IS ALREADY QUEUED. The enqueue-time check
+     ;; is not enough: a row retries for up to a day, and a bounce that arrives while
+     ;; it is retrying is exactly the case the suppression exists for. One indexed
+     ;; lookup, and only for an external row.
+     (define suppressed?
+       (and external?
+            (let ([v (query-maybe-value conn
+                       (string-append "SELECT status FROM email_contacts WHERE id = "
+                                      "(SELECT contact_id FROM email_deliveries WHERE id = ?)")
+                       id)])
+              (and v (equal? v "suppressed") #t))))
+     (define reply-to (let ([v (vector-ref r 9)]) (and (not (sql-null? v)) v)))
+     (define envelope
+       (and external?
+            (let* ([from (hash-ref t 'from_address)]
+                   [m (regexp-match #px"@(.+)$" from)])
+              (format "bounce+~a@~a" id (if m (cadr m) "localhost")))))
      (define-values (err permanent?)
        (with-handlers ([exn:fail:mail? (lambda (e) (values (clip-error (exn-message e))
                                                            (exn:fail:mail-permanent? e)))]
                        [exn:fail? (lambda (e) (values (clip-error (exn-message e)) #f))])
+         (when suppressed?
+           (mail-error! #t "the contact is suppressed, so this message was not sent"))
          (smtp-deliver! t (vector-ref r 3) (vector-ref r 6) (vector-ref r 7)
-                        #:password pw #:message-id id)
+                        #:password pw #:message-id id
+                        #:mode (if external? 'external 'notification)
+                        #:reply-to reply-to
+                        #:envelope-from envelope
+                        #:dkim-key (transport-dkim-key conn))
          (values #f #f)))
      (define ms (inexact->exact (round (- (current-inexact-milliseconds) t0))))
      (cond

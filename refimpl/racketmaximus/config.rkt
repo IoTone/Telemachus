@@ -15,6 +15,7 @@
          ;; cannot reach it any other way (#110 r4's rule).
          commit-from-git
          impl-root data-dir database-url call-with-app-db anchor-path
+         locales-root
          max-upload-bytes content-encryption-enabled?
          ;; #128 job 2: the ONE place an operator-facing variable is read.
          tmach-env tmach-env-legacy-names legacy-env-warning)
@@ -79,6 +80,16 @@
 ;; so the anchor is this file's own directory.
 (define-runtime-path here ".")
 (define impl-root (simplify-path here))
+
+;; WHERE THE CATALOGS ARE. It lives here rather than in `server/kit.rkt` because a
+;; DOMAIN module needs it now: an external message is composed in the delivery
+;; path, with no request to take a language from, so the composer loads the
+;; recipient's catalog itself. `TMACH_LOCALES` still overrides it, for the reason
+;; the suites need it — `export` writes catalogs into this directory, and a smoke
+;; run pointed at the checkout could clobber a tracked catalog.
+(define (locales-root)
+  (define e (tmach-env "LOCALES"))
+  (if e (anchor-path e) (build-path impl-root "locales")))
 
 ;; ---- the version, in ONE place (#227) ---------------------------------------
 ;; It was spelled THREE times — here, `nix/telemachus.nix`'s derivation version,

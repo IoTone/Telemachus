@@ -5,6 +5,7 @@
 ;;   racket cli/telemachus-secrets.rkt status     # is this database replayable?
 ;;   racket cli/telemachus-secrets.rkt keygen     # print a fresh 256-bit key
 ;;   racket cli/telemachus-secrets.rkt rewrap     # seal every stored secret with the current key
+;;   racket cli/telemachus-secrets.rkt dkim       # print the DKIM TXT record the deploy publishes
 ;;
 ;; `rewrap` is the only stateful one, and it does two jobs with the same code:
 ;; ADOPTING a key (plaintext rows become sealed) and ROTATING one (rows sealed by
@@ -22,13 +23,15 @@
          (only-in file/sha1 bytes->hex-string)
          "../config.rkt"
          "../domain/authz/secretbox.rkt"
-         (only-in "../domain/agent/seals.rkt" ledger-specs ledger-missing))
+         (only-in "../domain/agent/seals.rkt" ledger-specs ledger-missing)
+         "../domain/mail/transport.rkt"
+         "../domain/mail/dkim.rkt")
 
 ;; the same connector the server uses — sqlite:/// or postgres://, resolved
 ;; against the implementation root exactly as main.rkt resolves it
 ;; Exported FOR `test/sealed-coverage-tests.rkt`: the lists are what that gate
 ;; compares against the declarations, and `rewrap`/`status` are what it runs.
-(provide CREDENTIAL-SECRETS CONTENT-SECRETS rewrap status)
+(provide CREDENTIAL-SECRETS CONTENT-SECRETS rewrap status dkim-record)
 
 (define (open-db) ((db-connector (database-url) #:base-dir impl-root)))
 
@@ -67,7 +70,16 @@
         ;; transport still reports itself configured, and the message an operator
         ;; would see is a relay's "authentication failed". Nullable — a relay that
         ;; wants no credential has none — and `rows-of` filters NULLs out.
-        (list "email_transport"   "password"    "id" "email_transport.password")))
+        (list "email_transport"   "password"    "id" "email_transport.password")
+        ;; The inbound mailbox's IMAP credential. Same argument as the transport's,
+        ;; and the same cost if it is forgotten: `rewrap` would not walk it, so
+        ;; every poll would fail at the first key rotation with an authentication
+        ;; error that names the relay rather than the rotation.
+        (list "inbound_mailbox"   "password"    "id" "inbound_mailbox.password")
+        ;; The DKIM private key. A replayable credential in the strongest sense:
+        ;; whoever holds it can sign as this domain, so it is sealed whenever a key
+        ;; is configured and `rewrap` rotates it unconditionally.
+        (list "email_transport"   "dkim_key"    "id" "email_transport.dkim_key")))
 
 ;; Document-derived CONTENT (issue #83), which is a different kind of thing and
 ;; is therefore conditional. The three above are replayable credentials: if a key
@@ -274,6 +286,33 @@
            1]))))
   (printf "rewrapped ~a secret(s) with key ~a\n" changed (secret-key-id)))
 
+;; THE RECORD IS THE ONE THING AN OPERATOR CANNOT DERIVE BY HAND. The private key
+;; is a sealed column they may never read, and DMARC alignment needs the public
+;; half published as `selector._domainkey.domain IN TXT`. Without this they hold a
+;; signature nobody can verify, which is the same as no signature.
+;;
+;; The selector and the domain default to what the transport stores — which is what
+;; the signer uses — so the record printed here is the one the messages are signed
+;; against, not a second guess.
+(define (dkim-record conn #:selector [selector #f] #:domain [domain #f])
+  (define t (transport-ref conn))
+  (unless t
+    (die "no transport is configured, so there is no DKIM key to publish"))
+  (define key (transport-dkim-key conn))
+  (define sel (or selector (hash-ref t 'dkim_selector #f)))
+  (define dom (or domain
+                  (let ([d (hash-ref t 'dkim_domain #f)])
+                    (and (string? d) (not (string=? d "")) d))
+                  (let ([m (regexp-match #px"@(.+)$" (hash-ref t 'from_address #f))])
+                    (and m (cadr m)))))
+  (unless (and (string? key) (not (string=? key "")))
+    (die "the transport stores no DKIM private key, so there is nothing to publish"))
+  (unless (and (string? sel) (not (string=? sel "")))
+    (die "the transport stores no dkim_selector, so the record has no name"))
+  (unless (and (string? dom) (not (string=? dom "")))
+    (die "the transport's From address has no domain, so the record has no home"))
+  (dkim-public-record key #:selector sel #:domain dom))
+
 (define (keygen)
   (printf "~a\n" (bytes->hex-string (crypto-random-bytes KEY-BYTES)))
   (eprintf (string-append "\nSet it as TMACH_SECRET_KEY, keep it OUT of the database and out of the\n"
@@ -285,8 +324,11 @@
   (define cmd (if (null? args) "status" (car args)))
   (case cmd
     [("keygen") (keygen)]
-    [("status" "rewrap")
+    [("status" "rewrap" "dkim")
      (define conn (open-db))
-     (case cmd [("status") (status conn)] [else (rewrap conn)])
+     (case cmd
+       [("status") (status conn)]
+       [("dkim") (printf "~a\n" (dkim-record conn))]
+       [else (rewrap conn)])
      (disconnect conn)]
-    [else (die "usage: telemachus-secrets <status|rewrap|keygen>")]))
+    [else (die "usage: telemachus-secrets <status|rewrap|keygen|dkim>")]))

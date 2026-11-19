@@ -275,6 +275,51 @@
   (check-equal? (query-value c "SELECT COUNT(*) FROM email_deliveries") 0)
   (close-db! c))
 
+;; ---- the reader's language ---------------------------------------------------
+(test-case "the three transactional messages are written in the reader's language"
+  ;; THE MESSAGES A NEW PERSON MEETS FIRST were the last English literals in this
+  ;; subsystem, because `mail.rkt` is mostly SQL and is not a surface the
+  ;; localization gate scans. The words live in `templates.rkt` now, and who the
+  ;; language comes from is the one design decision: verification and reset read the
+  ;; ADDRESS'S OWN `users.locale`, and an invitation is written in the INVITER'S,
+  ;; because somebody being invited has no account yet and therefore no locale.
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid uid) (seed! c #:addr #f))
+  ;; ONE ROW PER CATEGORY at each point, so the read needs no ordering: `rowid` does
+  ;; not exist on PostgreSQL and this case runs on both dialects.
+  (define (row category)
+    (query-maybe-row c "SELECT subject, body FROM email_deliveries WHERE category = ?" category))
+  (set-user-locale! c uid "ja")
+  (void (mail-enqueue-verification! c #:user uid #:address "alice@example.test" #:token "tk_x"))
+  (define v (row "verify"))
+  (check-equal? (vector-ref v 0) "TMach 通知先アドレスの確認")
+  (check-true (string-contains? (vector-ref v 1) "tk_x") "the token is still in it")
+  ;; AND NO PLACEHOLDER SURVIVES, which is the failure a translated string produces
+  ;; and an English-only one cannot: `{token}` reaching an inbox is a message the
+  ;; reader cannot act on.
+  (check-false (regexp-match? #rx"\\{[a-z_]+\\}" (vector-ref v 1))
+               "every placeholder was substituted")
+  (void (mail-enqueue-password-reset! c #:user uid #:address "alice@example.test"
+                                     #:token "tk_r" #:ttl-hours 3))
+  (define r (row "reset"))
+  (check-equal? (vector-ref r 0) "TMach パスワードの再設定")
+  (check-true (string-contains? (vector-ref r 1) "3 時間")
+              "the expiry reads in the reader's language")
+  ;; THE INVITER DECIDES FOR AN INVITATION, and the invitee has nothing to read.
+  (void (mail-enqueue-invitation! c #:user uid #:address "bob@example.test" #:token "tk_i"
+                                  #:team-name "Acme" #:inviter "Alice"
+                                  #:inviter-id uid #:ttl-hours 72))
+  (define i (row "invite"))
+  (check-equal? (vector-ref i 0) "Alice さんが TMach の Acme に招待しました")
+  ;; and an English reader still gets English, so this is a lookup and not a
+  ;; catalog that answers Japanese whatever it is asked
+  (set-user-locale! c uid "en")
+  (query-exec c "DELETE FROM email_deliveries WHERE category = 'verify'")
+  (void (mail-enqueue-verification! c #:user uid #:address "alice@example.test" #:token "tk_y"))
+  (check-equal? (vector-ref (row "verify") 0) "Confirm your TMach notification address")
+  (close-db! c))
+
 (test-case "an unverified address receives nothing"
   (define c (fresh))
   (configure! c #:port PORT-DEAD)

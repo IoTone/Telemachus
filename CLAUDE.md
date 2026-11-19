@@ -11804,6 +11804,119 @@ will photograph a broken page — use this to gate a deploy.
   deprecation error from the GraphQL API. `--json number,title,body,comments`
   with a `--template` works.
 
+## A message to somebody outside the company (EXT‑1…EXT‑12)
+
+`domain/mail/contacts.rkt`, `domain/mail/templates.rkt`, `domain/mail/external.rkt`,
+`domain/mail/inbound.rkt`, `domain/mail/dkim.rkt`, `server/api/contacts.rkt`;
+migrations 0077–0081; seven company-plane routes and three instance routes.
+
+```sh
+raco test test/email-contacts-tests.rkt test/email-external-tests.rkt \
+          test/email-inbound-tests.rkt test/dkim-tests.rkt
+bash test/server-smoke.sh
+```
+
+- **THE GUARDS ARE IN THE DOMAIN FUNCTION, NOT THE ROUTE.** A plugin may require a
+  core module, so a route-level check is a check a plugin never meets. The order in
+  `mail-external!` is the design: permission, contact, suppression, transport,
+  template, quota, limiters, dedupe — each before the thing it protects.
+- **A REFUSAL IS A VALUE FOR THE THREE ORDINARY STATES.** A suppressed contact, no
+  transport and a duplicate answer `{queued: 0, reason}`. A caller that has to catch
+  an exception to learn "this address is blocked" reports it as a bug.
+- **THE PERMISSION-COVERAGE GATE FORCED THE ROUTES TO EXIST.** Adding `org:mail`
+  without a route that enforces it fails `test/route-perm-gate-tests.rkt` with
+  "granted and enforced NOWHERE". That is the gate working, and it is why the slice
+  grew six routes rather than one.
+- **`locales-root` MOVED INTO `config.rkt`.** The composer runs in the delivery path
+  with no request, so the domain needs the catalog directory; `server/kit.rkt` now
+  delegates to it. `with-locale` parameterizes `current-localizer`, so `t` stays the
+  one lookup.
+- **THE LINTER TREATS A DOMAIN MODULE AS A SURFACE.** `domain/mail/templates.rkt`
+  and `domain/events/describe.rkt` are in the check's path list, so every
+  non-user-facing literal in them is `no-i18n` — error messages, event names, URL
+  fragments, punctuation. `mail.rkt` is NOT in the list: it is mostly SQL, and
+  holding every literal there to `t` or `no-i18n` would be a sweep that says nothing
+  about the message.
+- **A REPLY TOKEN NOTHING REDEEMS IS A DEAD END.** The first version minted one
+  unconditionally, so a supplier's answer went to an address nobody read. The token
+  row and the address are now decided together: with the `messages` consumer on the
+  address is `reply+<token>@<domain>`, and without it the reply goes to the person
+  who sent the message and no token row is written.
+- **THE DKIM PROOF IS A REAL VERIFICATION, ON THE WIRE TOO.** `test/dkim-tests.rkt`
+  signs a message and hands the signature, the public key and the signing input to
+  `openssl dgst -verify`, requiring "Verified OK". The body hash is checked
+  separately, because a signature over the wrong body hash verifies perfectly and
+  still fails at the receiver. `test/email-external-tests.rkt` then drives
+  `smtp-deliver!` into the mock relay and verifies the signature against the
+  message AS RECEIVED, which is the only assertion that catches a signature
+  computed over a header block that differs from the one sent.
+- **THE DNS RECORD IS A COMMAND, NOT A WORKSHEET.** `telemachus-secrets dkim`
+  prints `selector._domainkey.domain IN TXT "v=DKIM1; k=rsa; p=…"` from the stored
+  sealed key, the stored selector and `dkim_domain` when it is set. The private key
+  is readable by nothing but the signer, so without the command the public half is
+  unobtainable and the signature cannot be verified by anybody.
+- **A HEADER NAME IN `h=` IS SIGNED FROM THE LAST INSTANCE** (RFC 6376 5.4): a
+  duplicated `Subject` must not be free to change after the fact, so
+  `dkim-parse-headers` is searched bottom-up.
+- **THE INBOUND SWITCHES GATE THE DISPATCH.** The poll asks the `bounces` switch
+  before it suppresses and the `messages` switch before it spends a reply token. A
+  switch that still changes state when it is off is worse than no switch.
+- **THE POLLER READS BY UID POSITION, NOT BY UNSEEN.** `UID SEARCH UNSEEN` skips
+  any message a person opened in webmail, so the shipped path is
+  `UID SEARCH UID <last+1>:*` with `(uidvalidity, last_uid)` stored. Two traps: a
+  range whose start is past the largest UID answers the largest (RFC 3501), so the
+  comparison is made after the fact; and `STATUS INBOX` on a configured folder
+  reports the wrong mailbox's generation, so the folder is interpolated.
+- **THE ERASURE TAKES THE REPLIES TOO.** `inbound_messages.from_address` is the
+  address again and its body is that person's words, so `contact-delete!` removes
+  them with the tokens and the deliveries, in one transaction.
+- **THE THREE MESSAGES A NEW PERSON MEETS FIRST ARE LOCALIZED NOW** (EXT‑13).
+  Confirming an address, resetting a password and accepting an invitation were the
+  last English literals in the subsystem, and nothing saw them because they sat in
+  `mail.rkt`, which is not a scan surface. They are `verification-*`, `reset-*` and
+  `invitation-*` in `templates.rkt`, and the language is the READER's:
+  `users.locale` for the first two, the INVITER's for an invitation, because
+  somebody being invited has no account and no locale. An expiry is a key per form
+  (`mail.reset.ttl_one` / `ttl_many`) rather than a plural in a sentence, because a
+  catalog holds text and not a rule. The test asserts a `ja` reader gets Japanese
+  and that no `{placeholder}` survives, which is the failure a translation produces
+  and an English-only string cannot.
+- **A CURL CONFIG VALUE MUST BE QUOTED AND ESCAPED.** `curl -K -` reads one
+  directive per line, so a password containing a `"` ends the string early and a
+  newline starts a directive; `imap.rkt` escapes both and every command carries
+  `connect-timeout`, `max-time` and `max-filesize`.
+- **`#px`/`#rx` LITERALS REJECT `(?i)`** and need the scoped `(?i:...)` form, and
+  adjacent string literals are NOT concatenated in Racket — both cost a run here.
+- **`query-row` WITH TWO STRING ARGUMENTS TREATS THE SECOND AS A PARAMETER**, which
+  produced a "no such column" that looked like a migration failure and was not.
+- **`pregexp` REJECTS `\t` AND `\r`** as "illegal alphabetic escape" while PCRE
+  accepts them, so a pattern built at run time uses `regexp`, not `pregexp`.
+- **`hasheq` IS IMMUTABLE**, so a counter that is incremented in a loop is
+  `make-hasheq`.
+- **`jsexpr->string` REFUSES A STRING KEY**, so a stored JSON document is built with
+  symbol keys and the API's own vocabulary stays strings; the conversion is in
+  `normalize-consumers` and nowhere else.
+- **CURL'S OUTPUT FOR A UID FETCH IS NOT THE MESSAGE.** `-X "UID FETCH n
+  (BODY.PEEK[])"` prints `* 1 FETCH (BODY[] {101}` before the literal; the trailing
+  `)` and the tagged OK are consumed by curl and do not appear (`test/mock-imap.rkt`
+  is what settled it, against a server that answers RFC 3501 semantics).
+  `strip-fetch-framing` removes the prefix, and it matters beyond tidiness: the
+  prefix carries the SEQUENCE NUMBER, so `raw_sha256` would change whenever another
+  message was expunged and the `raw_sha256` dedupe would never fire.
+- **`test/imap-tests.rkt` is the only test that crosses the wire** for the inbound
+  mailbox: every other case injects `#:fetch` and `#:uids` into `inbound-poll!`,
+  which is right for the dispatch and leaves the client untested. Keep it that way —
+  the framing bug above was invisible to a scripted fetch by construction.
+- **`\r?\n` DID NOT MATCH IN A `#rx` LITERAL** while `(\r\n|\n)` does, measured
+  on the fetch line in `strip-fetch-framing`. `#rx` is Racket's own engine (`\r` and
+  `\n` are real CR and LF there, unlike `#px`, which REJECTS them as "illegal
+  alphabetic escape"), and the `?` after the CR is what failed.
+- **AN ABSENT `active` ON `/api/email-inbound` LEAVES THE STORED SWITCH ALONE**, the
+  rule the password follows. The route is a whole-document write, so defaulting an
+  absent field to `false` means a client that omits it silently stops the poller, and
+  mail arriving while nothing reads it is the failure nobody sees. `active: false`
+  stops it.
+
 ## Git
 
 - Commit/push only when asked. Branch before committing on the default branch.

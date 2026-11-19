@@ -492,6 +492,16 @@ assert "the second owner is removed again, so alice is the last one" \
 assert "org team quota 404 single-tenant" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/org/teams/engineering/quota -H "Authorization: Bearer $OP" -d '{"dimension":"ai.requests","limit":1}')" \
   '404'
+# The company plane's external parties (MAIL-EXT) are gated the same way: the
+# surface disappears when the flag is off, and the authorization semantics do not
+# change. The full flow is `test/email-external-tests.rkt`'s subject, because it
+# needs a company and a relay.
+assert "org contacts 404 single-tenant" \
+  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/org/contacts -H "Authorization: Bearer $OP")" \
+  '404'
+assert "org mail 404 single-tenant" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/org/mail -H "Authorization: Bearer $OP" -d '{}')" \
+  '404'
 # ---- workflows (slice 46) -----------------------------------------------------
 # Deliberately BEFORE the quota throttling below: a workflow step is a scheduler
 # job, so a zeroed token budget would (correctly) leave its steps deferred forever.

@@ -223,13 +223,17 @@
       "text": "mentions",
       "hash": "e2aee0fb859bc1f04b25c2de06f5fd64a66759f3"
     },
-    "doc.route.post.api.executors.id.resume": {
-      "text": "Put a drained executor back in rotation (FLEET-3). It takes work again on its next claim.",
-      "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
+    "mail.reset.ttl_many": {
+      "text": "{n} hours",
+      "hash": "bc7107f4a791a1034616e2c069ba6e03643fedaa"
     },
     "ui.edwrap": {
       "text": "Wrap",
       "hash": "c3447e7954fa5698ae957a33210094d617b1dc00"
+    },
+    "doc.route.post.api.executors.id.resume": {
+      "text": "Put a drained executor back in rotation (FLEET-3). It takes work again on its next claim.",
+      "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
     },
     "doc.tool.doc_classify.text": {
       "text": "The document's text (default: extracted from the document; a scan with no text layer can still match a content-type rule)",
@@ -367,6 +371,10 @@
       "text": "Chunk one repository document's extracted text and store an embedding per chunk, replacing any previous set for that version.",
       "hash": "33d693225f27c0dcad7f1a1f5ef95c7e0cf86929"
     },
+    "mail.verb.deleted": {
+      "text": "was deleted",
+      "hash": "5b1035caff485c017a65c1b503ae6bed930fc31f"
+    },
     "ui.stop": {
       "text": "Stop",
       "hash": "9e253470c876ee6d5c720eb777aeb82d4c26e28f"
@@ -450,6 +458,10 @@
     "doc.route.put.api.session-policy": {
       "text": "Set the instance session timeouts. null on a field means no limit on that axis; an org may tighten these and may never loosen them.",
       "hash": "1220312b0666ecb536e3e0bfa33a1399f684dda7"
+    },
+    "mail.invite.intro": {
+      "text": "{inviter} has invited you to join {team} on TMach. Follow this link to choose a password and sign in. It works once, and stops working in {expiry}.",
+      "hash": "f1635542c6003471d7d090a9a5899f458be93078"
     },
     "doc.route.post.api.tokens": {
       "text": "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.",
@@ -599,6 +611,10 @@
       "text": "Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again.",
       "hash": "2eca165a43b26e72f8c6702f56b853671c7797c6"
     },
+    "doc.perm.org:mail": {
+      "text": "Send a message to somebody outside the company: a broker, a supplier, a customer. The message is composed from a template and ids, never free text, and the From address is this instance's own identity.",
+      "hash": "5ea6a2bcef1391df88ddee3d3908307eb2391bf1"
+    },
     "ui.qage": {
       "text": "waiting",
       "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
@@ -631,6 +647,14 @@
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "doc.route.post.api.org.contacts": {
+      "text": "Add an external party: {address, name?, org_name?, locale?}. The address is unique within the company, compared case-insensitively, and a duplicate is refused rather than merged — adding a supplier twice is a mistake, and merging it silently would hide that somebody typed a different name for the same address.",
+      "hash": "5e40dbced47d2136b2d1d36611580b0e60a6f38d"
+    },
+    "doc.route.get.api.email-notify": {
+      "text": "Which notification categories this instance sends, the closed category list, the events each one covers, and what they resolve to for the caller. ABSENCE MEANS OFF at this layer, unlike a feature switch: a notification governs whether the instance sends mail to people, and the behaviour that already existed is sending none — so an operator names the categories their instance sends.",
+      "hash": "445fa835aa9c2be83ddd9dbfe74f4a24fec5260b"
+    },
     "doc.route.get.api.x.feeds.queue": {
       "text": "The team's feed work queue, ordered by priority then soonest due date. ?status= open|claimed|done|dropped|all (default: the actionable two), ?feed= a feed slug, ?skill= one skill, ?limit=/?offset=. Every row is re-authorized on the document it points at, so the count is what the caller may read rather than what is there.",
       "hash": "cfadd1e60a39c8c5785a921b25b0867d4b1086b6"
@@ -642,10 +666,6 @@
     "doc.tool.kg_query.type": {
       "text": "Restrict a name lookup to one entity type, e.g. organization",
       "hash": "bf3b06e97454031c475151174af5ebabf873a414"
-    },
-    "doc.route.get.api.email-notify": {
-      "text": "Which notification categories this instance sends, the closed category list, the events each one covers, and what they resolve to for the caller. ABSENCE MEANS OFF at this layer, unlike a feature switch: a notification governs whether the instance sends mail to people, and the behaviour that already existed is sending none — so an operator names the categories their instance sends.",
-      "hash": "445fa835aa9c2be83ddd9dbfe74f4a24fec5260b"
     },
     "ui.hoff": {
       "text": "off",
@@ -694,6 +714,10 @@
     "doc.route.get.api.runs": {
       "text": "The team's runs, newest first.",
       "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
+    },
+    "mail.document_request.subject": {
+      "text": "Document request: {what}",
+      "hash": "a82fa3542593d0494b3c4a0358618bc3977a408a"
     },
     "doc.route.put.api.timezone": {
       "text": "Set the instance default timezone: {timezone}. It is a FALLBACK and not a floor — a company or a person may each choose their own, because a timezone is not a control and nobody is protected by being forced into the wrong clock.",
@@ -758,6 +782,10 @@
     "doc.route.get.api.email-deliveries.id": {
       "text": "One delivery WITH the message exactly as it would go out — the \"show me what you sent\" case. Another team's id is a 404, not a 403.",
       "hash": "83c0c358a521d9e1a00de6a897d993ee2e86190b"
+    },
+    "mail.reset.ignore": {
+      "text": "If it was not you, ignore this message. Nothing has changed and nothing will: your current password still works, and this link does nothing until somebody uses it.",
+      "hash": "a9c61e9fcdc9102dbeddc77e04915fd76b005529"
     },
     "doc.route.get.api.share-targets": {
       "text": "Who a document can be shared with: the team's people and the org's teams.",
@@ -846,6 +874,10 @@
     "doc.route.get.api.jobs": {
       "text": "The team's jobs, newest first. A queued job the platform is holding carries `waiting` — {reason: \"quota\"|\"concurrency\", …}; the key is absent when nothing holds it and it is waiting only for a free worker.",
       "hash": "d43d2fb4962c8810b1ff4079a3608ea56175ad72"
+    },
+    "mail.noun.something": {
+      "text": "something",
+      "hash": "1af17e73721dbe0c40011b82ed4bb1a7dbe3ce29"
     },
     "doc.route.post.api.x.matrix.rooms": {
       "text": "Notify a room: {room_id, events?, label?, user_id?}. The room id is a Matrix id (`!abc:example.org`) and never an alias; the bot must already be in it.",
@@ -943,6 +975,14 @@
       "text": "{d} of {n}",
       "hash": "f0209bf5d33971e13a03d6f5d9dfa99c9eaa5582"
     },
+    "mail.invite.ttl_one": {
+      "text": "a day",
+      "hash": "6744c1571488291dd18631e6a88081a3eb0db33d"
+    },
+    "doc.route.post.api.workers.jobs.id.derive": {
+      "text": "Write a document DERIVED from one THIS job names (issue #62): {source, key, bytes_b64, claim_token, content_type?, filename?}. The write counterpart of the read above, under the same three conditions — the caller holds this attempt, `source` appears in the job's own payload, and the write happens as the job's user, so files:write, the storage quotas and the org gate all apply. The output takes the source's visibility and then its grants, is marked derived so an opted-in trigger cannot fire on a worker's own output, and is capped at TMACH_MAX_UPLOAD: a worker is not a way past the front door's ceiling. There is deliberately no standalone put — an output anchored to nothing would make the worker token a key to the team's repository.",
+      "hash": "8ee5e319cdcdfac6c8c0917743484a7380901f26"
+    },
     "ui.trigger_derived": {
       "text": "also on derived documents",
       "hash": "95f4b5d99f5b830c28053256d1ad913fdac25d7c"
@@ -954,10 +994,6 @@
     "doc.tool.doc_set_type": {
       "text": "Record the document type a PERSON decided, after a review. The label is held to the same label set the classification offered, so a type no trigger could match is refused rather than stored. An EMPTY label withdraws the type — the honest record of a rejection, since there is no doc_type of \"unknown\". Writes doc_type / doc_type_confidence / doc_type_source with source \"review\" and confidence 1.00, and versions <key>.classification.json beside the document so the backend's original guess stays in its history.",
       "hash": "2e9e3a1c65607294e84f75aaf0e451cbe24dd34c"
-    },
-    "doc.route.post.api.workers.jobs.id.derive": {
-      "text": "Write a document DERIVED from one THIS job names (issue #62): {source, key, bytes_b64, claim_token, content_type?, filename?}. The write counterpart of the read above, under the same three conditions — the caller holds this attempt, `source` appears in the job's own payload, and the write happens as the job's user, so files:write, the storage quotas and the org gate all apply. The output takes the source's visibility and then its grants, is marked derived so an opted-in trigger cannot fire on a worker's own output, and is capped at TMACH_MAX_UPLOAD: a worker is not a way past the front door's ceiling. There is deliberately no standalone put — an output anchored to nothing would make the worker token a key to the team's repository.",
-      "hash": "8ee5e319cdcdfac6c8c0917743484a7380901f26"
     },
     "ui.started": {
       "text": "Started",
@@ -1055,6 +1091,14 @@
       "text": "Set a new password",
       "hash": "1e83ae49d16225081033781c393444f03c5385ea"
     },
+    "mail.invite.ttl_many": {
+      "text": "{n} days",
+      "hash": "c752c6dea2f93583c2da965c3b0ac6a837aa088d"
+    },
+    "doc.route.put.api.instance-features": {
+      "text": "Turn a feature off for the whole instance; no org or team can turn it back on.",
+      "hash": "3fd2086209d81528b5888e710a6801d66f40d345"
+    },
     "ui.qvleaseshint": {
       "text": "a lease quietly not being refreshed is what a failover looks like, 90 seconds early",
       "hash": "7b5419581c8cbebb0c7937c9a61c348251af58b3"
@@ -1066,10 +1110,6 @@
     "doc.perm.jobs:execute": {
       "text": "Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run.",
       "hash": "f5c72d603508d57a3cd01ecf4e75f59d0a9e155b"
-    },
-    "doc.route.put.api.instance-features": {
-      "text": "Turn a feature off for the whole instance; no org or team can turn it back on.",
-      "hash": "3fd2086209d81528b5888e710a6801d66f40d345"
     },
     "ui.buildsource": {
       "text": "Source",
@@ -1191,6 +1231,18 @@
       "text": "Enable",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
     },
+    "mail.noun.document": {
+      "text": "document {id}",
+      "hash": "da9aa987dc3ee77da9d487dd83941d6d67aec0f7"
+    },
+    "ui.edexportfail": {
+      "text": "the download was refused",
+      "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
+    },
+    "doc.route.get.api.org.contacts": {
+      "text": "The company's external parties, newest first, with their suppression state. `?status=active` or `?status=suppressed` narrows it. The address is in this reply because this is the company's own record of who it corresponds with, and the route is the company plane.",
+      "hash": "a2a3f8cc7d55db468a973bd8a79fe71762fcfaf2"
+    },
     "doc.plugin.doc-pipeline": {
       "text": "Process an uploaded document: extract its text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
       "hash": "c9b9762ad18d537059b785fffcd94955ff92dd45"
@@ -1271,6 +1323,14 @@
       "text": "Setting…",
       "hash": "97d836e747ce7741bd4e6fbe5bfa9a364000a5b8"
     },
+    "ui.mllastpoll": {
+      "text": "Last poll",
+      "hash": "edb60eeaef347d7e3021bc502dc8c9672389bb90"
+    },
+    "doc.route.delete.api.doc-triggers.id": {
+      "text": "Delete a trigger and its history; the runs it started remain.",
+      "hash": "afe84f89cbf1f9cf94cca53d96bb0aea6890ed7e"
+    },
     "doc.route.post.api.admin.users.id.tokens": {
       "text": "Issue a machine token for a service account: {name?, scopes?, ttl?}, where ttl is seconds or \"never\". A monitoring probe, a harvest or a backup never signs in, and `POST /api/tokens` mints for the CALLER, so without this the only way such an account could hold a long-lived token was to hold `settings:manage` itself. The audit names the operator who issued it and the account it speaks for. An operator account is refused: an operator signs in and uses `POST /api/tokens`.",
       "hash": "72f955221724d11ad7809fe7cdfbb7cfc4de9902"
@@ -1291,17 +1351,9 @@
       "text": "#+INCLUDE: is not supported here — a note cannot read a file from the server",
       "hash": "854fb323be836ef017658090506af2580f086576"
     },
-    "doc.route.delete.api.doc-triggers.id": {
-      "text": "Delete a trigger and its history; the runs it started remain.",
-      "hash": "afe84f89cbf1f9cf94cca53d96bb0aea6890ed7e"
-    },
     "ui.nonotes": {
       "text": "No notes yet. Write the first one above.",
       "hash": "0d8510bd34b33506905680504e7bbe7159af85b5"
-    },
-    "ui.edexportfail": {
-      "text": "the download was refused",
-      "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
     },
     "doc.route.get.api.translate": {
       "text": "The team's translation history.",
@@ -1370,6 +1422,10 @@
     "ui.l10nall": {
       "text": "All statuses",
       "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
+    },
+    "mail.verify.code": {
+      "text": "Confirm it with this code: {token}",
+      "hash": "50b42713c8d4618efb2329bcecb8957b2504682a"
     },
     "doc.workflow.feed-propose": {
       "text": "An agent reads one pulled item and writes a proposal beside it; the run then parks on a person. Nothing acts on the proposal — v1 has no acting tool, and when it has one it goes on the approve branch.",
@@ -1495,6 +1551,10 @@
       "text": "This team has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
       "hash": "66b9019ebeec34d2bca09f92ab6d5030f9759227"
     },
+    "mail.verb.ping": {
+      "text": "— this is a test notification from TMach",
+      "hash": "274ad0edb2001e445576df6e8317551969058a6d"
+    },
     "ui.autotagorg": {
       "text": "an org note's tags come from its #+FILETAGS: line, so this cannot write them",
       "hash": "2c80238f24016ca86dda4bbec395ae8eba7fa558"
@@ -1546,6 +1606,10 @@
     "ui.palhhelp": {
       "text": "Show this list",
       "hash": "213103f1cbe3ed858dba77dec93600b93b4a6e74"
+    },
+    "mail.invite.ignore": {
+      "text": "If you were not expecting this, ignore this message. No account is created for you until you follow the link.",
+      "hash": "9d4846a288772d49a6b0c1fa3fa217d9e8fe3e91"
     },
     "ui.uploaded": {
       "text": "Uploaded",
@@ -1635,6 +1699,10 @@
       "text": "Routing hints in the team's own words, e.g. [\"racket\",\"ops\"]",
       "hash": "e8d5c44545ccca3af2573bc5fe383aff33e54a28"
     },
+    "mail.document_request.reply": {
+      "text": "Reply to this message to reach {from_name} directly.",
+      "hash": "f0921b692a106a5e6dc9b4809bd7faa7236ffc73"
+    },
     "doc.perm.instance:read": {
       "text": "Read-only instance operations: status, metrics, the worker fleet, the queue, and verifying the audit chain. Not the audit EXPORT, which hands over the log itself.",
       "hash": "8b3e4319de14d9acdc7262dc02ad685abd3332c6"
@@ -1691,6 +1759,10 @@
       "text": "Approve",
       "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
     },
+    "doc.route.get.api.email-inbound": {
+      "text": "The inbound mailbox: its mode (`none` or `imap`), the two consumer switches, the stored UID position, the last poll and its error, and the closed vocabularies beside the row so a console card holds no second copy. The password is never in this reply.",
+      "hash": "dae13bfb9dc7ea29cb569fcb04797afe57400e47"
+    },
     "ui.jobwhen": {
       "text": "when",
       "hash": "30603fa9e0f620c305cd627ab0ff138a960c48bd"
@@ -1722,6 +1794,10 @@
     "ui.cap_edit": {
       "text": "edit",
       "hash": "9ead47a82a0d25985f22f10651d1f93b3abba317"
+    },
+    "ui.mlverifyhint": {
+      "text": "Refuses a certificate that does not chain to a trusted authority, or that does not match the host name. Off by default, because an internal relay often uses a self-signed certificate.",
+      "hash": "cc4c970f3750a4ea67fbf595149f11d5a4dc4fcb"
     },
     "doc.tool.kg_query": {
       "text": "What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too.",
@@ -1991,13 +2067,17 @@
       "text": "Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run.",
       "hash": "7c6d3770630d5cb263185cef132426d1bc816c41"
     },
-    "doc.tool.doc_text": {
-      "text": "Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run.",
-      "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
-    },
     "ui.edit": {
       "text": "Edit",
       "hash": "5301648dcf6b53cefc9ed52999aaa92d4603cae0"
+    },
+    "mail.invite.subject": {
+      "text": "{inviter} invited you to join {team} on TMach",
+      "hash": "726aafbca9a60a28ff428f92f985026a5871cc56"
+    },
+    "doc.tool.doc_text": {
+      "text": "Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run.",
+      "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
     },
     "doc.route.post.api.x.inbox.items.id.resolve": {
       "text": "Close an item for good: {note?}. Resolved is terminal. The same (source, key) raised later is a new row with the next occurrence.",
@@ -2039,6 +2119,10 @@
       "text": "The new status",
       "hash": "22dad84c7f9e73b5959e03bd54fd9e4bdd67f15c"
     },
+    "mail.document_request.body": {
+      "text": "{from_name} at {org_name} has asked for a document.",
+      "hash": "5895b9c21641381cd8e5ba1949659317c9c9f17c"
+    },
     "ui.qvclaims": {
       "text": "Claims",
       "hash": "06e8db2dfd69dc1703edf9418fb7533fa5d026de"
@@ -2066,6 +2150,10 @@
     "ui.helpnone": {
       "text": "Nothing in the documentation is close to that question.",
       "hash": "c7f3ca885c6d94efd37d9641e8de577f51b6aba6"
+    },
+    "mail.reset.ttl_one": {
+      "text": "an hour",
+      "hash": "90335b649adeb76ebc45092a6c57be0d689110ab"
     },
     "ui.trjobs": {
       "text": "Submitted in this session",
@@ -2119,6 +2207,14 @@
       "text": "The team's outbound webhook subscriptions, plus the closed list of event names a subscription may filter on and how many delivery attempts a dead letter takes. A secret is never in a listing.",
       "hash": "7d1abec01a54f3310bb4e0bde1714d3995790c4b"
     },
+    "mail.notification.nolink": {
+      "text": "This instance has no base URL configured, so there is no link to follow — an operator can set one in Admin > Email.",
+      "hash": "ddba8903aeeb2e1866ada9433ea652e2fc043e3d"
+    },
+    "ui.rs_unread": {
+      "text": "Index Knowledge has not read this page yet.",
+      "hash": "d629bd02d30d4dc30b181bce99a60fce2e5a6ae8"
+    },
     "ui.wkmodels": {
       "text": "models",
       "hash": "5ba2688dffd71df813a468578a87c653e1575e1e"
@@ -2163,13 +2259,13 @@
       "text": "entities",
       "hash": "9d88f3cc176f53090e9fd457c305bbeb86126bcd"
     },
+    "mail.invite.code": {
+      "text": "Use this code on the sign-in screen: {token}",
+      "hash": "6e7d83bec4794a92e079770828d5c1a6c75e5f5d"
+    },
     "ui.stepsused": {
       "text": "steps used",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
-    },
-    "ui.rs_unread": {
-      "text": "Index Knowledge has not read this page yet.",
-      "hash": "d629bd02d30d4dc30b181bce99a60fce2e5a6ae8"
     },
     "doc.route.post.api.beta.signup": {
       "text": "Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured.",
@@ -2199,6 +2295,10 @@
       "text": "The console (or the beta funnel when TMACH_HOME=beta). The HTML title is rewritten from instance branding.",
       "hash": "02e8b32f35af9fafca11af11f096a74b5847347d"
     },
+    "mail.noun.review": {
+      "text": "review {id}",
+      "hash": "f4247e9947c2c404deb14ba753544546aa3262c1"
+    },
     "doc.route.get.api.email-deliveries": {
       "text": "The team's email deliveries, newest first: recipient, category, event, status (`pending`/`sent`/`dead`), attempts, the relay's last reply and when the next attempt is due. `?status=dead` is the dead-letter list. The BODY is not in a listing: a dead-letter list answers \"what is failing and why\", and a page of message bodies is not that. The two transactional messages — a confirmation and a transport test — belong to no team and are invisible here by construction; `GET /api/admin/email-deliveries` is the operator's view.",
       "hash": "15030654c43b734e4af94f879ce60222e9c216a2"
@@ -2227,6 +2327,14 @@
       "text": "New password",
       "hash": "d850ee188c7c55b64bc3624534de5c5051a57dc6"
     },
+    "doc.tool.doc_redact.detectors": {
+      "text": "Which detectors to run: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary, which needs terms)",
+      "hash": "9995fe44288c76e96f3ae9c3408a6e689cb17fd9"
+    },
+    "mail.verify.intro": {
+      "text": "Somebody — probably you — asked for this address to receive TMach notifications. Confirm it to turn them on.",
+      "hash": "15efb33232d3408dc2d382574511d4e209a2b436"
+    },
     "doc.route.post.api.profile": {
       "text": "Update the caller's own durable preferences: `locale` and `timezone` (an IANA zone name, e.g. \"Europe/London\"). Either may be sent alone. An unknown timezone is refused rather than silently substituted — somebody quietly given UTC for a typo finds out from a report that arrives at the wrong hour. The reply carries the effective timezone and which layer answered it.",
       "hash": "99fb02766ee54f83b68c9ffe525bf3b592fcbcb6"
@@ -2234,10 +2342,6 @@
     "ui.trcount": {
       "text": "{n} / {max} characters",
       "hash": "37992f8af2be4f932bbc75295200d6fef95ad76f"
-    },
-    "doc.tool.doc_redact.detectors": {
-      "text": "Which detectors to run: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary, which needs terms)",
-      "hash": "9995fe44288c76e96f3ae9c3408a6e689cb17fd9"
     },
     "ui.ngraphempty": {
       "text": "Nothing to draw yet. An org note's [[target]] is what makes an edge.",
@@ -2335,6 +2439,10 @@
       "text": "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache.",
       "hash": "bf8d94c14199e90c07c97c82400f54b2317e8fea"
     },
+    "mail.document_request.link": {
+      "text": "Open this link to send it: {link}",
+      "hash": "05d31ccc4bca72e452f1a0c429610dbbcf132195"
+    },
     "ui.nodefs": {
       "text": "No workflows are published for this team yet. A plugin that ships one appears here on first use; otherwise POST a spec to /api/workflows.",
       "hash": "a326f7ace2f357a8bc110f10e47a258716abbf40"
@@ -2406,6 +2514,10 @@
     "doc.route.put.api.org.features": {
       "text": "Turn a feature off for the caller's own company; its teams cannot turn it back on.",
       "hash": "ca7cfdfb5359b0de1761d996af74b3bf1d9ec895"
+    },
+    "mail.verify.subject": {
+      "text": "Confirm your TMach notification address",
+      "hash": "3e5721391ea08e1dcf31cde30d9019b56e0bfc08"
     },
     "doc.route.delete.api.executors.id": {
       "text": "Retire an executor: its worker token is revoked and any job it holds returns to the queue.",
@@ -2531,6 +2643,10 @@
       "text": "Delete a note.",
       "hash": "edadf3ea6746bb44145806818cfca51cc6e85140"
     },
+    "doc.route.get.api.org.contacts.id": {
+      "text": "One external party. Another company's id answers 404, because the scope is in the statement.",
+      "hash": "7f69e2dcd582d6a378e6b15258722839946ac99d"
+    },
     "ui.qvauto": {
       "text": "Refresh",
       "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
@@ -2555,9 +2671,17 @@
       "text": "Email address",
       "hash": "c94d3175a6560565410511df2cebab9cda96027e"
     },
+    "ui.mlverify": {
+      "text": "Verify the relay's certificate",
+      "hash": "cd968a977cafd690b28bd69298f46eb5a05b21b8"
+    },
     "doc.route.post.api.repo-obj.id.legal-hold": {
       "text": "Place or release a legal hold on an object: `{\"hold\": true|false}`. While held, deletion BY RULE is refused — a retention sweep skips it and says how many it skipped. This is the flag r4 will build a prefix-level surface on; it ships with the rules because a schedule that deletes is a one-way door and a hold is the only thing that can stop one.",
       "hash": "c571267be0e2aa366a173a800e261cbeb9b57829"
+    },
+    "ui.mlcons_bounces": {
+      "text": "Read bounce reports",
+      "hash": "e669018545c297adf8a88506d8fbad11a7abd829"
     },
     "doc.tool.doc_redact.text": {
       "text": "The text to redact (default: extracted from the document)",
@@ -2650,6 +2774,10 @@
     "doc.workflow.transcribe-documents": {
       "text": "Turn the team's audio documents into text in the search index. Finds recordings with no transcript yet, then transcribes each one. Needs TMACH_TRANSCRIBE_URL. Safe to re-run; processes up to 20 recordings per run and spends the team's transcription budget. Run this BEFORE Index Documents and Embed Documents for a voice note — until it has, a recording has no text for either of them to read.",
       "hash": "85238c78d2068f3a2b17cd1d77dc53fd9e66c8d6"
+    },
+    "mail.noun.job": {
+      "text": "job {id}",
+      "hash": "d5e935b8000e719c26b0cc2929559817e6593b7c"
     },
     "doc.tool.doc_classify.object": {
       "text": "The repository object id",
@@ -2822,6 +2950,10 @@
     "doc.route.get.api.org.branding": {
       "text": "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.",
       "hash": "ed143a926240ffabe318645984be613401b30646"
+    },
+    "ui.mlfolder": {
+      "text": "Folder",
+      "hash": "30baa24967e08965d1594408031f0324ae11ccac"
     },
     "doc.route.get.api.org.retention": {
       "text": "The company's own retention rules (#86 r3). An org may SHORTEN what the instance allows for its own data and may never extend it.",
@@ -3055,6 +3187,10 @@
       "text": "active",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
     },
+    "mail.reset.intro": {
+      "text": "Somebody asked to reset the TMach password for this address. This link works once, and stops working in {ttl}.",
+      "hash": "2ae0ceea80193d92bec61591e6c60acea5e364f8"
+    },
     "doc.route.get.api.doc-triggers.id": {
       "text": "One trigger with its fire history (which version, which run, or why not).",
       "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
@@ -3158,6 +3294,10 @@
     "ui.qvleases": {
       "text": "Leases",
       "hash": "45c6034dee3192e14bc2c94fe6ebc276c007d29c"
+    },
+    "mail.document_request.what": {
+      "text": "Requested: {what}",
+      "hash": "37a4651ec85f704b492d4cac976b038b4ef4aa5e"
     },
     "ui.quotaraiseop": {
       "text": "You can raise it below.",
@@ -3499,6 +3639,10 @@
       "text": "See workflow definitions, runs and triggers.",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
     },
+    "mail.verb.arrived": {
+      "text": "arrived",
+      "hash": "1b2853c43d4f5ce1ffff2e3ad07fb2f02eecd372"
+    },
     "ui.edempty": {
       "text": "nothing to save",
       "hash": "a0e92e059b9b0c33b6d0d368dbe5bc292b7141e9"
@@ -3599,13 +3743,17 @@
       "text": "An operator can raise it.",
       "hash": "5a5414bdc24f0f0ed674ea06fec55db68b668ef3"
     },
-    "doc.route.post.api.jobs.id.cancel": {
-      "text": "Cancel a job. Your own, queued or running; somebody else's needs jobs:cancel. A queued job is canceled outright; a running one goes to `canceling` — its result is discarded at once, and it stops holding its team's concurrency slot when the handler actually stops.",
-      "hash": "04ae85238b4668c1a2d014a249527a78fa1a7a28"
+    "mail.document_request.footer": {
+      "text": "Sent on behalf of {org_name}.",
+      "hash": "5e9f1651dfb981031c82f04afc9c7d1efc43b1b8"
     },
     "ui.localize": {
       "text": "Localize",
       "hash": "856ae94430567b78d47f89dd136d96687ff5caee"
+    },
+    "doc.route.post.api.jobs.id.cancel": {
+      "text": "Cancel a job. Your own, queued or running; somebody else's needs jobs:cancel. A queued job is canceled outright; a running one goes to `canceling` — its result is discarded at once, and it stops holding its team's concurrency slot when the handler actually stops.",
+      "hash": "04ae85238b4668c1a2d014a249527a78fa1a7a28"
     },
     "ui.mltestto": {
       "text": "Test message to",
@@ -3683,6 +3831,10 @@
       "text": "Save to repository",
       "hash": "9d0e8997855a6a8c3235ddfe2eedf66ded7cb315"
     },
+    "mail.verb.failed": {
+      "text": "FAILED",
+      "hash": "8d33f3064fd0cf2aaa41f82a9b338d50cbbafde5"
+    },
     "doc.route.delete.api.webhooks.id": {
       "text": "Delete a subscription and its delivery history. The audit entries survive.",
       "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
@@ -3727,6 +3879,14 @@
       "text": "See the Localization Manager's coverage and messages.",
       "hash": "da2cba8e84f038c877872c710f02f7f21d1049f8"
     },
+    "doc.route.get.api.org.inbound": {
+      "text": "The replies that arrived in the company's inbound mailbox, newest first: who they came from, the subject, the body, when, and whether the message is `stored` or `quarantined` — a reply that arrived after its token expired, which may be shown and may not be acted on. The platform stores them and does not try to understand the prose; showing them is the product's job, because the inbox is a plugin and core may not require one.",
+      "hash": "847b4e8f18c5cab6561f7e34351aac79ac6e1a4b"
+    },
+    "ui.mltested": {
+      "text": "Last test",
+      "hash": "0574834056c9a2320bef1d182f0b1b5441df7987"
+    },
     "ui.thcontrasthint": {
       "text": "Readers may not be able to see this text. The server refuses a theme below the minimum.",
       "hash": "931f620bbf6a582ae8b0d682fcec3c2206887dd4"
@@ -3742,10 +3902,6 @@
     "doc.tool.create_note": {
       "text": "Create a note for the current user's team.",
       "hash": "b647e9b2764c0eb907c2306751d03cbc7e8fee48"
-    },
-    "ui.mltested": {
-      "text": "Last test",
-      "hash": "0574834056c9a2320bef1d182f0b1b5441df7987"
     },
     "ui.instfeatures": {
       "text": "Instance features",
@@ -3774,6 +3930,14 @@
     "ui.thradius": {
       "text": "Corner radius",
       "hash": "c7a86e072be0a7a476c9e29aa6514eb2d3fde8ab"
+    },
+    "mail.noun.run": {
+      "text": "run {id}",
+      "hash": "273f659f1c5ebc20e2d15795271ce25674625124"
+    },
+    "mail.notification.why": {
+      "text": "You are receiving this because notifications are on for your account.",
+      "hash": "a1cc2c7081761f9f9db820bb330225df02251d5e"
     },
     "doc.route.post.api.org.teams": {
       "text": "Create a team in the caller's company.",
@@ -3843,6 +4007,14 @@
       "text": "The workflow step id, for provenance",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
+    "doc.route.post.api.org.mail": {
+      "text": "Send a message to an external party: {contact, template, data, link}. The words come from a closed template registry and `data` carries ids, never prose — an email API a caller can hand arbitrary text and an arbitrary recipient is a spam cannon with the instance's own From identity behind it. A suppressed contact, a missing transport and a duplicate answer `{queued: 0, reason}` rather than an error, because all three are ordinary states.",
+      "hash": "420095a5d2a8300ccc86cb5d774f2959cc894561"
+    },
+    "ui.vis_shared": {
+      "text": "Shared — only the people below",
+      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
+    },
     "doc.route.post.api.uploads.id.complete": {
       "text": "Assemble the parts in ASCENDING order into a repository object and finish the upload. The client does not name the order — a streamed capture has one writer and ascending IS the order, where the S3 surface must take a list because its parts arrive concurrently. Written through the ordinary `repo-put!`, so the object is versioned, quota-checked, audited and evaluated by triggers.",
       "hash": "98b01cc00f9ac1c65c8f7471bc72401d53b37add"
@@ -3850,10 +4022,6 @@
     "doc.perm.settings:manage": {
       "text": "Team settings: tokens, feature flags, tool activation, the glossary, seeding, the audit trail.",
       "hash": "0062da01a09f0649738228059fa7da1360bbf57c"
-    },
-    "ui.vis_shared": {
-      "text": "Shared — only the people below",
-      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
     },
     "doc.route.post.api.features.name": {
       "text": "Enable or disable a feature for the team; a team may tighten what a layer above allows, never loosen it.",
@@ -3934,6 +4102,10 @@
     "doc.route.post.api.repo-obj.id.share": {
       "text": "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.",
       "hash": "cd82f7d35429e191de508ed5238a7b3b4dabbdd8"
+    },
+    "mail.notification.signature": {
+      "text": "— TMach",
+      "hash": "0acc611310883669132e3adf685a1fd6abcd4f6d"
     },
     "doc.route.post.api.x.feeds.items.id.status": {
       "text": "Move one queued item to another status: {\"status\": \"claimed\"}. Guarded on the row's own team as well as the document, because an object id is instance-global.",
@@ -4103,13 +4275,17 @@
       "text": "Showing the first {cap} entities by name. There are more.",
       "hash": "1f1094b98b125340213b8bdf1de11bfe5bd76654"
     },
-    "ui.wkerrhint": {
-      "text": "Jobs this host reported as failed in the window. The job itself was at fault, or the model refused it — a host that cannot run work releases it instead.",
-      "hash": "cfdbef058d05adb2200693df3e67b3ab5c0d7782"
-    },
     "doc.route.post.api.email-deliveries.id.redeliver": {
       "text": "Send a dead letter again. The attempt count is RESET — an operator redelivering has made a decision, and one attempt out of ten already spent would make the lever useless. The delivery id does not change, so the Message-ID is the same and a relay that already accepted it recognises it.",
       "hash": "ca98beab446bcdb0a55cc35232f64a0c31147baf"
+    },
+    "doc.route.delete.api.email-inbound": {
+      "text": "Remove the inbound mailbox, which is the only way back to the state the instance shipped in. A `PUT` with `active: false` is still a configured mailbox.",
+      "hash": "8b562fc742092bcc10b071fdfd893675c37b8cbf"
+    },
+    "ui.wkerrhint": {
+      "text": "Jobs this host reported as failed in the window. The job itself was at fault, or the model refused it — a host that cannot run work releases it instead.",
+      "hash": "cfdbef058d05adb2200693df3e67b3ab5c0d7782"
     },
     "doc.perm.org:manage": {
       "text": "Administer the company: teams and members. Manages, does not read, team data (TEN-2a).",
@@ -4118,6 +4294,10 @@
     "ui.ngraphnodes": {
       "text": "{n} drawn of {total} notes, {e} links",
       "hash": "4c34463118bdb05e43928a95d19a545eac99e3bb"
+    },
+    "ui.mlinboundhint": {
+      "text": "One optional mailbox, read for two things: bounce reports, which suppress an address that no longer exists, and replies, which arrive as an inbox item. A bounce and a reply are both mail that comes back, so they share one mailbox. Nothing is read until this is configured.",
+      "hash": "9589de0c852ab0dab5103d1fd53dacedd5c73676"
     },
     "doc.route.get.beta-sdk.js": {
       "text": "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).",
@@ -4146,6 +4326,10 @@
     "ui.palnone": {
       "text": "nothing matches",
       "hash": "90226a1418b7b508766c0dcbd18eb7b87205b182"
+    },
+    "mail.reset.code": {
+      "text": "Use this code to set a new password: {token}",
+      "hash": "a63e66a479e5af355d67b910323c92979f74506d"
     },
     "doc.perm.notes:manage": {
       "text": "Share notes one does not own.",
@@ -4247,6 +4431,10 @@
       "text": "End the session this request is holding. The console's sign-out called nothing before this, so the bearer stayed valid until it expired.",
       "hash": "574667b54d3eb3f4e23149c72279775c2f2a340b"
     },
+    "mail.reset.subject": {
+      "text": "Reset your TMach password",
+      "hash": "95d7041cda5b0464ad07a1f0102a47c4dc73814e"
+    },
     "ui.reviewrecorded": {
       "text": "Decision recorded",
       "hash": "71097cf7bca165c70df9a12dfca0ce52f9a89f55"
@@ -4267,6 +4455,14 @@
       "text": "Untitled",
       "hash": "621521f9a8788695ec292cbec54d2792cfdf0a7d"
     },
+    "ui.hdrain": {
+      "text": "Drain window",
+      "hash": "6a47b6b48e47e9726a7b8ee8aebae4e2b396e6fa"
+    },
+    "mail.notification.subject_team": {
+      "text": "[{team}] {sentence}",
+      "hash": "b6157b43081439404b35130d11768e656ebb7cf8"
+    },
     "doc.route.post.api.workers.jobs.id.heartbeat": {
       "text": "Extend the lease on a job this worker holds: {claim_token}, the token the claim returned. A missing or stale token is a 409.",
       "hash": "7c5cab8cfb5e9fe78bdf2903b748b2144efbe4e1"
@@ -4278,10 +4474,6 @@
     "doc.route.put.api.org.retention": {
       "text": "Set the company's retention rules. Same vocabulary and same refusals as the team route; the effective value for a team is the shortest of instance, org and team.",
       "hash": "5ba096d4acfe3546f0865de072a8ba5b9dc2c1a2"
-    },
-    "ui.hdrain": {
-      "text": "Drain window",
-      "hash": "6a47b6b48e47e9726a7b8ee8aebae4e2b396e6fa"
     },
     "ui.nosharedwithme": {
       "text": "Nothing has been shared with you yet.",
@@ -4339,6 +4531,10 @@
       "text": "Set an org-level quota; teams nest beneath it.",
       "hash": "b56168537a1f06874aa58142c8c2c7a24d720c1c"
     },
+    "mail.notification.off": {
+      "text": "Turn them off under your own profile in the console.",
+      "hash": "e5ec6a25d6e84351f20a00293832376986faf764"
+    },
     "ui.palhpalette": {
       "text": "Open the command palette",
       "hash": "2b5a7d38f23f257ed27a4b5c21774239fe9b1a93"
@@ -4359,6 +4555,14 @@
       "text": "Delete a feed's configuration. Anything it already pulled is an ordinary repository document and is untouched — deleting the feed is not a retraction of its items.",
       "hash": "c9df0d8c31f26321241f7ba3b658661fe6138cc6"
     },
+    "doc.route.post.api.l10n.discard": {
+      "text": "Remove a locale's machine drafts (never a human's work).",
+      "hash": "6cd563b71dcf816676f66108dd48970be53285c1"
+    },
+    "ui.mlinbound": {
+      "text": "Inbound mail",
+      "hash": "996bfe98fe4a12ca0ab2b800d9163d248d66cb2a"
+    },
     "doc.route.post.api.activate": {
       "text": "Hosted mode: redeem an activation token and set the owner's password.",
       "hash": "4abf505567758f834dd33521715f9792cffaebac"
@@ -4374,10 +4578,6 @@
     "ui.qvwindow": {
       "text": "last {h}h",
       "hash": "cd66cdaf1149abea4ee263ebcc7a3cbdfe87c70a"
-    },
-    "doc.route.post.api.l10n.discard": {
-      "text": "Remove a locale's machine drafts (never a human's work).",
-      "hash": "6cd563b71dcf816676f66108dd48970be53285c1"
     },
     "ui.workflows": {
       "text": "Workflows",
@@ -4467,6 +4667,10 @@
       "text": "Everything at the instance tier; the operator (superadmin).",
       "hash": "5957c7a87ad3f05d89db595d3267a61bee7d7b74"
     },
+    "ui.mlmode": {
+      "text": "Mode",
+      "hash": "a7b93d2128e820f861fc8dfccd9f5521e89ad21f"
+    },
     "doc.tool.doc_render.data": {
       "text": "The data to fill in, e.g. the extracted fields",
       "hash": "92e78b4a50fac07647cf4d491ef3909265beb400"
@@ -4479,13 +4683,17 @@
       "text": "Sent back",
       "hash": "784f79a850955807e6a9c2610522ad187f5cf14e"
     },
-    "doc.route.put.api.i18n": {
-      "text": "Set the instance default locale and whether users may switch.",
-      "hash": "3ceb223bf235f7f52e4001672cb5ed6276472812"
-    },
     "doc.perm.files:read": {
       "text": "Open, download and search repository documents; read provenance and the knowledge graph.",
       "hash": "2efb78bec3b8ff4d1b71b73d0a5d3106dbb524e2"
+    },
+    "ui.mlcons_messages": {
+      "text": "Read replies",
+      "hash": "b5fe6a2279cd60f5f2fecb6dfaebb6a215dde17a"
+    },
+    "doc.route.put.api.i18n": {
+      "text": "Set the instance default locale and whether users may switch.",
+      "hash": "3ceb223bf235f7f52e4001672cb5ed6276472812"
     },
     "doc.perm.documents:read": {
       "text": "Read text documents.",
@@ -4494,6 +4702,10 @@
     "ui.file": {
       "text": "File",
       "hash": "2c3cafa4db3f3e1e51b3dff4303502dbe42b7a89"
+    },
+    "mail.verb.finished": {
+      "text": "finished",
+      "hash": "f957097d7a22775f6bea41b46cae4d14274dac9f"
     },
     "doc.route.post.api.webhooks.id.ping": {
       "text": "Deliver a `ping` event to this subscription NOW, synchronously, and answer with what happened. The way to check a receiver's signature verification before a real event depends on it. Refused with 409 if the subscription is inactive or does not subscribe to `ping`.",
@@ -4510,6 +4722,10 @@
     "ui.wkretire": {
       "text": "Retire",
       "hash": "c9714c15af397514e267a29a83a2669dfe33365a"
+    },
+    "mail.verify.ignore": {
+      "text": "If you did not ask for this, ignore this message — nothing is sent to an address that has not been confirmed.",
+      "hash": "37c5da75f3c7c6c23ea68735a8d5bb862f36a2e0"
     },
     "ui.searchmin": {
       "text": "Type at least two characters.",
@@ -4659,6 +4875,10 @@
       "text": "Target language",
       "hash": "f137c97e3de044babb50524619905eefd5aa79dd"
     },
+    "doc.route.patch.api.org.contacts.id": {
+      "text": "Suppress or unsuppress: {status, reason?}. A suppression refuses every send to that address before a quota is spent, and it is reversible because a single failure report is evidence of an attempt rather than proof of non-delivery (RFC 3464).",
+      "hash": "cbcae3dcfde08acd161cbcaa60a4de634eabbbcf"
+    },
     "doc.route.put.api.org.session-policy": {
       "text": "Set the company's session timeouts. Only tightening takes effect: a value looser than the instance's is answered with the instance's.",
       "hash": "23fd5bd1c7e8fee805e5dd4078b9fd51b7cf2030"
@@ -4751,13 +4971,17 @@
       "text": "Retune a schedule: `cadence`, `interval_seconds`, `at_minute`, `days_of_week`, `timezone`, `paused`, `payload`, `priority`, `name`. The schedule is validated AS IT WOULD BE, so switching to `daily` in the same request that supplies `at_minute` is accepted and switching without one is refused — a patch cannot reach a state a create could not. Any change to WHEN recomputes the next firing, rather than firing once at the old time and only then obeying the edit. The PRINCIPAL cannot be patched: changing whose authority a timer spends is a new schedule, not an edit. Resuming a paused schedule moves its next firing forward instead of catching up on every tick it missed.",
       "hash": "ee5d997d17b098a4fbd4c77017676b1039f131fd"
     },
-    "doc.route.post.api.l10n.draft": {
-      "text": "Queue AI drafts for a locale's missing strings, in batches of 20 scheduler jobs, quota-metered.",
-      "hash": "742d6ecb83ed152c1255676ccadbf17b2ad7034b"
-    },
     "doc.plugin.research": {
       "text": "A workflow that distils bookmarked pages: find the archives that are still behind, extract their text for search, then take facts out of them into the knowledge graph. Re-run it any time; it only touches what is behind.",
       "hash": "e7229c1e3aa372ef7ee2d0fc4e131858cfda0e76"
+    },
+    "doc.route.delete.api.org.contacts.id": {
+      "text": "Erase an external party: the contact, its action tokens, its delivery rows and the replies it sent, in one transaction. The audit log keeps the fact that sends happened and never the address, because that log is chained, exported and kept through an erasure.",
+      "hash": "a2bf56345cd6593dde65d194446165a569c807f1"
+    },
+    "doc.route.post.api.l10n.draft": {
+      "text": "Queue AI drafts for a locale's missing strings, in batches of 20 scheduler jobs, quota-metered.",
+      "hash": "742d6ecb83ed152c1255676ccadbf17b2ad7034b"
     },
     "doc.route.get.api.s3.credentials": {
       "text": "The caller's S3 access keys (secrets never shown again) and the endpoint/bucket to use them with.",
@@ -4887,6 +5111,10 @@
       "text": "held: {dimension} budget",
       "hash": "f2afcef162808b1a6720bb9cd2b948aea93b14d3"
     },
+    "doc.route.put.api.email-inbound": {
+      "text": "Configure the inbound mailbox as a whole document: {mode, host?, port?, security?, username?, password?, folder?, consumers?, active?}. An absent password leaves the stored one alone, so an edit to the folder cannot silently clear the credential, and an absent `active` leaves the stored switch alone for the same reason: a document that omits it must not stop a poller that is running, because mail arriving while nothing reads it is the one failure nobody sees. `active: false` is how it is stopped. `consumers` is `{bounces, messages}`, both default to off, and a consumer that is off is not run: a mailbox read for bounces never spends a reply token, and one read for replies never suppresses a contact.",
+      "hash": "d67996cca7cab8c84f79ff1d4ed797f5133f7611"
+    },
     "ui.dimension": {
       "text": "Dimension",
       "hash": "45e147abd920eeb1aca320340e18cf67b4c77252"
@@ -4898,6 +5126,10 @@
     "doc.route.get.index.html": {
       "text": "The console.",
       "hash": "22e231ec8661962729182ce14c43ad6f9a6ebd62"
+    },
+    "mail.verb.decided": {
+      "text": "was decided: {verdict}",
+      "hash": "a27ecbebc090dc4555364f748d708baa29d9667e"
     },
     "ui.wkaddhint": {
       "text": "Creates the worker token this host signs in with. The token is shown once, here, and never again.",
