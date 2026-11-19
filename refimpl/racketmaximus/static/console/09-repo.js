@@ -221,11 +221,12 @@ function repoCopyLink(){
 function repoRevealDetail(){ revealEl('rdetail'); }
 
 async function repoOpenDetail(id){
-  const [m, g, tg, pr] = await Promise.all([
+  const [m, g, tg, pr, cn] = await Promise.all([
     api('/api/repo-obj/'+encodeURIComponent(id)),
     api('/api/repo-obj/'+encodeURIComponent(id)+'/grants'),
     api('/api/share-targets'),
-    api('/api/repo-obj/'+encodeURIComponent(id)+'/processing')]);
+    api('/api/repo-obj/'+encodeURIComponent(id)+'/processing'),
+    api('/api/repo-obj/'+encodeURIComponent(id)+'/notes')]);
   const el=document.getElementById('rdetail');
   if(!m.ok){ toast(m.json.error||'error'); return; }
   const o=m.json, grants=(g.ok?g.json.grants:[])||[];
@@ -292,7 +293,9 @@ async function repoOpenDetail(id){
       <div><h4 style="margin:0 0 6px">${t('versions')}</h4>
         <table><tbody>${vrows}</tbody></table></div>
     </div>
-    ${processed}</div>`;
+    ${processed}
+    ${cn.ok ? citedByHTML(cn.json.notes, tRaw('repocited'),
+        tRaw('reponocites').replace('{link}', '[[doc:' + m.json.key + ']]')) : ''}</div>`;
   repoRevealDetail();
 }
 function repoViewRun(runId){ go('workflows'); S.wfRun=runId; S.wfPoll++; renderTab(); }

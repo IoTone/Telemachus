@@ -30,6 +30,9 @@ async function researchView(){
                        : `<span class="badge bad">${t('rs_notarchived')}</span>`}
         ${s.last_error && s.last_error !== 'null' ? `<div class="muted" style="font-size:12px" title="${esc(s.last_error)}">${t('rs_lasterror')}</div>` : ''}</td>
       <td>${jobWhen({ created_epoch: s.last_ok_epoch })}</td>
+      <td>${s.cited_by === undefined ? '' : (s.cited_by
+            ? `<span class="badge">${esc(s.cited_by)}</span>`
+            : `<span class="muted" style="font-size:12px">${t('rs_uncited')}</span>`)}</td>
       <td style="white-space:nowrap">
         <button class="btn sm ghost" data-h-click="${H(() => rsOpen(s.id))}">${t('details')}</button>
         <button class="btn sm ghost" data-h-click="${H(() => rsFetch(s.id))}">${t('rs_refetch')}</button>
@@ -46,7 +49,7 @@ async function researchView(){
         <div style="flex:none"><button class="btn" id="rsadd" data-h-click="${H(() => rsCreate())}">${t('rs_add')}</button></div>
       </div>
       ${src.length
-        ? `<table style="margin-top:10px"><thead><tr><th>${t('rs_page')}</th><th>${t('rs_state')}</th><th>${t('rs_lastok')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+        ? `<table style="margin-top:10px"><thead><tr><th>${t('rs_page')}</th><th>${t('rs_state')}</th><th>${t('rs_lastok')}</th><th>${t('rs_notes')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
         : `<p class="muted" style="margin-top:10px">${t('rs_none')}</p>`}
     </div>
     <div id="rsdetail">${S.rs.sel ? await rsDetailHtml(S.rs.sel) : ''}</div>`;
@@ -109,9 +112,10 @@ function rsEntitiesNote(r){
 }
 
 async function rsDetailHtml(id){
-  const [sr, er] = await Promise.all([
+  const [sr, er, nr] = await Promise.all([
     api('/api/research/' + encodeURIComponent(id)),
-    api('/api/research/' + encodeURIComponent(id) + '/entities')]);
+    api('/api/research/' + encodeURIComponent(id) + '/entities'),
+    api('/api/research/' + encodeURIComponent(id) + '/notes')]);
   if(!sr.ok) return `<div class="card" style="margin-top:14px"><p class="muted">${esc(sr.json.error || 'not found')}</p></div>`;
   const s = sr.json, ents = er.ok ? er.json : { entities: [], reason: 'unreadable' };
   const note = rsEntitiesNote(ents);
@@ -126,6 +130,8 @@ async function rsDetailHtml(id){
     <div class="muted mono" style="font-size:12px">${esc(s.url_canon)}</div>
     <p class="muted" style="font-size:12px;margin:6px 0 0">${esc(tRaw('rs_fetches').replace('{n}', s.fetches))}
       ${s.content_type && s.content_type !== 'null' ? ` · <span class="mono">${esc(s.content_type)}</span>` : ''}</p>
+    ${nr.ok ? citedByHTML(nr.json.notes, tRaw('rs_citedby'),
+        tRaw('rs_nocites').replace('{link}', '[[bookmark:' + s.url + ']]')) : ''}
     <h4 style="margin:12px 0 6px">${t('rs_entities')}</h4>
     ${note ? `<p class="muted" id="rsentnote">${esc(note)}</p>` : ''}
     ${list ? `<table id="rsents"><thead><tr><th>${t('kg_entity')}</th><th>${t('kg_type')}</th><th>${t('kg_mentions')}</th></tr></thead><tbody>${list}</tbody></table>` : ''}

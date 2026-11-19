@@ -6524,8 +6524,10 @@ together because the first is only useful in both note formats.
 | **SRC‑7** | In the graph | **A source is a node of its own kind (`document`, `bookmark`), drawn as a square or a diamond in the notes graph** | It is an authored edge, so it belongs in the authored graph; ORG‑14's separation from the knowledge graph is unchanged. An unresolved source is the same hollow node an unwritten note gets. |
 | **SRC‑8** | Converting a note between formats | **The body is re-read in the new format's syntax** | A bare `[[target]]` is a link in both and survives. A label written in the other format's syntax stops resolving and is reported broken, which is visible and undone by converting back. This replaces "converting to Markdown clears the links". |
 
-Not built: a "notes that cite this" list on the bookmark and document screens,
-and the reports that would follow from it (bookmarks nobody has written about).
+| **SRC‑9** | The other direction | **A bookmark and a document each list the notes that cite them** (`GET /api/research/:id/notes`, `GET /api/repo-obj/:id/notes`), and the bookmark list carries `cited_by` | It is what makes "a page nobody has written about" visible, which is the first of the tidying lists the Zettelkasten kit keeps. Only notes the caller may read are listed or counted, by the same index the backlinks use. A bookmark is matched by id or by canonical URL, which cannot be written in SQL, so it is one bounded scan of the team's source links and a match in Racket. |
+
+Not built: the other tidying lists (notes with no links, unresolved targets as a
+list), note templates, and a `cited_by` figure on the repository listing.
 Existing Markdown notes have no link rows until they are saved again; there is no
 backfill.
 

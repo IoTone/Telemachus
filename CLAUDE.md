@@ -10140,6 +10140,14 @@ bash test/e2e/validate.sh        # the markdown-link probes in §3c3
   textually, as `ja.json` is edited.
 - Existing Markdown notes get link rows the next time they are saved. There is
   no backfill.
+- **The reverse read** (SRC‑9): `notes-citing-document`, `notes-citing-bookmark`
+  and `bookmark-citation-counts` in `notes.rkt`, behind
+  `GET /api/repo-obj/:id/notes`, `GET /api/research/:id/notes` and `cited_by` on
+  the bookmark list. They take a source the endpoint has ALREADY been allowed to
+  read, and filter the citing notes through `team-note-index`.
+- **`notes-tests.rkt` allows one `(can? conn p "notes:read"` in `notes.rkt`.** A
+  role-level check added for the reverse read failed it, and was redundant: the
+  index is empty for a reader who may not read notes.
 
 ## A workflow tool is not a conversational tool (`#:agent?`, reported from outside)
 

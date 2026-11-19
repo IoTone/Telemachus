@@ -4178,8 +4178,9 @@ echo "== a note links to a document and a bookmark (#191) =="
 # `bookmark:<url or id>`, in either format. This block sits AFTER the research
 # block because that one asserts an empty bookmark list, and it removes its own
 # bookmark again.
-curl -s -X PUT "$B/api/repo/cited/survey.txt?filename=Levee+survey" -H "Authorization: Bearer $OP" \
-  -H 'Content-Type: text/plain' --data-binary 'field notes' >/dev/null
+SURV=$(curl -s -X PUT "$B/api/repo/cited/survey.txt?filename=Levee+survey" -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: text/plain' --data-binary 'field notes')
+SURVID=$(printf '%s' "$SURV" | grep -oP '"id":\s*"\K[^"]+' | head -1)
 curl -s -X PUT "$B/api/repo/cited/sealed.txt?visibility=private" -H "Authorization: Bearer $OP" \
   -H 'Content-Type: text/plain' --data-binary 'sealed' >/dev/null
 BKM=$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
@@ -4218,6 +4219,27 @@ assert "sources: the owner's own read of that note resolves it" \
 SG=$(curl -s "$B/api/notes/graph?note=$CITEID" -H "Authorization: Bearer $CAROL")
 assert "sources: the note graph has a document node" "$SG" '"kind":"document"'
 assert "sources: …and a bookmark node"               "$SG" "\"id\":\"bookmark:$BKMID\""
+# THE OTHER DIRECTION: a source lists the notes that cite it, as the caller may
+# read them. The operator's PRIVATE note cites both and must not reach carol.
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"op private cite","visibility":"private","body":"[[doc:cited/survey.txt]] [[bookmark:https://CITED.example/page#top]]"}' >/dev/null
+DN=$(curl -s $B/api/repo-obj/$SURVID/notes -H "Authorization: Bearer $CAROL")
+assert "cited: a document lists the notes that cite it"        "$DN" '"title":"cites sources"'
+refute "cited: …but not a colleague's private note"            "$DN" 'op private cite'
+assert "cited: …which its author does see" \
+  "$(curl -s $B/api/repo-obj/$SURVID/notes -H "Authorization: Bearer $OP")" 'op private cite'
+BN=$(curl -s $B/api/research/$BKMID/notes -H "Authorization: Bearer $CAROL")
+assert "cited: a bookmark lists the notes that cite it"        "$BN" '"title":"cites sources"'
+refute "cited: …and not the private one"                       "$BN" 'op private cite'
+assert "cited: a URL in another spelling still names the bookmark" \
+  "$(curl -s $B/api/research/$BKMID/notes -H "Authorization: Bearer $OP")" 'op private cite'
+assert "cited: the bookmark list carries the count the caller may see" \
+  "$(curl -s $B/api/research -H "Authorization: Bearer $CAROL")" '"cited_by":1'
+assert "cited: the bookmark route still needs research:use" \
+  "$(curl -s $B/api/research/$BKMID/notes -H "Authorization: Bearer $VERA")" 'Forbidden: research:use'
+assert "cited: an unknown document is 404" \
+  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/repo-obj/nope/notes -H "Authorization: Bearer $OP")" '404'
+
 # forgetting the bookmark breaks the link again, with nothing to reset
 curl -s -X DELETE $B/api/research/$BKMID -H "Authorization: Bearer $OP" >/dev/null
 assert "sources: a forgotten bookmark is a broken link" \

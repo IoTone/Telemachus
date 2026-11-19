@@ -5182,6 +5182,38 @@
     "ui.notelinkhint": {
       "text": "Link with [[Note title]], [[doc:folder/file.md]] or [[bookmark:https://…]]. In Markdown a label is [[target|label]]; in org it is [[target][label]].",
       "hash": "1f50cef6f576ee9aacf73528def93096c477957f"
+    },
+    "ui.rs_notes": {
+      "text": "Notes",
+      "hash": "70440046a3dc2e079f23ee1c57dfa76669b732aa"
+    },
+    "ui.rs_uncited": {
+      "text": "none yet",
+      "hash": "02942cecd86ee6b2511efea71d4e9b2e944fb42a"
+    },
+    "ui.rs_citedby": {
+      "text": "Notes that cite this page",
+      "hash": "260fe61fc830dc672354ece83bae3ee063906a5f"
+    },
+    "ui.rs_nocites": {
+      "text": "No note cites this page yet. Link it from a note with {link}",
+      "hash": "5cf69aba8f22b84362e3100f59efacd80566f64d"
+    },
+    "ui.repocited": {
+      "text": "Notes that cite this document",
+      "hash": "2d68d852a9663c987f58f75a775f6bb68c18456c"
+    },
+    "ui.reponocites": {
+      "text": "No note cites this document yet. Link it from a note with {link}",
+      "hash": "05b9b830c21d352deb212cacea91c3ec6f7999e1"
+    },
+    "doc.route.get.api.repo-obj.id.notes": {
+      "text": "The notes that cite this document with a `[[doc:…]]` link, by its id or its key. Only notes the caller may read are listed, and nothing counts the others.",
+      "hash": "bf0a9be6fed6d444907b1847aa22774d98c29966"
+    },
+    "doc.route.get.api.research.id.notes": {
+      "text": "The notes that cite this bookmark with a `[[bookmark:…]]` link, by its id or by any URL with the same canonical form. Only notes the caller may read are listed, and nothing counts the others.",
+      "hash": "822f3c0fe419804ad017bbd261e87ed0bfd7b731"
     }
   }
 }

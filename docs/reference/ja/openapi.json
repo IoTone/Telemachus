@@ -4411,6 +4411,34 @@
         "x-tmach-permission-checked": "resource"
       }
     },
+    "/api/repo-obj/{id}/notes": {
+      "get": {
+        "description": "`[[doc:…]]` リンクで、ID またはキーによってこのドキュメントを引用しているノート。呼び出し元が読めるノートだけが一覧され、それ以外は数にも含まれません。",
+        "operationId": "get.api.repo-obj.id.notes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "repo-obj"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "repo-notes",
+        "x-tmach-permission": "files:read",
+        "x-tmach-permission-checked": "resource"
+      }
+    },
     "/api/repo-obj/{id}/presign": {
       "post": {
         "description": "呼び出し元自身の最新の S3 キーで署名された、期限付きの事前署名 S3 URL。",
@@ -4805,6 +4833,34 @@
         ],
         "x-tmach-auth": "bearer",
         "x-tmach-handler": "research-fetch",
+        "x-tmach-permission": "research:use",
+        "x-tmach-permission-checked": "role"
+      }
+    },
+    "/api/research/{id}/notes": {
+      "get": {
+        "description": "`[[bookmark:…]]` リンクで、ID または正規化した形が同じ URL によってこのブックマークを引用しているノート。呼び出し元が読めるノートだけが一覧され、それ以外は数にも含まれません。",
+        "operationId": "get.api.research.id.notes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "research"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "research-notes",
         "x-tmach-permission": "research:use",
         "x-tmach-permission-checked": "role"
       }

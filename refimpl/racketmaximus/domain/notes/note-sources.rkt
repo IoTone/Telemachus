@@ -25,9 +25,9 @@
          "org-links.rkt"
          (only-in "../authz/authz.rkt" can? exn:fail:forbidden?)
          (only-in "../repo/repo.rkt" repo-get)
-         (only-in "../research/research.rkt" research-get research-by-url))
+         (only-in "../research/research.rkt" research-get research-by-url canonical-url))
 
-(provide resolve-source make-source-resolver)
+(provide resolve-source make-source-resolver cites-document? cites-bookmark?)
 
 (define (present? v) (and (string? v) (not (string=? v ""))))
 
@@ -77,3 +77,23 @@
   (define memo (make-hash))
   (lambda (raw)
     (hash-ref! memo raw (lambda () (resolve-source conn p team raw)))))
+
+;; ---- the reverse question: does this target name THAT source? ----------------
+;;
+;; "Which notes cite this document" reads the link rows backwards, and these two
+;; predicates are the forward rule asked from the other side: a document is
+;; named by its id or its key, a bookmark by its id or by any URL with the same
+;; canonical form. The caller has already been allowed to see the source, so
+;; nothing here checks a permission.
+(define (cites-document? raw obj)
+  (define ty (typed-target raw))
+  (and ty (string=? (car ty) "document")
+       (or (equal? (cdr ty) (hash-ref obj 'id))
+           (equal? (cdr ty) (hash-ref obj 'key)))))
+
+(define (cites-bookmark? raw source)
+  (define ty (typed-target raw))
+  (and ty (string=? (car ty) "bookmark")
+       (or (equal? (cdr ty) (hash-ref source 'id))
+           (let ([c (canonical-url (cdr ty))])
+             (and c (equal? c (hash-ref source 'url_canon)))))))

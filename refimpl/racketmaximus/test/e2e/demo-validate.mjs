@@ -1064,6 +1064,45 @@ try {
   await page.waitForTimeout(600);
   ok('a hops change left the tab alone', await page.evaluate(() => renderSeq) === rseq);
   ok('…so the URL being typed survived', await page.inputValue('#rsurl') === 'https://half-typed.example/');
+  // #191 — A SOURCE LISTS THE NOTES THAT CITE IT. `fetch: false`, so no network;
+  // the note cites the bookmark by a different spelling of its URL.
+  step('research: a bookmark shows the notes that cite it');
+  const cite = await page.evaluate(async () => {
+    const h = { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/json' };
+    const post = (u, b) => fetch(u, { method: 'POST', headers: h, body: JSON.stringify(b) }).then(r => r.json());
+    const cited = await post('/api/research', { url: 'https://e2e-research.example/cited', title: 'Cited page', fetch: false });
+    await post('/api/research', { url: 'https://e2e-research.example/uncited', fetch: false });
+    const note = await post('/api/notes', { title: 'E2E citing note',
+      body: 'from [[bookmark:https://E2E-research.example/cited#top|the page]]' });
+    return { sid: (cited.source || cited).id, note: note.id };
+  });
+  await goTab(page, 'research', '#rsurl');
+  {
+    const table = await page.innerHTML('#main table');
+    ok('the list has a Notes column', table.includes('>Notes<'), table.slice(0, 300));
+    ok('…with a count for the cited page', /Cited page[\s\S]*?<span class="badge">1<\/span>/.test(table));
+    ok('…and "none yet" for a page nobody wrote about', table.includes('none yet'));
+  }
+  await page.evaluate((id) => rsOpen(id), cite.sid);
+  await page.waitForSelector('#rsdetail .citedby', { timeout: 5000 });
+  {
+    const panel = await page.innerHTML('#rsdetail .citedby');
+    ok('the bookmark panel lists the citing note', panel.includes('E2E citing note'), panel);
+    ok('…with the label written in the note', panel.includes('the page'));
+  }
+  await page.locator('#rsdetail .citedby button', { hasText: 'E2E citing note' }).click();
+  await page.waitForSelector('#notecard', { timeout: 5000 });
+  ok('clicking it opens that note on the Notes tab',
+    (await page.evaluate(() => S.tab)) === 'notes'
+    && (await page.textContent('#notecard')).includes('E2E citing note'));
+  ok('…where the link is drawn resolved, with a bookmark badge',
+    /class="org-link ok"/.test(await page.innerHTML('#notecard'))
+    && (await page.innerHTML('#notecard')).includes('>bookmark<'));
+  await page.evaluate(async (id) => {
+    await fetch('/api/notes/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + S.token } });
+    S.noteShow = null;
+  }, cite.note);
+  await goTab(page, 'research', '#rsurl');
   // put the world back: §3c6's lesson about a fixture that changes global state
   await page.evaluate(async () => {
     const r = await fetch('/api/research', { headers: { 'Authorization': 'Bearer ' + S.token } });

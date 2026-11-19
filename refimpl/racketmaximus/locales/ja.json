@@ -5183,6 +5183,38 @@
     "ui.notelinkhint": {
       "text": "[[ノートのタイトル]]、[[doc:フォルダ/ファイル.md]]、[[bookmark:https://…]] でリンクできます。ラベルは Markdown では [[ターゲット|ラベル]]、org では [[ターゲット][ラベル]] です。",
       "hash": "1f50cef6f576ee9aacf73528def93096c477957f"
+    },
+    "ui.rs_notes": {
+      "text": "ノート",
+      "hash": "70440046a3dc2e079f23ee1c57dfa76669b732aa"
+    },
+    "ui.rs_uncited": {
+      "text": "まだありません",
+      "hash": "02942cecd86ee6b2511efea71d4e9b2e944fb42a"
+    },
+    "ui.rs_citedby": {
+      "text": "このページを引用しているノート",
+      "hash": "260fe61fc830dc672354ece83bae3ee063906a5f"
+    },
+    "ui.rs_nocites": {
+      "text": "このページを引用しているノートはまだありません。ノートから {link} でリンクできます",
+      "hash": "5cf69aba8f22b84362e3100f59efacd80566f64d"
+    },
+    "ui.repocited": {
+      "text": "このドキュメントを引用しているノート",
+      "hash": "2d68d852a9663c987f58f75a775f6bb68c18456c"
+    },
+    "ui.reponocites": {
+      "text": "このドキュメントを引用しているノートはまだありません。ノートから {link} でリンクできます",
+      "hash": "05b9b830c21d352deb212cacea91c3ec6f7999e1"
+    },
+    "doc.route.get.api.repo-obj.id.notes": {
+      "text": "`[[doc:…]]` リンクで、ID またはキーによってこのドキュメントを引用しているノート。呼び出し元が読めるノートだけが一覧され、それ以外は数にも含まれません。",
+      "hash": "bf0a9be6fed6d444907b1847aa22774d98c29966"
+    },
+    "doc.route.get.api.research.id.notes": {
+      "text": "`[[bookmark:…]]` リンクで、ID または正規化した形が同じ URL によってこのブックマークを引用しているノート。呼び出し元が読めるノートだけが一覧され、それ以外は数にも含まれません。",
+      "hash": "822f3c0fe419804ad017bbd261e87ed0bfd7b731"
     }
   }
 }

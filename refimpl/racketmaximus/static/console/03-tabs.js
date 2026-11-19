@@ -487,6 +487,22 @@ function linkResolution(edges){
 // source's own screen, and says which kind it is. The server resolved it for
 // THIS reader, so one that is not theirs to open arrives here as an ordinary
 // broken link.
+// The other direction (#191): a bookmark or a document lists the notes that
+// cite it, and this opens one of them. `go()` keeps `S.noteShow` when the tab
+// it is going to is Notes, so the note is set first.
+function noteOpenFrom(id){
+  S.noteShow = id; S.noteEdit = null; edReset('note', '', 'nb', 'markdown');
+  go('notes');
+}
+// ONE list for both screens. `hint` is the line shown when nothing cites the
+// source yet, and it carries the link to type, because that is the remedy.
+function citedByHTML(notes, heading, hint){
+  const rows = (notes || []).map(n =>
+    `<li><button class="btn sm ghost" data-h-click="${H(()=>noteOpenFrom(n.note_id))}">${esc(n.title)||t('untitled')}</button>
+       ${n.label?`<span class="muted" style="font-size:12px">${esc(n.label)}</span>`:''}</li>`).join('');
+  return `<div class="citedby" style="margin-top:14px"><h4 style="margin:0 0 6px">${esc(heading)}</h4>
+    ${rows?`<ul class="org-edges">${rows}</ul>`:`<p class="muted" style="font-size:12px">${esc(hint)}</p>`}</div>`;
+}
 function noteSourceOpen(l){
   if(l.kind === 'document'){ S.repoDetail = l.object_id; go('repository'); }
   else go('research');

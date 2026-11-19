@@ -110,6 +110,12 @@ under the body field says the same: `Link with [[Note title]],
 [[doc:folder/file.md]] or [[bookmark:https://…]]. In Markdown a label is
 [[target|label]]; in org it is [[target][label]].`
 
+The link also shows from the other side. A bookmark's details on the Research
+tab list `Notes that cite this page`, a document's details in the Repository
+list `Notes that cite this document`, and the Research tab's `Notes` column
+counts them, so a page nobody has written about reads `none yet`. Each list
+holds only the notes you may read.
+
 A `[[target]]` inside a code span or a fenced block is text, not a link. A
 Markdown note saved before this existed has no links recorded until it is saved
 again.
