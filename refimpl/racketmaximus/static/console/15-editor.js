@@ -55,7 +55,43 @@ function escBody(src){
 // as its own text — which is the honest failure for a preview.
 const MD_SCHEMES = /^(https?:\/\/|mailto:|\/|#)/i;
 function mdSafeUrl(u){ return MD_SCHEMES.test(u); }
-function mdInline(t){
+// A `[[target]]` link, drawn — ONE function for both formats (#191), so a
+// Markdown note and an org note cannot disagree about what is an anchor. An
+// `http(s)`/`mailto:` target becomes an anchor through the shared allowlist;
+// anything else names a note, a document (`doc:`) or a bookmark (`bookmark:`)
+// and is a marked span.
+//
+// ORG-8 — a link whose target is not there is drawn VISIBLY BROKEN. `resolved`
+// maps the ESCAPED target to whether it resolved; `undefined` is "nobody has
+// resolved this", which is the preview while you type, and draws as the plain
+// marker. `target` and `desc` are already-escaped text.
+function wikiLinkHTML(target, desc, resolved){
+  const text = desc && desc.trim() ? desc : target;
+  if (mdSafeUrl(target)) {
+    return '<a href="' + target + '" target="_blank" rel="noopener noreferrer">' + text + '</a>';
+  }
+  const state = resolved ? resolved[target] : undefined;
+  const cls = state === undefined ? 'org-link' : (state ? 'org-link ok' : 'org-link broken');
+  return '<span class="' + cls + '" title="' + target + '">' + text + '</span>';
+}
+// Markdown's `[[target]]` and `[[target|label]]` (#191). The links are lifted
+// out before any other inline rule and put back after, so a target's
+// underscores and asterisks are not read as emphasis. A CODE SPAN IS SKIPPED:
+// the text is split on spans and only the pieces between them are searched,
+// which leaves every other rule's behaviour exactly as it was.
+function mdWikiLinks(t, resolved, held){
+  return t.split(/(`[^`]+`)/).map((seg, i) => i % 2 ? seg :
+    seg.replace(/\[\[([^\]\[|\n]+)(?:\|([^\]\[\n]*))?\]\]/g, (m, target, label) => {
+      held.push(wikiLinkHTML(target.trim(), label || '', resolved));
+      return '\u0000W' + (held.length - 1) + '\u0000';
+    })).join('');
+}
+function mdInline(t, resolved){
+  const held = [];
+  t = mdWikiLinks(t, resolved, held);
+  return mdInlineRules(t).replace(/\u0000W(\d+)\u0000/g, (m, n) => held[+n]);
+}
+function mdInlineRules(t){
   return t
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -66,7 +102,7 @@ function mdInline(t){
     .replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (m, txt, url) =>
       mdSafeUrl(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${txt}</a>` : m);
 }
-function mdRender(src){
+function mdRender(src, resolved){
   let s = escBody(src);
   // Fenced code comes out first and goes back last, so no inline rule runs
   // inside it — `**bold**` in a code block is not bold, which is the whole
@@ -87,20 +123,20 @@ function mdRender(src){
     if (!l.trim()) { i++; continue; }
     let m;
     if ((m = l.match(/^(#{1,6})\s+(.*)$/))) {
-      out.push(`<h${m[1].length}>${mdInline(m[2].trim())}</h${m[1].length}>`); i++; continue;
+      out.push(`<h${m[1].length}>${mdInline(m[2].trim(), resolved)}</h${m[1].length}>`); i++; continue;
     }
     if (/^\s*(---+|\*\*\*+|___+)\s*$/.test(l)) { out.push('<hr>'); i++; continue; }
     if (/^\s*&gt;/.test(l)) {                                  // `>` is escaped by now
       const buf = [];
       while (i < lines.length && /^\s*&gt;/.test(lines[i])) { buf.push(lines[i].replace(/^\s*&gt;\s?/, '')); i++; }
-      out.push(`<blockquote>${mdInline(buf.join(' '))}</blockquote>`); continue;
+      out.push(`<blockquote>${mdInline(buf.join(' '), resolved)}</blockquote>`); continue;
     }
     if (l.indexOf('|') >= 0 && i + 1 < lines.length && isTableSep(lines[i + 1])) {
       const head = cells(l); i += 2;
       const body = [];
       while (i < lines.length && lines[i].indexOf('|') >= 0 && lines[i].trim()) { body.push(cells(lines[i])); i++; }
-      out.push(`<table><thead><tr>${head.map(c => `<th>${mdInline(c)}</th>`).join('')}</tr></thead>`
-        + `<tbody>${body.map(r => `<tr>${r.map(c => `<td>${mdInline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
+      out.push(`<table><thead><tr>${head.map(c => `<th>${mdInline(c, resolved)}</th>`).join('')}</tr></thead>`
+        + `<tbody>${body.map(r => `<tr>${r.map(c => `<td>${mdInline(c, resolved)}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
       continue;
     }
     if (/^\s*([-*+]|\d+\.)\s+/.test(l)) {
@@ -110,13 +146,13 @@ function mdRender(src){
         items.push(lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, '')); i++;
       }
       const tag = ordered ? 'ol' : 'ul';
-      out.push(`<${tag}>${items.map(x => `<li>${mdInline(x)}</li>`).join('')}</${tag}>`);
+      out.push(`<${tag}>${items.map(x => `<li>${mdInline(x, resolved)}</li>`).join('')}</${tag}>`);
       continue;
     }
     const buf = [];
     while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|\s*&gt;|\s*([-*+]|\d+\.)\s)/.test(lines[i])
            && !/^\u0000C\d+\u0000$/.test(lines[i].trim())) { buf.push(lines[i]); i++; }
-    if (buf.length) out.push(`<p>${mdInline(buf.join('\n'))}</p>`);
+    if (buf.length) out.push(`<p>${mdInline(buf.join('\n'), resolved)}</p>`);
     else i++;
   }
   return out.join('\n').replace(/\u0000C(\d+)\u0000/g, (m, n) => `<pre class="md-code"><code>${code[+n]}</code></pre>`);
@@ -197,19 +233,8 @@ function orgInline(t, resolved){
   // `<a>` here would be a link that goes nowhere — which is worse than a marker
   // that says what it is. It renders as its description with the raw target in
   // the title attribute, and slice 2 is what makes it navigable.
-  const link = (target, desc) => {
-    const text = desc && desc.trim() ? desc : target;
-    if (mdSafeUrl(target)) {
-      return hold('<a href="' + target + '" target="_blank" rel="noopener noreferrer">' + text + '</a>');
-    }
-    // ORG-8 — a link to a note that is not there is drawn VISIBLY BROKEN. A link
-    // that silently became plain text is how a reader concludes the editor ate
-    // their markup. `undefined` is "nobody has resolved this", which is the
-    // preview while you type, and it draws as the plain marker.
-    const state = resolved ? resolved[target] : undefined;
-    const cls = state === undefined ? 'org-link' : (state ? 'org-link ok' : 'org-link broken');
-    return hold('<span class="' + cls + '" title="' + target + '">' + text + '</span>');
-  };
+  // Drawn by `wikiLinkHTML`, which Markdown shares (#191).
+  const link = (target, desc) => hold(wikiLinkHTML(target, desc, resolved));
   t = t.replace(/\[\[([^\]\[]+)\]\[([^\]\[]*)\]\]/g, (m, target, desc) => link(target.trim(), desc));
   t = t.replace(/\[\[([^\]\[]+)\]\]/g, (m, target) => link(target.trim(), ''));
   t = orgEm(t, '*', 'strong');
@@ -313,7 +338,7 @@ function orgRender(src, resolved){
 // caller can forget to. An unknown or absent format is Markdown — the column's
 // default, and what every note written before #246 carries.
 function bodyRender(src, format, resolved){
-  return format === 'org' ? orgRender(src, resolved) : mdRender(src);
+  return format === 'org' ? orgRender(src, resolved) : mdRender(src, resolved);
 }
 
 // ---- the editor ------------------------------------------------------------

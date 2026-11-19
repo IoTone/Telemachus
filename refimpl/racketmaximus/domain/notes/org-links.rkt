@@ -20,7 +20,9 @@
 
 (require racket/list racket/string)
 
-(provide fold-key org-link-targets EXTERNAL-TARGET external-target? MAX-NOTE-LINKS)
+(provide fold-key org-link-targets md-link-targets link-targets
+         typed-target SOURCE-KINDS
+         EXTERNAL-TARGET external-target? MAX-NOTE-LINKS)
 
 ;; ONE RULE, TWO ASKERS. TAG-3 argued it for a tag: downcase and collapse
 ;; whitespace, which is the knowledge graph's dedup rule minus its
@@ -70,14 +72,85 @@
 ;; stated: "how many times does this note mention that one" is not a question
 ;; this table can answer, and nobody has asked it.
 (define (org-link-targets body)
+  (collect-targets
+   (for/list ([m (in-list (regexp-match* LINK-RX (format "~a" body) #:match-select values))])
+     (cons (cadr m) (caddr m)))))
+
+;; ---- a link to a SOURCE (#191) ----------------------------------------------
+;;
+;; A note may point at the document or the bookmark it was written from:
+;; `doc:<object id or key>` and `bookmark:<bookmark id or URL>`. The prefix is
+;; what makes the target a different KIND of thing, so it is decided here, in
+;; the syntax, and never guessed from what the rest happens to match — a title
+;; that looks like a key would otherwise change meaning the day somebody uploads
+;; a file of that name.
+;;
+;; The cost, stated: a note whose TITLE begins `doc:` or `bookmark:` can no
+;; longer be linked by title. Link it by id.
+;;
+;; Answers `(cons kind rest)` or #f. `SOURCE-KINDS` is the closed set the
+;; console switches on.
+(define SOURCE-KINDS '("document" "bookmark"))
+(define TYPED-RX #px"^(?i:(doc|bookmark)):\\s*(.+)$")
+(define (typed-target raw)
+  (define m (regexp-match TYPED-RX (string-trim (format "~a" raw))))
+  (and m
+       (let ([rest (string-trim (caddr m))])
+         (and (not (string=? rest ""))
+              (cons (if (string=? (string-downcase (cadr m)) "doc") "document" "bookmark")
+                    rest)))))
+
+;; THE FOLD OF A SOURCE TARGET KEEPS ITS CASE. A repository key and a URL path
+;; are both case-sensitive, so folding `doc:Reports/A.md` and `doc:reports/a.md`
+;; together would dedup two different documents into one edge. Only the prefix
+;; is normalized.
+(define (target-fold raw)
+  (define ty (typed-target raw))
+  (if ty
+      (string-append (if (string=? (car ty) "document") "doc:" "bookmark:") (cdr ty))
+      (fold-key raw)))
+
+;; `pairs` is `((raw . label-or-#f) ...)` in body order. Answers
+;; `((raw-target fold label) ...)`, external targets dropped and deduped by fold
+;; keeping the first — one rule for both syntaxes.
+(define (collect-targets pairs)
   (define seen (make-hash))
   (for/fold ([out '()] #:result (reverse out))
-            ([m (in-list (regexp-match* LINK-RX (format "~a" body)
-                                        #:match-select values))])
-    (define raw (string-trim (cadr m)))
-    (define label (let ([l (caddr m)]) (if l (string-trim l) "")))
-    (define fold (fold-key raw))
-    (cond [(string=? fold "") out]
+            ([pr (in-list pairs)])
+    (define raw (string-trim (car pr)))
+    (define label (let ([l (cdr pr)]) (if l (string-trim l) "")))
+    (define fold (target-fold raw))
+    (cond [(string=? (fold-key raw) "") out]
           [(external-target? raw) out]
           [(hash-ref seen fold #f) out]
           [else (hash-set! seen fold #t) (cons (list raw fold label) out)])))
+
+;; ---- Markdown wiki-links (#191) ---------------------------------------------
+;;
+;; `[[target]]` and `[[target|label]]`, which is what Obsidian users already
+;; write. The pipe form rather than org's `[[target][label]]` because that is
+;; the Markdown convention. Converting a note between formats keeps a bare
+;; `[[target]]`; the labelled form of the other syntax stops resolving and is
+;; reported as a broken link, which is visible and is undone by converting back.
+;;
+;; CODE IS REMOVED FIRST, fenced blocks and then inline spans, for the reason the
+;; renderer lifts them out before any inline rule runs: `[[x]]` inside a code
+;; block is text about a link, not a link. The fence pattern is `mdRender`'s own.
+;; The patterns use real newlines; `pregexp` has no escape for one.
+(define MD-FENCE-RX #px"```[^\n]*\n.*?```")
+(define MD-CODE-RX #px"`[^`\n]+`")
+(define MD-LINK-RX #px"\\[\\[([^][|\n]+)(?:\\|([^][\n]*))?\\]\\]")
+
+(define (md-link-targets body)
+  (define text
+    (regexp-replace* MD-CODE-RX
+                     (regexp-replace* MD-FENCE-RX (format "~a" body) " ")
+                     " "))
+  (collect-targets
+   (for/list ([m (in-list (regexp-match* MD-LINK-RX text #:match-select values))])
+     (cons (cadr m) (caddr m)))))
+
+;; The ONE place a format picks its link syntax, so the write path does not
+;; switch on a format string itself.
+(define (link-targets body fmt)
+  (if (equal? fmt "org") (org-link-targets body) (md-link-targets body)))

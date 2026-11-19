@@ -90,13 +90,41 @@ leaves the stored tags alone.
 
 ## Links, and what `broken` means
 
-An Org note's `[[target]]` makes an edge to another note, by title or by id.
-Viewing a note shows two columns:
+A `[[target]]` in a note makes a link. Both formats have it; only the label is
+spelled differently:
 
-- **Links from this note** — only for an Org body, since only Org has the
-  syntax.
-- **Linked from** — for *any* note, because a Markdown note is linked to by an
-  Org one just as readily.
+| | Markdown | Org |
+|---|---|---|
+| plain | `[[target]]` | `[[target]]` |
+| with a label | `[[target\|label]]` | `[[target][label]]` |
+
+The target says what kind of thing the link points at:
+
+- `[[Levee 7 survey]]` or a note's id: **another note**, by title or by id.
+- `[[doc:folder/file.md]]`: **a document** in the repository, by key or by id.
+- `[[bookmark:https://example.com/page]]`: **a bookmark** on the Research tab, by
+  URL or by id.
+
+The last two are how a note records the source it was written from. The hint
+under the body field says the same: `Link with [[Note title]],
+[[doc:folder/file.md]] or [[bookmark:https://…]]. In Markdown a label is
+[[target|label]]; in org it is [[target][label]].`
+
+The link also shows from the other side. A bookmark's details on the Research
+tab list `Notes that cite this page`, a document's details in the Repository
+list `Notes that cite this document`, and the Research tab's `Notes` column
+counts them, so a page nobody has written about reads `none yet`. Each list
+holds only the notes you may read.
+
+A `[[target]]` inside a code span or a fenced block is text, not a link. A
+Markdown note saved before this existed has no links recorded until it is saved
+again.
+
+Viewing a note shows two columns, when there is anything to put in them:
+
+- **Links from this note**: a link to a document or bookmark carries a
+  `document` or `bookmark` badge and opens that source's own screen.
+- **Linked from**: the notes that link to this one.
 
 A link that reaches nothing is drawn as **broken**, with the target as you typed
 it and one of two reasons:
@@ -108,13 +136,19 @@ it and one of two reasons:
   unique, and picking one of them would make the link mean a different note
   depending on which was created first.
 
-A link whose target is a note you may not read is reported **exactly as one
-that does not exist**. That is deliberate: reporting it differently would tell
+- `no document or bookmark here matches, or it is not yours to open`: a
+  `doc:` or `bookmark:` target that resolves to nothing. Bookmarking the page, or
+  uploading the document, heals it.
+
+A link whose target is a note or a document you may not read is reported
+**exactly as one that does not exist**. That is deliberate: reporting it differently would tell
 you that a colleague's private note of that title exists.
 
 ## The graph
 
-**Show the graph** draws the notes and the links between them. This is *your
+**Show the graph** draws the notes, the links between them, and the documents
+and bookmarks they cite. A document is a square and a bookmark a diamond;
+clicking one opens it. This is *your
 team's notes*, not the [knowledge graph](knowledge.md) — the two are separate
 screens and are deliberately not joined, because an edge somebody wrote and a
 mention a model extracted are different kinds of statement.
@@ -137,7 +171,7 @@ Four things it says when it had to stop:
 - `N link(s) name a title two notes share` — those reach neither note and are
   not drawn.
 
-`Nothing to draw yet. An org note's [[target]] is what makes an edge.` means
+`Nothing to draw yet. A [[target]] in a note is what makes an edge.` means
 there are no edges, not that the graph is broken.
 
 ## Org files in and out

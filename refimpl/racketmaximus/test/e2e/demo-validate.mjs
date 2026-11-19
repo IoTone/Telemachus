@@ -581,6 +581,50 @@ try {
       /<a href="https:\/\/example\.test\/x"/.test(probe.ext), probe.ext);
   }
 
+  // #191 — Markdown has `[[target]]` and `[[target|label]]`, drawn by the same
+  // function org uses, and a `doc:` / `bookmark:` target is a marked span like
+  // any other internal one. A question about what the renderer COMPUTES, so it
+  // is asked of the real function on the real page.
+  step('notes: a markdown [[link]], and a link to a source');
+  {
+    const probe = await page.evaluate(() => ({
+      bare:  mdRender('see [[Some Note]]', { 'Some Note': true }),
+      piped: mdRender('see [[Some Note|the note]]', { 'Some Note': false }),
+      plain: mdRender('see [[Some Note]]'),
+      code:  mdRender('`[[Not A Link]]` stays'),
+      fence: mdRender('```\n[[In Fence]]\n```'),
+      ext:   mdRender('[[https://example.test/x|site]]'),
+      js:    mdRender('[[javascript:alert(1)|click]]'),
+      doc:   mdRender('[[doc:a_b/file_name.md|the file]]', { 'doc:a_b/file_name.md': true }),
+      xss:   mdRender('[[<img src=x onerror=alert(1)>]]'),
+      old:   mdRender('a **bold** [docs](https://example.test/x) `c`'),
+      org:   orgRender('[[bookmark:https://example.test/x][the page]]',
+                       { 'bookmark:https://example.test/x': true })
+    }));
+    ok('a markdown [[target]] that resolved is marked resolved',
+      /<span class="org-link ok" title="Some Note">Some Note<\/span>/.test(probe.bare), probe.bare);
+    ok('…a piped one shows its label and is drawn broken when it is',
+      /<span class="org-link broken" title="Some Note">the note<\/span>/.test(probe.piped), probe.piped);
+    ok('…and with no resolution it is the plain marker',
+      /class="org-link"/.test(probe.plain), probe.plain);
+    ok('a link inside a code span is text',
+      !/org-link/.test(probe.code) && /<code>\[\[Not A Link\]\]<\/code>/.test(probe.code), probe.code);
+    ok('…and so is one inside a fence', !/org-link/.test(probe.fence), probe.fence);
+    ok('an external target is an anchor through the shared allowlist',
+      /<a href="https:\/\/example\.test\/x"[^>]*>site<\/a>/.test(probe.ext), probe.ext);
+    ok('a javascript: target is never an anchor',
+      !/<a /.test(probe.js) && /org-link/.test(probe.js), probe.js);
+    ok('a doc: target is a marked span, and its underscores are not emphasis',
+      /<span class="org-link ok" title="doc:a_b\/file_name\.md">the file<\/span>/.test(probe.doc), probe.doc);
+    ok('markup in a target cannot become an element',
+      !/<img/.test(probe.xss), probe.xss);
+    ok('the other inline rules are unchanged',
+      probe.old === '<p>a <strong>bold</strong> <a href="https://example.test/x" target="_blank" rel="noopener noreferrer">docs</a> <code>c</code></p>',
+      probe.old);
+    ok('an org bookmark: target is a marked span, not an anchor to the URL',
+      /<span class="org-link ok" title="bookmark:https:\/\/example\.test\/x">the page<\/span>/.test(probe.org), probe.org);
+  }
+
   // Now the panel, through the real view card and the real route.
   step('notes: the links panel, and what it does not say');
   const linkIds = await page.evaluate(async () => {
@@ -1020,6 +1064,45 @@ try {
   await page.waitForTimeout(600);
   ok('a hops change left the tab alone', await page.evaluate(() => renderSeq) === rseq);
   ok('…so the URL being typed survived', await page.inputValue('#rsurl') === 'https://half-typed.example/');
+  // #191 — A SOURCE LISTS THE NOTES THAT CITE IT. `fetch: false`, so no network;
+  // the note cites the bookmark by a different spelling of its URL.
+  step('research: a bookmark shows the notes that cite it');
+  const cite = await page.evaluate(async () => {
+    const h = { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/json' };
+    const post = (u, b) => fetch(u, { method: 'POST', headers: h, body: JSON.stringify(b) }).then(r => r.json());
+    const cited = await post('/api/research', { url: 'https://e2e-research.example/cited', title: 'Cited page', fetch: false });
+    await post('/api/research', { url: 'https://e2e-research.example/uncited', fetch: false });
+    const note = await post('/api/notes', { title: 'E2E citing note',
+      body: 'from [[bookmark:https://E2E-research.example/cited#top|the page]]' });
+    return { sid: (cited.source || cited).id, note: note.id };
+  });
+  await goTab(page, 'research', '#rsurl');
+  {
+    const table = await page.innerHTML('#main table');
+    ok('the list has a Notes column', table.includes('>Notes<'), table.slice(0, 300));
+    ok('…with a count for the cited page', /Cited page[\s\S]*?<span class="badge">1<\/span>/.test(table));
+    ok('…and "none yet" for a page nobody wrote about', table.includes('none yet'));
+  }
+  await page.evaluate((id) => rsOpen(id), cite.sid);
+  await page.waitForSelector('#rsdetail .citedby', { timeout: 5000 });
+  {
+    const panel = await page.innerHTML('#rsdetail .citedby');
+    ok('the bookmark panel lists the citing note', panel.includes('E2E citing note'), panel);
+    ok('…with the label written in the note', panel.includes('the page'));
+  }
+  await page.locator('#rsdetail .citedby button', { hasText: 'E2E citing note' }).click();
+  await page.waitForSelector('#notecard', { timeout: 5000 });
+  ok('clicking it opens that note on the Notes tab',
+    (await page.evaluate(() => S.tab)) === 'notes'
+    && (await page.textContent('#notecard')).includes('E2E citing note'));
+  ok('…where the link is drawn resolved, with a bookmark badge',
+    /class="org-link ok"/.test(await page.innerHTML('#notecard'))
+    && (await page.innerHTML('#notecard')).includes('>bookmark<'));
+  await page.evaluate(async (id) => {
+    await fetch('/api/notes/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + S.token } });
+    S.noteShow = null;
+  }, cite.note);
+  await goTab(page, 'research', '#rsurl');
   // put the world back: §3c6's lesson about a fixture that changes global state
   await page.evaluate(async () => {
     const r = await fetch('/api/research', { headers: { 'Authorization': 'Bearer ' + S.token } });

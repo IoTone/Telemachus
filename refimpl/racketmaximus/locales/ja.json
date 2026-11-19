@@ -2345,8 +2345,8 @@
       "hash": "37992f8af2be4f932bbc75295200d6fef95ad76f"
     },
     "ui.ngraphempty": {
-      "text": "まだ描画するものがありません。org ノートの [[ターゲット]] がエッジになります。",
-      "hash": "b398b7a801967ae4a69b193b81bee8967859537a"
+      "text": "まだ描画するものがありません。ノート内の [[ターゲット]] がエッジになります。",
+      "hash": "76fedcc77a566bd0409732291a56a3b9c3f01ab7"
     },
     "doc.perm.models:serve": {
       "text": "チームのモデルエグゼキュータを登録する。",
@@ -3433,8 +3433,8 @@
       "hash": "826fcc2fc0cc24a889c559c58c4e78c2d2a4e137"
     },
     "ui.ngraphhint": {
-      "text": "ノートとノート間のリンクを図にします。これは自分のノートであり、ナレッジグラフではありません",
-      "hash": "3af9e2b871d7fd62b33aa3b329ce9009a1138501"
+      "text": "ノート、ノート間のリンク、引用元の資料を図にします。これは自分のノートであり、ナレッジグラフではありません",
+      "hash": "1210dfb7d03bd124919c1d8449c2d59bcb7756cb"
     },
     "ui.edexportorghint": {
       "text": "本文を Org ファイルとしてダウンロードします",
@@ -5167,6 +5167,54 @@
     "doc.tool.doc_redact.step": {
       "text": "ワークフローステップ ID（由来の記録用）。",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "ui.srcdoc": {
+      "text": "ドキュメント",
+      "hash": "4f8278c89ad16da05fec4fdfc61fe44798b92720"
+    },
+    "ui.srcbookmark": {
+      "text": "ブックマーク",
+      "hash": "20032083a17999e88f1650102bc5a8aca97c1953"
+    },
+    "ui.srcmissing": {
+      "text": "一致するドキュメントやブックマークがないか、開く権限がありません",
+      "hash": "4966a287b1182f4c2855ab71628e51ceb99d15aa"
+    },
+    "ui.notelinkhint": {
+      "text": "[[ノートのタイトル]]、[[doc:フォルダ/ファイル.md]]、[[bookmark:https://…]] でリンクできます。ラベルは Markdown では [[ターゲット|ラベル]]、org では [[ターゲット][ラベル]] です。",
+      "hash": "1f50cef6f576ee9aacf73528def93096c477957f"
+    },
+    "ui.rs_notes": {
+      "text": "ノート",
+      "hash": "70440046a3dc2e079f23ee1c57dfa76669b732aa"
+    },
+    "ui.rs_uncited": {
+      "text": "まだありません",
+      "hash": "02942cecd86ee6b2511efea71d4e9b2e944fb42a"
+    },
+    "ui.rs_citedby": {
+      "text": "このページを引用しているノート",
+      "hash": "260fe61fc830dc672354ece83bae3ee063906a5f"
+    },
+    "ui.rs_nocites": {
+      "text": "このページを引用しているノートはまだありません。ノートから {link} でリンクできます",
+      "hash": "5cf69aba8f22b84362e3100f59efacd80566f64d"
+    },
+    "ui.repocited": {
+      "text": "このドキュメントを引用しているノート",
+      "hash": "2d68d852a9663c987f58f75a775f6bb68c18456c"
+    },
+    "ui.reponocites": {
+      "text": "このドキュメントを引用しているノートはまだありません。ノートから {link} でリンクできます",
+      "hash": "05b9b830c21d352deb212cacea91c3ec6f7999e1"
+    },
+    "doc.route.get.api.repo-obj.id.notes": {
+      "text": "`[[doc:…]]` リンクで、ID またはキーによってこのドキュメントを引用しているノート。呼び出し元が読めるノートだけが一覧され、それ以外は数にも含まれません。",
+      "hash": "bf0a9be6fed6d444907b1847aa22774d98c29966"
+    },
+    "doc.route.get.api.research.id.notes": {
+      "text": "`[[bookmark:…]]` リンクで、ID または正規化した形が同じ URL によってこのブックマークを引用しているノート。呼び出し元が読めるノートだけが一覧され、それ以外は数にも含まれません。",
+      "hash": "822f3c0fe419804ad017bbd261e87ed0bfd7b731"
     }
   }
 }

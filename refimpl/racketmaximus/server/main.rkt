@@ -393,7 +393,7 @@
    ;; permanence answer RG-2 found already built.
    'research-list ep-research-list 'research-create ep-research-create
    'research-get ep-research-get 'research-delete ep-research-delete
-   'research-fetch ep-research-fetch 'research-entities ep-research-entities
+   'research-fetch ep-research-fetch 'research-entities ep-research-entities 'research-notes ep-research-notes
    ;; #65: a region a person marked. LAY-5's spans are where a machine says it
    ;; read something; these are what somebody said about a place.
    'repo-form-fields ep-repo-form-fields
@@ -408,7 +408,7 @@
    'worker-document ep-worker-document
    'worker-derive ep-worker-derive
    'repo-list ep-repo-list 'repo-share ep-repo-share 'repo-unshare ep-repo-unshare 'repo-grants ep-repo-grants
-   'repo-derivations ep-repo-derivations 'repo-processing ep-repo-processing 'share-targets ep-share-targets
+   'repo-derivations ep-repo-derivations 'repo-processing ep-repo-processing 'repo-notes ep-repo-notes 'share-targets ep-share-targets
    'repo-visibility ep-repo-visibility 'repo-get ep-repo-get 'repo-presign ep-repo-presign
    'repo-reads ep-repo-reads
    'instance-features ep-instance-features 'instance-features-put ep-instance-features-put

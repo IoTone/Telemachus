@@ -6501,6 +6501,36 @@ construct is missing); and that an authored graph improves anything measurable �
 unlike RG's slice 5 there is no recall question here, because this is a
 navigation surface and not a retrieval index.
 
+## SRC — a note links to the source it was written from (issue #191, built 18 Nov 2026)
+
+Decided by the owner on #191 after reading the Zettelkasten templates the issue
+points at: every note there keeps a link to its source, and here bookmarks, notes
+and documents were three lists with nothing between them. Two changes, built
+together because the first is only useful in both note formats.
+
+`typed-target` and `md-link-targets` in `domain/notes/org-links.rkt`,
+`domain/notes/note-sources.rkt`, the three readers in `domain/notes/notes.rkt`,
+`research-by-url` in `domain/research/research.rkt`, and `wikiLinkHTML` in
+`static/console/15-editor.js`. **No migration, no route, no permission.**
+
+| | Decision | Chosen · alternatives | Why |
+|---|---|---|---|
+| **SRC‑1** | Markdown notes get links | **`[[target]]` and `[[target\|label]]`** · vs org's `[[target][label]]` in both formats · vs leaving links to org | The pipe form is what Markdown note tools already use. RG‑5 parked this as a product question and ORG answered it for org only; most notes are Markdown, so a source link that worked in org alone would reach few of them. |
+| **SRC‑2** | How a link names a document or bookmark | **A prefix on the target: `doc:<key or id>`, `bookmark:<url or id>`** · vs matching any `http(s)` link against the bookmark list · vs guessing from what the text matches | The prefix makes the kind part of the syntax. Guessing would change what a link means the day somebody uploads a file whose key equals a note title. Matching every external URL would mean storing external links as edges, which ORG‑6 decided against. Cost: a note whose title starts `doc:` or `bookmark:` must be linked by id. |
+| **SRC‑3** | Storage | **Nothing new: the target is a `note_links` row like any other, resolved on read** | ORG‑8's reasoning unchanged. A link written before the page is bookmarked starts working when it is, and breaks again if the bookmark is forgotten, with nothing to keep in step. |
+| **SRC‑4** | A source the reader may not open | **Reported exactly as one that does not exist** (`missing`) | ORG‑9a's rule at a second kind of target. A document goes through `repo-get` under the reader's own permissions; a bookmark needs `research:use`. A refusal and a miss are collapsed in `note-sources.rkt` and nowhere else. |
+| **SRC‑5** | Scope | **One team** · vs following a cross-team share | The notes graph is one team's picture and ORG‑10 already treats a cross-team note as nonexistent. A document shared from another team is not linkable from a note; stated as a limit. |
+| **SRC‑6** | The fold of a source target | **Case is kept; only the prefix is normalized** | Keys and URL paths are case-sensitive, so folding would merge two documents into one edge. |
+| **SRC‑7** | In the graph | **A source is a node of its own kind (`document`, `bookmark`), drawn as a square or a diamond in the notes graph** | It is an authored edge, so it belongs in the authored graph; ORG‑14's separation from the knowledge graph is unchanged. An unresolved source is the same hollow node an unwritten note gets. |
+| **SRC‑8** | Converting a note between formats | **The body is re-read in the new format's syntax** | A bare `[[target]]` is a link in both and survives. A label written in the other format's syntax stops resolving and is reported broken, which is visible and undone by converting back. This replaces "converting to Markdown clears the links". |
+
+| **SRC‑9** | The other direction | **A bookmark and a document each list the notes that cite them** (`GET /api/research/:id/notes`, `GET /api/repo-obj/:id/notes`), and the bookmark list carries `cited_by` | It is what makes "a page nobody has written about" visible, which is the first of the tidying lists the Zettelkasten kit keeps. Only notes the caller may read are listed or counted, by the same index the backlinks use. A bookmark is matched by id or by canonical URL, which cannot be written in SQL, so it is one bounded scan of the team's source links and a match in Racket. |
+
+Not built: the other tidying lists (notes with no links, unresolved targets as a
+list), note templates, and a `cited_by` figure on the repository listing.
+Existing Markdown notes have no link rows until they are saved again; there is no
+backfill.
+
 ## NPG — the notes listing is a page (reported from outside, built 7 Nov 2026)
 
 Reported with #245's filter already shipped: *"Notes should paginate and

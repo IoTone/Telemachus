@@ -10,6 +10,7 @@
          "../db/id.rkt"
          "org-links.rkt"
          "org-file.rkt"
+         "note-sources.rkt"
          "../authz/authz.rkt")
 
 (provide notes-create notes-list notes-count notes-get notes-update notes-delete notes-share
@@ -21,6 +22,9 @@
          NOTE-FORMATS format-problem
          ;; links (#246 slice 2) — exported for the endpoint and its tests
          note-links-of note-backlinks-of
+         ;; the reverse of a source link (#191): which notes cite a document or
+         ;; a bookmark, for those two screens
+         notes-citing-document notes-citing-bookmark bookmark-citation-counts
          ;; the graph (#247 / ORG-13…16) — the read, its bounds and the closed
          ;; vocabulary of ways it stops, exported for the endpoint and the gate
          note-graph NOTE-GRAPH-MAX NOTE-GRAPH-DEPTH-MAX NOTE-GRAPH-STOPS
@@ -575,7 +579,9 @@
 ;; `exn:fail?`, i.e. it passed for the wrong reason. Its assertion names the
 ;; message now.
 (define (write-links! conn id team body fmt)
-  (define targets (if (string=? fmt "org") (org-link-targets body) '()))
+  ;; BOTH formats carry links since #191: org's `[[target][label]]` and
+  ;; Markdown's `[[target|label]]`. `link-targets` picks the syntax.
+  (define targets (link-targets body fmt))
   (when (> (length targets) MAX-NOTE-LINKS)
     (raise-user-error 'notes
       (format "a note carries at most ~a distinct links; ~a given"
@@ -612,6 +618,7 @@
               [team (hash-ref n 'team_id)])
          (require-perm conn p "notes:read" #:resource (note->resource n))
          (define idx (team-note-index conn p team))
+         (define source-of (make-source-resolver conn p team))
          (filter
           values
           (for/list ([row (in-list (query-rows conn
@@ -620,9 +627,17 @@
             (define raw (vector-ref row 0))
             (define fold (vector-ref row 1))
             (define label (vector-ref row 2))
-            (define-values (dst reason) (resolve-target idx raw fold))
+            (define typed? (and (typed-target raw) #t))
+            (define src (and typed? (source-of raw)))
+            (define-values (dst reason)
+              (if typed? (values #f "missing") (resolve-target idx raw fold)))
             (cond
-              [dst (hasheq 'target raw 'label label 'broken #f
+              ;; #191: a `doc:` / `bookmark:` target is the source this note was
+              ;; written from. A source the reader may not open resolves to
+              ;; nothing and falls through to the same `missing` a deleted one
+              ;; gets.
+              [src (hash-set* src 'target raw 'label label 'broken #f)]
+              [dst (hasheq 'target raw 'label label 'broken #f 'kind "note"
                            'note_id (hash-ref dst 'id) 'title (hash-ref dst 'title))]
               ;; ORG-8: broken, with the raw target kept and the reason named —
               ;; and ORG-9 arrives here too, because the index is the caller's own
@@ -677,6 +692,59 @@
               [else (hasheq 'note_id (hash-ref src 'id) 'title (hash-ref src 'title)
                             'label (vector-ref row 1) 'target (vector-ref row 2))]))))))
 
+;; ---- #191: which notes cite a source ----------------------------------------
+;;
+;; The source links read backwards, for the document and bookmark screens. The
+;; rule is `note-backlinks-of`'s: a citing note the reader may not read is not
+;; in their index, so it is not in the answer and nothing counts it.
+;;
+;; ONE SCAN of the team's source-link rows, bounded like the graph's, then the
+;; match in Racket — a bookmark is named by any URL with its canonical form, and
+;; that comparison cannot be written in SQL. The prefixes are this module's own
+;; lowercase literals (`target-fold` writes them), so the LIKE has no wildcard a
+;; caller supplied.
+;;
+;; A reader without `notes:read` gets an empty answer rather than a refusal,
+;; and no check here says so: the index is built with `readable-note?` per note,
+;; so for that reader it is empty and every row drops out below.
+(define (source-link-rows conn p team prefix)
+  (define by-id (cdr (team-note-index conn p team)))
+  (for*/list ([row (in-list (query-rows conn
+                    (string-append "SELECT src_note_id, raw_target, label FROM note_links "
+                                   "WHERE team_id = ? AND target_fold LIKE ? "
+                                   "ORDER BY src_note_id, ord LIMIT ?")
+                    team (string-append prefix "%") NOTE-GRAPH-SCAN))]
+              [n (in-value (hash-ref by-id (vector-ref row 0) #f))]
+              #:when n)
+    (list n (vector-ref row 1) (vector-ref row 2))))
+
+(define (citing-notes rows match?)
+  (define seen (make-hash))
+  (for/list ([r (in-list rows)]
+             #:when (match? (cadr r))
+             #:unless (hash-ref seen (hash-ref (car r) 'id) #f))
+    (hash-set! seen (hash-ref (car r) 'id) #t)
+    (hasheq 'note_id (hash-ref (car r) 'id) 'title (hash-ref (car r) 'title)
+            'label (caddr r))))
+
+;; `obj` is a document the caller has ALREADY been allowed to read (the endpoint
+;; gets it from `repo-get`); `source` likewise a bookmark row.
+(define (notes-citing-document conn p obj)
+  (citing-notes (source-link-rows conn p (hash-ref obj 'team_id) "doc:")
+                (lambda (raw) (cites-document? raw obj))))
+
+(define (notes-citing-bookmark conn p source)
+  (citing-notes (source-link-rows conn p (hash-ref source 'team_id) "bookmark:")
+                (lambda (raw) (cites-bookmark? raw source))))
+
+;; For the bookmark LIST: one scan for the whole page of sources, not one per
+;; row. Answers `source id -> count` of the citing notes this reader may read.
+(define (bookmark-citation-counts conn p team sources)
+  (define rows (source-link-rows conn p team "bookmark:"))
+  (for/hash ([s (in-list sources)])
+    (values (hash-ref s 'id)
+            (length (citing-notes rows (lambda (raw) (cites-bookmark? raw s)))))))
+
 ;; ---- #247: the graph (ORG-13 / ORG-14 / ORG-16) ----------------------------
 ;;
 ;; A THIRD READER OF ONE EDGE SET, and it is in this module for the reason the
@@ -717,7 +785,7 @@
 (define NOTE-GRAPH-STOPS '("cap" "neighbourhood" "scan"))
 
 (define (graph-node n #:focus? [focus? #f])
-  (hasheq 'id (hash-ref n 'id) 'title (hash-ref n 'title)
+  (hasheq 'id (hash-ref n 'id) 'title (hash-ref n 'title) 'kind "note"
           'missing #f 'focus focus?))
 
 ;; created_at DESC, id DESC — the notes listing's own order and its own tiebreak
@@ -754,6 +822,26 @@
      ;; SOURCE is unreadable is simply not here, which needs no test of its own:
      ;; such a note is not in the index either.
      (define phantoms (make-hash))          ; node key -> the target as written
+     ;; #191: documents and bookmarks a note cites, keyed by node id. They are
+     ;; resolved for THIS reader, so one that is not theirs to open is a phantom
+     ;; like any other target that resolves to nothing.
+     (define sources (make-hash))
+     (define source-of (make-source-resolver conn p team))
+     ;; 🔑 WHICH SPELLING A PHANTOM IS LABELLED WITH IS DECIDED BY THE DATA, NOT
+     ;; BY A ROW ORDER, and the first version of this took whichever row arrived
+     ;; first — which is `ORDER BY src_note_id`, i.e. whichever SOURCE NOTE
+     ;; happens to own the smallest random uuid. Two authors who typed
+     ;; `[[Levee 7 survey]]` and `[[levee 7 SURVEY]]` are pointing at one
+     ;; unwritten note (the fold is the identity), so one of the two labels the
+     ;; node, and a uuid deciding it means the same input draws a different
+     ;; picture on every instance. ORG-13's determinism is about the whole
+     ;; drawing and not only the layout, so the smallest spelling wins:
+     ;; arbitrary, and a function of the targets alone. Its own test found this.
+     (define (phantom! raw fold)
+       (define key (string-append "missing:" fold))
+       (define seen (hash-ref phantoms key #f))
+       (when (or (not seen) (string<? raw seen)) (hash-set! phantoms key raw))
+       key)
      (define classified
        (for/list ([row (in-list rows)])
          (define src (vector-ref row 0))
@@ -761,28 +849,17 @@
          (define fold (vector-ref row 2))
          (cond
            [(not (hash-ref by-id src #f)) #f]
+           [(typed-target raw)
+            (define s (source-of raw))
+            (cond [s (hash-set! sources (hash-ref s 'id) s)
+                     (cons src (hash-ref s 'id))]
+                  [else (cons src (phantom! raw fold))])]
            [else
             (define-values (dst reason) (resolve-target idx raw fold))
             (cond
               [dst (cons src (hash-ref dst 'id))]
               [(equal? reason "ambiguous") (cons src 'ambiguous)]
-              [else
-               (define key (string-append "missing:" fold))
-               ;; 🔑 WHICH SPELLING THE NODE IS LABELLED WITH IS DECIDED BY THE
-               ;; DATA, NOT BY A ROW ORDER, and the first version of this took
-               ;; whichever row arrived first — which is `ORDER BY src_note_id`,
-               ;; i.e. whichever SOURCE NOTE happens to own the smallest random
-               ;; uuid. Two authors who typed `[[Levee 7 survey]]` and
-               ;; `[[levee 7 SURVEY]]` are pointing at one unwritten note (the
-               ;; fold is the identity), so one of the two labels the node, and
-               ;; a uuid deciding it means the same input draws a different
-               ;; picture on every instance. ORG-13's determinism is about the
-               ;; whole drawing and not only the layout, so the smallest
-               ;; spelling wins: arbitrary, and a function of the targets alone.
-               ;; Its own test is what found this.
-               (define seen (hash-ref phantoms key #f))
-               (when (or (not seen) (string<? raw seen)) (hash-set! phantoms key raw))
-               (cons src key)])])))
+              [else (cons src (phantom! raw fold))])])))
      (define pairs (filter pair? classified))
      (define edges (filter (lambda (e) (string? (cdr e))) pairs))
      (define ambs (filter (lambda (e) (eq? (cdr e) 'ambiguous)) pairs))
@@ -807,7 +884,8 @@
            '()
            (sort (remove-duplicates
                   (for/list ([e (in-list edges)]
-                             #:when (and (hash-ref phantoms (cdr e) #f)
+                             #:when (and (or (hash-ref phantoms (cdr e) #f)
+                                             (hash-ref sources (cdr e) #f))
                                          (hash-ref base (car e) #f)
                                          (not (hash-ref base (cdr e) #f))))
                     (cdr e)))
@@ -825,7 +903,10 @@
       'nodes (for/list ([k (in-list all-keys)])
                (cond [(hash-ref phantoms k #f)
                       => (lambda (raw)
-                           (hasheq 'id k 'title raw 'missing #t 'focus #f))]
+                           (hasheq 'id k 'title raw 'kind "missing"
+                                   'missing #t 'focus #f))]
+                     [(hash-ref sources k #f)
+                      => (lambda (s) (hash-set* s 'missing #f 'focus #f))]
                      [else (graph-node (hash-ref by-id k) #:focus? (equal? k focus))]))
       'edges drawn-edges
       'focus (or focus 'null)

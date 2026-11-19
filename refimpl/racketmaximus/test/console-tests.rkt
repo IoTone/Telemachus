@@ -565,18 +565,29 @@
   ;; repeated lesson.
   (check-equal? (length (regexp-match* #px"(?i:withheld|hidden)" (fn-body "noteEdgeList"))) 0
                 "the console invents no figure for an edge ORG-9 dropped")
-  ;; THE TWO COLUMNS ARE GATED DIFFERENTLY, and the e2e gate is what established
-  ;; it: outgoing links exist only for an org note (a Markdown body has no link
-  ;; syntax in this build), while BACKLINKS exist for any note — a Markdown note
-  ;; is linked to by an org one just as readily. Gating the whole panel on the
-  ;; note's own format hid every backlink on every Markdown target, which is most
-  ;; of a team's notes.
+  ;; BOTH FORMATS HAVE OUTGOING LINKS since #191 (Markdown's `[[target]]`), so
+  ;; the panel is drawn whenever there is an edge in either direction and never
+  ;; as an empty heading.
   (check-true (string-contains? tabs "noteEdgeList(edges, n.format)"))
   (define panel (fn-body "noteEdgeList"))
-  (check-true (string-contains? panel "if(!org && !back.length) return '';")
-              "no panel at all for a Markdown note nothing points at")
-  (check-true (string-contains? panel "${org?col(tRaw('orglinks'), out):''}")
-              "…and no outgoing column where the syntax does not apply"))
+  (check-true (string-contains? panel "if(!links.length && !back.length) return '';")
+              "no panel at all for a note with no edge either way")
+  (check-false (string-contains? panel "format === 'org'")
+               "the panel no longer depends on the note's format")
+  ;; #191 — a link to a document or a bookmark says which kind it is and opens
+  ;; that source's own screen; a missing one has its own wording, because "no
+  ;; note has that title" is the wrong thing to say about a document key.
+  (check-true (string-contains? panel "noteSourceOpen(l)") "a source link opens the source")
+  (for ([k '("srcdoc" "srcbookmark" "srcmissing" "notelinkhint")])
+    (check-true (string-contains? ui-strings (string-append "\"ui." k "\""))
+                (format "ui.~a is in the catalog" k)))
+  ;; ONE function draws a `[[target]]` for both renderers, so Markdown and org
+  ;; cannot disagree about which targets become anchors.
+  (check-equal? (length (regexp-match* #px"function wikiLinkHTML" html)) 1)
+  (check-true (string-contains? (fn-body "mdWikiLinks") "wikiLinkHTML("))
+  (check-true (string-contains? (fn-body "orgInline") "wikiLinkHTML("))
+  (check-true (string-contains? html "mdRender(src, resolved)")
+              "the Markdown renderer is handed the resolution too"))
 
 (test-case "an org note is not offered a tags field, and its write omits the key"
   ;; 🔑 ORG-12 ON THE CONSOLE'S SIDE. The server refuses a `tags` field against an

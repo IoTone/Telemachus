@@ -4411,6 +4411,34 @@
         "x-tmach-permission-checked": "resource"
       }
     },
+    "/api/repo-obj/{id}/notes": {
+      "get": {
+        "description": "The notes that cite this document with a `[[doc:…]]` link, by its id or its key. Only notes the caller may read are listed, and nothing counts the others.",
+        "operationId": "get.api.repo-obj.id.notes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "repo-obj"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "repo-notes",
+        "x-tmach-permission": "files:read",
+        "x-tmach-permission-checked": "resource"
+      }
+    },
     "/api/repo-obj/{id}/presign": {
       "post": {
         "description": "A time-boxed presigned S3 URL, signed with the caller's own newest S3 key.",
@@ -4805,6 +4833,34 @@
         ],
         "x-tmach-auth": "bearer",
         "x-tmach-handler": "research-fetch",
+        "x-tmach-permission": "research:use",
+        "x-tmach-permission-checked": "role"
+      }
+    },
+    "/api/research/{id}/notes": {
+      "get": {
+        "description": "The notes that cite this bookmark with a `[[bookmark:…]]` link, by its id or by any URL with the same canonical form. Only notes the caller may read are listed, and nothing counts the others.",
+        "operationId": "get.api.research.id.notes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "research"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "research-notes",
         "x-tmach-permission": "research:use",
         "x-tmach-permission-checked": "role"
       }

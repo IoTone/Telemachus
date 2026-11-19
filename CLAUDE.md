@@ -10099,6 +10099,56 @@ bash test/e2e/validate.sh                                        # §3c6 — a n
   centrality figure, which is a claim about somebody's notes that nothing here
   has measured.
 
+## A note links to its sources, and Markdown has links (SRC‑1…8, issue #191)
+
+Built 18 Nov 2026. `typed-target`, `md-link-targets` and `link-targets` in
+`domain/notes/org-links.rkt`; `domain/notes/note-sources.rkt`; the three link
+readers in `notes.rkt`; `wikiLinkHTML` in `15-editor.js`. **No migration, no
+route, no permission.** Decisions: the SRC block in `docs/design/decisions.md`.
+
+```sh
+raco test test/note-source-links-tests.rkt test/note-links-tests.rkt   # 28 cases
+bash test/server-smoke.sh        # the "#191" block, 15 assertions
+bash test/e2e/validate.sh        # the markdown-link probes in §3c3
+```
+
+- **Markdown notes have `[[target]]` and `[[target|label]]`**; org keeps
+  `[[target][label]]`. `link-targets body fmt` is the one place a format picks
+  its syntax. Code spans and fenced blocks are removed before matching, as the
+  renderer does.
+- **A target with a `doc:` or `bookmark:` prefix names a source**, by key or id
+  for a document and by URL or id for a bookmark. The prefix decides the kind;
+  nothing is guessed from what the rest matches.
+- **Resolution is on read and for the reader.** `note-sources.rkt` asks
+  `repo-get` and `research:use`, and turns both a refusal and a miss into `#f`,
+  so the readers report a private document exactly as a nonexistent one. The
+  tests compare the two answers with each other rather than checking that a
+  field is absent.
+- **One team only.** A document shared from another team does not resolve.
+- **A source target's fold keeps its case** (`target-fold`), because keys and
+  URL paths are case-sensitive.
+- **Converting a note re-reads the body in the new syntax.** A bare link
+  survives; the other format's labelled form is reported broken. Three older
+  assertions said conversion to Markdown clears the links and were rewritten.
+- **`wikiLinkHTML` draws a link for both renderers**, so they cannot disagree
+  about which targets become anchors. `mdWikiLinks` skips code spans by
+  splitting on them, which leaves every other Markdown rule's output unchanged
+  (the browser gate pins one such line byte for byte).
+- **Do not regenerate `locales/en.json` with the four surfaces CI's `check`
+  names.** The email strings come from a surface not in that list, so the
+  extract drops about 45 entries and the gate still passes. Edit `en.json`
+  textually, as `ja.json` is edited.
+- Existing Markdown notes get link rows the next time they are saved. There is
+  no backfill.
+- **The reverse read** (SRC‑9): `notes-citing-document`, `notes-citing-bookmark`
+  and `bookmark-citation-counts` in `notes.rkt`, behind
+  `GET /api/repo-obj/:id/notes`, `GET /api/research/:id/notes` and `cited_by` on
+  the bookmark list. They take a source the endpoint has ALREADY been allowed to
+  read, and filter the citing notes through `team-note-index`.
+- **`notes-tests.rkt` allows one `(can? conn p "notes:read"` in `notes.rkt`.** A
+  role-level check added for the reverse read failed it, and was redundant: the
+  index is empty for a reader who may not read notes.
+
 ## A workflow tool is not a conversational tool (`#:agent?`, reported from outside)
 
 The agent is offered the tools the team has ENABLED that fit the window, and for

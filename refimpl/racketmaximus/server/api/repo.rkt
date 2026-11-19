@@ -14,7 +14,7 @@
 (provide ep-repo-fields-get ep-repo-fields-put ep-repo-attributes
          ep-repo-spans ep-repo-form-fields ep-repo-put ep-repo-list ep-repo-meta ep-repo-get
          ep-repo-visibility ep-repo-share ep-repo-unshare ep-repo-grants
-         ep-repo-processing ep-share-targets ep-repo-derivations
+         ep-repo-processing ep-share-targets ep-repo-derivations ep-repo-notes
          ep-repo-reads ep-repo-presign ep-s3-creds ep-s3-cred-create
          ep-s3-cred-revoke s3-port ep-repo-delete ep-repo-delete-prefix
          ep-repo-traces)
@@ -38,6 +38,7 @@
          ;; `doc_fill_form`. The engine is pure of the repository; the `can?` is here.
          (only-in "../../domain/repo/pdfform.rkt" FORM-FIELD-KINDS pdfcpu-path pdf-form-fields qpdf-path)
          (only-in "../../domain/repo/triggers.rkt" object-processing)
+         (only-in "../../domain/notes/notes.rkt" notes-citing-document)
          (only-in "../../domain/i18n/i18n.rkt" t)
          "../kit.rkt")
 
@@ -304,6 +305,16 @@
     (json-response (hasheq 'users users 'teams teams)))))
 
 ;; provenance: what a derived document was made from (DSH-5 / DWF-4)
+;; #191 — the notes that cite this document, as the caller may read them.
+;; `repo-get` is the permission check: it raises on a refusal (403) and answers
+;; #f for a miss (404), as the document's own GET does.
+(define (ep-repo-notes req id)
+  (with-auth req (lambda (p)
+    (define o (repo-get db-conn p id))
+    (if o
+        (json-response (hasheq 'object_id id 'notes (notes-citing-document db-conn p o)))
+        (err "not found" 404)))))
+
 (define (ep-repo-derivations req id)
   (with-auth req (lambda (p)
     (define d (repo-derivations db-conn p id))

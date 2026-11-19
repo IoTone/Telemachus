@@ -3,7 +3,7 @@
 ;; server/api/research.rkt — the research archive (#191 slice 1, RG-1/-3/-11).
 
 (provide ep-research-list ep-research-create ep-research-get ep-research-delete
-         ep-research-fetch ep-research-entities)
+         ep-research-fetch ep-research-entities ep-research-notes)
 
 (require db-kit/portable
          web-kit
@@ -13,6 +13,7 @@
                   require-perm)
          (only-in "../../domain/net/fetch.rkt" safe-url)
          (only-in "../../domain/kg/kg.rkt" kg-entities-on)
+         (only-in "../../domain/notes/notes.rkt" notes-citing-bookmark bookmark-citation-counts)
          (only-in "../../domain/research/research.rkt"
                   canonical-url research-problem research-create! research-list research-get
                   research-delete! research-fetch!)
@@ -41,7 +42,24 @@
 (define (ep-research-list req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "research:use")
-    (json-response (hasheq 'sources (research-list db-conn (principal-team-id p)))))))
+    (define team (principal-team-id p))
+    (define sources (research-list db-conn team))
+    ;; #191: how many notes cite each bookmark, so a page nobody has written
+    ;; about is visible. The count is of notes THIS caller may read.
+    (define counts (bookmark-citation-counts db-conn p team sources))
+    (json-response
+     (hasheq 'sources
+             (for/list ([s (in-list sources)])
+               (hash-set s 'cited_by (hash-ref counts (hash-ref s 'id) 0))))))))
+
+;; #191 — the notes that cite this bookmark, as the caller may read them.
+(define (ep-research-notes req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "research:use")
+    (define row (research-get db-conn id (principal-team-id p)))
+    (if row
+        (json-response (hasheq 'source_id id 'notes (notes-citing-bookmark db-conn p row)))
+        (err "no such bookmark" 404)))))
 
 (define (ep-research-get req id)
   (with-auth req (lambda (p)
