@@ -149,18 +149,32 @@ function noteGraphSVG(G){
     if(!a || !b) return '';
     return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="ng-edge"></line>`;
   }).join('');
+  // #191 — A SOURCE A NOTE CITES IS A DIFFERENT SHAPE, not only a different
+  // colour: a document is a square and a bookmark a diamond, so the picture
+  // reads without relying on hue. A click opens the source's own screen.
+  const shape = (nd, p, r, cls, full) => {
+    const title = `<title>${esc(full)}</title>`;
+    if(nd.kind === 'document')
+      return `<rect x="${p.x - r}" y="${p.y - r}" width="${2*r}" height="${2*r}" rx="2" class="${cls} ng-doc">${title}</rect>`;
+    if(nd.kind === 'bookmark')
+      return `<rect x="${p.x - r}" y="${p.y - r}" width="${2*r}" height="${2*r}" rx="1"
+        transform="rotate(45 ${p.x} ${p.y})" class="${cls} ng-bookmark">${title}</rect>`;
+    return `<circle cx="${p.x}" cy="${p.y}" r="${r}" class="${cls}">${title}</circle>`;
+  };
   const dots = laid.map(p => {
     const nd = p.node;
+    const source = nd.kind === 'document' || nd.kind === 'bookmark';
     const r = Math.min(13, 5 + Math.sqrt(deg[nd.id] || 0) * 2.4);
     const cls = 'ng-node' + (nd.missing ? ' ng-missing' : '') + (nd.focus ? ' ng-focus' : '');
     const label = `<text x="${p.x}" y="${p.y + r + 11}" class="ng-label">${esc(graphLabel(nd.title))}</text>`;
     const full = nd.missing
-      ? `${nd.title} — ${t('ngraphmissing')}`
+      ? `${nd.title} — ${tRaw('ngraphmissing')}`
+      : source ? `${nd.title} — ${tRaw(nd.kind === 'document' ? 'srcdoc' : 'srcbookmark')}`
       : nd.title || '(untitled)';
-    const dot = `<circle cx="${p.x}" cy="${p.y}" r="${r}" class="${cls}"><title>${esc(full)}</title></circle>`;
+    const dot = shape(nd, p, r, cls, full);
     return nd.missing
       ? `<g class="ng-g">${dot}${label}</g>`
-      : `<g class="ng-g ng-click" data-h-click="${H(() => noteShow(nd.id))}"
+      : `<g class="ng-g ng-click" data-h-click="${H(() => source ? noteSourceOpen(nd) : noteShow(nd.id))}"
            role="button" tabindex="0" aria-label="${esc(full)}">${dot}${label}</g>`;
   }).join('');
   return `<svg class="ng-svg" viewBox="0 0 ${GRAPH_W} ${GRAPH_H}" role="img"

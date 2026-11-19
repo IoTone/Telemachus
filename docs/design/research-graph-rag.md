@@ -379,6 +379,15 @@ They want different slices next: the first wants RG‑9 and a bookmarks screen,
 the second wants RG‑6 and RG‑10. Both are in the plan and the order is the
 owner's. Nothing below slice 2 should be started on a guess.
 
+## After slice 3: notes cite their sources
+
+Built 18 Nov 2026 (the SRC block in `decisions.md`). A note can link to a
+bookmark with `[[bookmark:<url or id>]]` and to a document with
+`[[doc:<key or id>]]`, in Markdown or org, and the notes graph draws the source
+as a node. This is the authored half RG‑5 set aside, and it is what connects the
+Research tab to Notes. It does not change RG‑6: question answering over the graph
+still waits on a recall measurement.
+
 ## The build plan
 
 1. ~~**The bookmark**~~ — **BUILT, 4 Nov 2026.** Migration

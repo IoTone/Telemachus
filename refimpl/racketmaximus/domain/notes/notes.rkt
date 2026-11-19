@@ -10,6 +10,7 @@
          "../db/id.rkt"
          "org-links.rkt"
          "org-file.rkt"
+         "note-sources.rkt"
          "../authz/authz.rkt")
 
 (provide notes-create notes-list notes-count notes-get notes-update notes-delete notes-share
@@ -575,7 +576,9 @@
 ;; `exn:fail?`, i.e. it passed for the wrong reason. Its assertion names the
 ;; message now.
 (define (write-links! conn id team body fmt)
-  (define targets (if (string=? fmt "org") (org-link-targets body) '()))
+  ;; BOTH formats carry links since #191: org's `[[target][label]]` and
+  ;; Markdown's `[[target|label]]`. `link-targets` picks the syntax.
+  (define targets (link-targets body fmt))
   (when (> (length targets) MAX-NOTE-LINKS)
     (raise-user-error 'notes
       (format "a note carries at most ~a distinct links; ~a given"
@@ -612,6 +615,7 @@
               [team (hash-ref n 'team_id)])
          (require-perm conn p "notes:read" #:resource (note->resource n))
          (define idx (team-note-index conn p team))
+         (define source-of (make-source-resolver conn p team))
          (filter
           values
           (for/list ([row (in-list (query-rows conn
@@ -620,9 +624,17 @@
             (define raw (vector-ref row 0))
             (define fold (vector-ref row 1))
             (define label (vector-ref row 2))
-            (define-values (dst reason) (resolve-target idx raw fold))
+            (define typed? (and (typed-target raw) #t))
+            (define src (and typed? (source-of raw)))
+            (define-values (dst reason)
+              (if typed? (values #f "missing") (resolve-target idx raw fold)))
             (cond
-              [dst (hasheq 'target raw 'label label 'broken #f
+              ;; #191: a `doc:` / `bookmark:` target is the source this note was
+              ;; written from. A source the reader may not open resolves to
+              ;; nothing and falls through to the same `missing` a deleted one
+              ;; gets.
+              [src (hash-set* src 'target raw 'label label 'broken #f)]
+              [dst (hasheq 'target raw 'label label 'broken #f 'kind "note"
                            'note_id (hash-ref dst 'id) 'title (hash-ref dst 'title))]
               ;; ORG-8: broken, with the raw target kept and the reason named —
               ;; and ORG-9 arrives here too, because the index is the caller's own
@@ -717,7 +729,7 @@
 (define NOTE-GRAPH-STOPS '("cap" "neighbourhood" "scan"))
 
 (define (graph-node n #:focus? [focus? #f])
-  (hasheq 'id (hash-ref n 'id) 'title (hash-ref n 'title)
+  (hasheq 'id (hash-ref n 'id) 'title (hash-ref n 'title) 'kind "note"
           'missing #f 'focus focus?))
 
 ;; created_at DESC, id DESC — the notes listing's own order and its own tiebreak
@@ -754,6 +766,26 @@
      ;; SOURCE is unreadable is simply not here, which needs no test of its own:
      ;; such a note is not in the index either.
      (define phantoms (make-hash))          ; node key -> the target as written
+     ;; #191: documents and bookmarks a note cites, keyed by node id. They are
+     ;; resolved for THIS reader, so one that is not theirs to open is a phantom
+     ;; like any other target that resolves to nothing.
+     (define sources (make-hash))
+     (define source-of (make-source-resolver conn p team))
+     ;; 🔑 WHICH SPELLING A PHANTOM IS LABELLED WITH IS DECIDED BY THE DATA, NOT
+     ;; BY A ROW ORDER, and the first version of this took whichever row arrived
+     ;; first — which is `ORDER BY src_note_id`, i.e. whichever SOURCE NOTE
+     ;; happens to own the smallest random uuid. Two authors who typed
+     ;; `[[Levee 7 survey]]` and `[[levee 7 SURVEY]]` are pointing at one
+     ;; unwritten note (the fold is the identity), so one of the two labels the
+     ;; node, and a uuid deciding it means the same input draws a different
+     ;; picture on every instance. ORG-13's determinism is about the whole
+     ;; drawing and not only the layout, so the smallest spelling wins:
+     ;; arbitrary, and a function of the targets alone. Its own test found this.
+     (define (phantom! raw fold)
+       (define key (string-append "missing:" fold))
+       (define seen (hash-ref phantoms key #f))
+       (when (or (not seen) (string<? raw seen)) (hash-set! phantoms key raw))
+       key)
      (define classified
        (for/list ([row (in-list rows)])
          (define src (vector-ref row 0))
@@ -761,28 +793,17 @@
          (define fold (vector-ref row 2))
          (cond
            [(not (hash-ref by-id src #f)) #f]
+           [(typed-target raw)
+            (define s (source-of raw))
+            (cond [s (hash-set! sources (hash-ref s 'id) s)
+                     (cons src (hash-ref s 'id))]
+                  [else (cons src (phantom! raw fold))])]
            [else
             (define-values (dst reason) (resolve-target idx raw fold))
             (cond
               [dst (cons src (hash-ref dst 'id))]
               [(equal? reason "ambiguous") (cons src 'ambiguous)]
-              [else
-               (define key (string-append "missing:" fold))
-               ;; 🔑 WHICH SPELLING THE NODE IS LABELLED WITH IS DECIDED BY THE
-               ;; DATA, NOT BY A ROW ORDER, and the first version of this took
-               ;; whichever row arrived first — which is `ORDER BY src_note_id`,
-               ;; i.e. whichever SOURCE NOTE happens to own the smallest random
-               ;; uuid. Two authors who typed `[[Levee 7 survey]]` and
-               ;; `[[levee 7 SURVEY]]` are pointing at one unwritten note (the
-               ;; fold is the identity), so one of the two labels the node, and
-               ;; a uuid deciding it means the same input draws a different
-               ;; picture on every instance. ORG-13's determinism is about the
-               ;; whole drawing and not only the layout, so the smallest
-               ;; spelling wins: arbitrary, and a function of the targets alone.
-               ;; Its own test is what found this.
-               (define seen (hash-ref phantoms key #f))
-               (when (or (not seen) (string<? raw seen)) (hash-set! phantoms key raw))
-               (cons src key)])])))
+              [else (cons src (phantom! raw fold))])])))
      (define pairs (filter pair? classified))
      (define edges (filter (lambda (e) (string? (cdr e))) pairs))
      (define ambs (filter (lambda (e) (eq? (cdr e) 'ambiguous)) pairs))
@@ -807,7 +828,8 @@
            '()
            (sort (remove-duplicates
                   (for/list ([e (in-list edges)]
-                             #:when (and (hash-ref phantoms (cdr e) #f)
+                             #:when (and (or (hash-ref phantoms (cdr e) #f)
+                                             (hash-ref sources (cdr e) #f))
                                          (hash-ref base (car e) #f)
                                          (not (hash-ref base (cdr e) #f))))
                     (cdr e)))
@@ -825,7 +847,10 @@
       'nodes (for/list ([k (in-list all-keys)])
                (cond [(hash-ref phantoms k #f)
                       => (lambda (raw)
-                           (hasheq 'id k 'title raw 'missing #t 'focus #f))]
+                           (hasheq 'id k 'title raw 'kind "missing"
+                                   'missing #t 'focus #f))]
+                     [(hash-ref sources k #f)
+                      => (lambda (s) (hash-set* s 'missing #f 'focus #f))]
                      [else (graph-node (hash-ref by-id k) #:focus? (equal? k focus))]))
       'edges drawn-edges
       'focus (or focus 'null)

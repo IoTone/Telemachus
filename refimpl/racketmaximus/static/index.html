@@ -198,6 +198,9 @@
   /* an unresolved target: hollow and dashed, because there is no note behind it */
   .ng-missing{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:3 2}
   .ng-focus{fill:var(--accent);stroke:var(--ink);stroke-width:2}
+  /* #191 — a document or bookmark a note cites: its own shape (see
+     21-notegraph.js) and the ok colour, so a source reads as a source */
+  .ng-doc,.ng-bookmark{fill:var(--ok)}
   .ng-label{fill:var(--muted);font-size:11px;text-anchor:middle;pointer-events:none}
   .ng-click{cursor:pointer}
   .ng-click:hover .ng-node{fill:var(--accent)}

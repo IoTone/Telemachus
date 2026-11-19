@@ -207,6 +207,7 @@ async function notesView(){
     ? `<div class="card"><h3>${t('editnote')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
       <label for="nt">${t('title')}</label><input id="nt" value="${esc(d.title)}">
       <label for="nb">${t('body')}</label>${editorHTML('note', {id:'nb', formats:NOTE_FORMATS})}
+      <div class="muted" style="font-size:12px;margin:-2px 0 10px">${t('notelinkhint')}</div>
       ${tagsField(noteDraftTags(d, editing))}
       <label for="nv">${t('visibility')}</label>${visSelect(d.vis)}
       <button class="btn" data-h-click="${H((el,ev)=>doSaveNote())}">${t('save')}</button>
@@ -215,6 +216,7 @@ async function notesView(){
     : `<div class="card"><h3>${t('newnote')}</h3>
       <label for="nt">${t('title')}</label><input id="nt" value="${esc(d.title)}">
       <label for="nb">${t('body')}</label>${editorHTML('note', {id:'nb', value:d.body == null ? '' : d.body, formats:NOTE_FORMATS})}
+      <div class="muted" style="font-size:12px;margin:-2px 0 10px">${t('notelinkhint')}</div>
       ${tagsField(noteDraftTags(d, null))}
       <label for="nv">${t('visibility')}</label>${visSelect(d.vis)}
       <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${t('create')}</button>
@@ -477,33 +479,40 @@ function linkResolution(edges){
 // THERE IS NOTHING HERE FOR AN EDGE THE READER MAY NOT SEE, and that is ORG-9
 // rather than an omission: the server never reported one, so there is no count
 // to draw and no row to leave blank.
-// THE TWO COLUMNS ARE NOT GATED THE SAME WAY, and the e2e gate is what
-// established that. OUTGOING links exist only for an org note, because
-// `[[target]]` is org syntax and a Markdown body has no link syntax in this
-// build. BACKLINKS exist for ANY note: a Markdown note is linked TO by an org
-// one just as readily, and "what links here" is the half people actually use
-// (ORG-15). Gating the whole panel on the note's own format hid every backlink
-// on every Markdown target — which is most of a team's notes.
+// BOTH FORMATS HAVE OUTGOING LINKS since #191 (Markdown's `[[target]]` beside
+// org's), so the panel is drawn whenever there is an edge in either direction.
+// With neither there is no panel at all, rather than an empty heading.
 //
-// With neither — a Markdown note nothing points at — there is no panel at all,
-// rather than an empty heading about a feature that does not apply to it.
+// A LINK TO A SOURCE — a document or a bookmark the note cites — opens that
+// source's own screen, and says which kind it is. The server resolved it for
+// THIS reader, so one that is not theirs to open arrives here as an ordinary
+// broken link.
+function noteSourceOpen(l){
+  if(l.kind === 'document'){ S.repoDetail = l.object_id; go('repository'); }
+  else go('research');
+}
 function noteEdgeList(edges, format){
   if(!edges) return '';
-  const org = format === 'org';
+  const links = edges.links || [];
   const back = edges.backlinks || [];
-  if(!org && !back.length) return '';
-  const reason = r => t(r==='ambiguous'?'orgambiguous':'orgmissing');
-  const out = (edges.links||[]).map(l => l.broken
+  if(!links.length && !back.length) return '';
+  const typed = l => /^(doc|bookmark):/i.test(l.target);
+  const reason = l => t(l.reason==='ambiguous'?'orgambiguous':(typed(l)?'srcmissing':'orgmissing'));
+  const open = l => l.kind==='document' || l.kind==='bookmark'
+    ? `<button class="btn sm ghost" data-h-click="${H(()=>noteSourceOpen(l))}">${esc(l.title||l.target)}</button>
+        <span class="badge">${t(l.kind==='document'?'srcdoc':'srcbookmark')}</span>`
+    : `<button class="btn sm ghost" data-h-click="${H(()=>noteShow(l.note_id))}">${esc(l.title||l.target)}</button>`;
+  const out = links.map(l => l.broken
     ? `<li><span class="org-link broken">${esc(l.label||l.target)}</span>
-        <span class="muted" style="font-size:12px">${t('orgbroken')} — ${esc(reason(l.reason))}: <span class="mono">${esc(l.target)}</span></span></li>`
-    : `<li><button class="btn sm ghost" data-h-click="${H(()=>noteShow(l.note_id))}">${esc(l.title||l.target)}</button>
+        <span class="muted" style="font-size:12px">${t('orgbroken')} — ${reason(l)}: <span class="mono">${esc(l.target)}</span></span></li>`
+    : `<li>${open(l)}
         ${l.label&&l.label!==l.title?`<span class="muted" style="font-size:12px">${esc(l.label)}</span>`:''}</li>`).join('');
   const inbound = back.map(b =>
     `<li><button class="btn sm ghost" data-h-click="${H(()=>noteShow(b.note_id))}">${esc(b.title)||t('untitled')}</button></li>`).join('');
   const col = (label, body) => `<div style="flex:1"><label>${esc(label)}</label>
       ${body?`<ul class="org-edges">${body}</ul>`:`<p class="muted">—</p>`}</div>`;
   return `<div class="row" style="margin-top:12px;gap:16px;align-items:flex-start">
-    ${org?col(tRaw('orglinks'), out):''}${col(tRaw('orgbacklinks'), inbound)}</div>`;
+    ${col(tRaw('orglinks'), out)}${col(tRaw('orgbacklinks'), inbound)}</div>`;
 }
 function noteViewCard(n, edges){
   const mine = n.owner_user_id === S.me.user_id;

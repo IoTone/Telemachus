@@ -58,7 +58,7 @@
 
 (provide RESEARCH-MAX-NOTE RESEARCH-MAX-URL
          canonical-url research-problem research-key
-         research-create! research-list research-get research-by-id research-delete!
+         research-create! research-list research-get research-by-id research-by-url research-delete!
          research-fetch! record-research-fetch! RESEARCH-DIM)
 
 ;; A fetch failure is somebody else's server's words about a URL a member chose,
@@ -279,6 +279,16 @@
 (define (research-get conn id team)
   (define r (query-maybe-row conn (string-append SELECT "WHERE s.id = ? AND s.team_id = ?") id team))
   (and r (row->source r)))
+
+;; A bookmark by the URL somebody typed, for a note that cites it (#191). The
+;; URL goes through `canonical-url` first, so the identity rule stays in one
+;; place; a URL this surface would never fetch matches nothing.
+(define (research-by-url conn team url)
+  (define canon (canonical-url url))
+  (and canon
+       (let ([r (query-maybe-row conn
+                  (string-append SELECT "WHERE s.team_id = ? AND s.url_canon = ?") team canon)])
+         (and r (row->source r)))))
 
 ;; For a caller that has a row id and no team — a job, which carries neither. The
 ;; row itself says which team it belongs to. Team-scoped reads stay the API's.

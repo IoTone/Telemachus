@@ -3049,13 +3049,14 @@ assert "format: a viewer still cannot" \
 
 echo "== what a note links to (#246 slice 2) ====================================="
 # ORG-7 — the edges are extracted on WRITE and resolved on READ, so nothing here
-# has to be kept in step with anything. A Markdown note has no link syntax in
-# this build, so it has no edges at all.
+# has to be kept in step with anything. A Markdown note has `[[target]]` too
+# since #191; this one is written before its target exists, so it is reported
+# broken rather than absent.
 MDL=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
   -d '{"title":"md with brackets","body":"see [[Hub note]]"}')
 MDLID=$(printf '%s' "$MDL" | grep -oP '"id":\s*"\K[^"]+')
-assert "links: a markdown note has no edges" \
-  "$(curl -s $B/api/notes/$MDLID/links -H "Authorization: Bearer $OP")" '"links":[]'
+assert "links: a markdown note's [[target]] is an edge, broken until the target exists" \
+  "$(curl -s $B/api/notes/$MDLID/links -H "Authorization: Bearer $OP")" '"target":"Hub note"'
 
 # the target, then a note linking to it by TITLE and by ID (ORG-6 admits both)
 HUB=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" -d '{"title":"Hub note","body":"x"}')
@@ -3158,10 +3159,11 @@ curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" -d '{"title":"Not ye
 assert "links: …and resolves once the note exists, with nothing rewritten" \
   "$(curl -s $B/api/notes/$FWDID/links -H "Authorization: Bearer $OP")" '"broken":false'
 
-# converting org -> markdown CLEARS the edges, with no second mechanism
+# converting org -> markdown re-reads the body in Markdown's syntax (#191), and
+# a bare `[[target]]` is a link in both, so this edge SURVIVES the conversion
 curl -s -X PUT $B/api/notes/$FWDID -H "Authorization: Bearer $OP" -d '{"format":"markdown"}' >/dev/null
-assert "links: converting away from org clears them" \
-  "$(curl -s $B/api/notes/$FWDID/links -H "Authorization: Bearer $OP")" '"links":[]'
+assert "links: a bare link survives converting to markdown" \
+  "$(curl -s $B/api/notes/$FWDID/links -H "Authorization: Bearer $OP")" '"title":"Not yet written"'
 
 assert "links: an unknown note is 404" \
   "$(curl -s $B/api/notes/no-such-note/links -H "Authorization: Bearer $OP")" 'not found'
@@ -4171,6 +4173,56 @@ else
   echo "  note   'untrusted egress refuses every address this suite can listen on, which is"
   echo "  note   the policy working; the store path is test/research-tests.rkt's."
 fi
+echo "== a note links to a document and a bookmark (#191) =="
+# A note may cite the source it was written from: `doc:<key or id>` and
+# `bookmark:<url or id>`, in either format. This block sits AFTER the research
+# block because that one asserts an empty bookmark list, and it removes its own
+# bookmark again.
+curl -s -X PUT "$B/api/repo/cited/survey.txt?filename=Levee+survey" -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: text/plain' --data-binary 'field notes' >/dev/null
+curl -s -X PUT "$B/api/repo/cited/sealed.txt?visibility=private" -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: text/plain' --data-binary 'sealed' >/dev/null
+BKM=$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+  -d '{"url":"https://cited.example/page","title":"Cited page","fetch":false}')
+BKMID=$(printf '%s' "$BKM" | grep -oP '"id":\s*"\K[^"]+' | head -1)
+CITE=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $CAROL" \
+  -d '{"title":"cites sources","body":"from [[doc:cited/survey.txt|the survey]] and [[bookmark:https://cited.example/page]] but `[[doc:in/code.txt]]` is text"}')
+CITEID=$(printf '%s' "$CITE" | grep -oP '"id":\s*"\K[^"]+')
+CL=$(curl -s $B/api/notes/$CITEID/links -H "Authorization: Bearer $CAROL")
+assert "sources: a markdown note links to a document by key"  "$CL" '"kind":"document"'
+assert "sources: …with the document's own title"              "$CL" 'Levee survey'
+assert "sources: …and to a bookmark by its URL"                "$CL" '"kind":"bookmark"'
+assert "sources: …which carries the bookmark's id"             "$CL" "\"source_id\":\"$BKMID\""
+assert "sources: the label written in the note comes back"    "$CL" '"label":"the survey"'
+refute "sources: a link inside a code span is not a link"     "$CL" 'in/code.txt'
+refute "sources: nothing here is broken"                      "$CL" '"broken":true'
+# 🔑 A DOCUMENT THE READER MAY NOT OPEN ANSWERS EXACTLY AS ONE THAT IS NOT
+# THERE. As CAROL, a plain member: the operator passes everything team-tier.
+mk_cite(){ curl -s -X POST $B/api/notes -H "Authorization: Bearer $CAROL" \
+  -d "{\"title\":\"$1\",\"body\":\"[[doc:$2]]\"}" | grep -oP '"id":\s*"\K[^"]+'; }
+S_PRIV=$(mk_cite "cite sealed" "cited/sealed.txt")
+S_NONE=$(mk_cite "cite absent" "cited/absent.txt")
+SLP=$(curl -s $B/api/notes/$S_PRIV/links -H "Authorization: Bearer $CAROL")
+SLN=$(curl -s $B/api/notes/$S_NONE/links -H "Authorization: Bearer $CAROL")
+assert "sources: a private document is a missing target for somebody else" "$SLP" '"reason":"missing"'
+refute "sources: …with no object id in the answer"                         "$SLP" '"object_id"'
+SNRM(){ printf '%s' "$1" | sed -e 's#cited/sealed.txt#T#g' -e 's#cited/absent.txt#T#g'; }
+if [ "$(SNRM "$SLP")" = "$(SNRM "$SLN")" ]; then
+  echo "  ok   sources: unreadable and nonexistent are the same answer"
+else
+  echo "  FAIL sources: unreadable and nonexistent differ — $SLP vs $SLN"; fail=1
+fi
+assert "sources: the owner's own read of that note resolves it" \
+  "$(curl -s $B/api/notes/$S_PRIV/links -H "Authorization: Bearer $OP")" '"kind":"document"'
+# the graph draws a cited source as a node of its own kind
+SG=$(curl -s "$B/api/notes/graph?note=$CITEID" -H "Authorization: Bearer $CAROL")
+assert "sources: the note graph has a document node" "$SG" '"kind":"document"'
+assert "sources: …and a bookmark node"               "$SG" "\"id\":\"bookmark:$BKMID\""
+# forgetting the bookmark breaks the link again, with nothing to reset
+curl -s -X DELETE $B/api/research/$BKMID -H "Authorization: Bearer $OP" >/dev/null
+assert "sources: a forgotten bookmark is a broken link" \
+  "$(curl -s $B/api/notes/$CITEID/links -H "Authorization: Bearer $CAROL")" '"broken":true'
+
 echo "== translate as a job: the Translate tab stops blocking (#233) =="
 # THIS BLOCK IS NEAR THE END because it spends the team's `ai.requests` and
 # creates jobs — this file's own repeated lesson about a fixture that changes

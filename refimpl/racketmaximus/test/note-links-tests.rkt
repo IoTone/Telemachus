@@ -83,22 +83,29 @@
   (for ([s '("  Q3   Goals " "INVOICE" "\tlevee\n7 ")])
     (check-equal? (tag-normalize s) (fold-key s) s)))
 
-;; ---- only an org note has links --------------------------------------------
-(test-case "a markdown note extracts nothing, and converting is what fills and clears"
-  ;; `[[target][description]]` is ORG syntax. Markdown wiki-links were declined
-  ;; as a product question (RG-5's parked note, which #246 answered for org and
-  ;; not for Markdown), so a Markdown body carrying that text has no edges —
-  ;; which is also what makes converting org → markdown clear the rows, with no
-  ;; second mechanism for it.
+;; ---- each format has its own link syntax (#191) ----------------------------
+(test-case "converting a note re-reads its links in the new format's syntax"
+  ;; Markdown has `[[target]]` and `[[target|label]]` since #191; org has
+  ;; `[[target]]` and `[[target][label]]`. A conversion never rewrites the body
+  ;; (ORG-2), so the BARE form survives it. The piped form read as org is a link
+  ;; whose whole text is the target, which resolves to nothing and is REPORTED
+  ;; as broken (ORG-8) — visible, and undone by converting back.
   (define-values (c p tid) (setup))
-  (define t (notes-create c p #:title "Target" #:body "x"))
-  (define n (notes-create c p #:title "md" #:body "see [[Target]]"))
+  (notes-create c p #:title "Target" #:body "x")
+  (notes-create c p #:title "Other" #:body "x")
+  (define n (notes-create c p #:title "md" #:body "see [[Target]] and [[Other|the other]]"))
   (define id (hash-ref n 'id))
-  (check-equal? (note-links-of c p id) '() "a markdown note has no edges")
+  (check-equal? (targets (note-links-of c p id)) '("Other" "Target")
+                "a markdown note has edges")
   (notes-update c p id #:format "org")
-  (check-equal? (targets (note-links-of c p id)) '("Target") "converting to org extracts")
+  (define as-org (note-links-of c p id))
+  (check-equal? (targets as-org) '("Other|the other" "Target"))
+  (check-equal? (sort (map (lambda (l) (hash-ref l 'broken)) as-org) (lambda (a b) (and a (not b))))
+                '(#t #f)
+                "the pipe is not org syntax: that link is reported broken, the bare one resolves")
   (notes-update c p id #:format "markdown")
-  (check-equal? (note-links-of c p id) '() "…and converting back clears them")
+  (check-equal? (targets (note-links-of c p id)) '("Other" "Target")
+                "…and converting back restores both, because the body never changed")
   (close-db! c))
 
 (test-case "editing a body replaces the edge set wholesale"
