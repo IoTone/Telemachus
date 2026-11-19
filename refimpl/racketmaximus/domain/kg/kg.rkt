@@ -24,12 +24,16 @@
          "../db/id.rkt"
          "../authz/authz.rkt"
          "../repo/repo.rkt"
-         "../db/nulls.rkt")
+         "../db/nulls.rkt"
+         "sources.rkt")
 
 (provide STARTER-TYPES normalize-name normalize-predicate
          kg-upsert! kg-mark-extracted! kg-list-unextracted
          kg-entity kg-find kg-neighbourhood kg-stats
-         kg-entities-on kg-graph KG-GRAPH-CAP)
+         kg-entities-on kg-graph KG-GRAPH-CAP
+         ;; a plugin's delete never reaches the repository's hook, so this is the spelling it
+         ;; calls. Only the wrapper is exported: the encoded id has one home in sources.rkt.
+         kg-source-forget!)
 
 (define STARTER-TYPES '("person" "organization" "product" "place" "event" "concept"))
 
@@ -131,6 +135,13 @@
   (query-exec conn "DELETE FROM kg_extractions WHERE object_id = ?" object-id)
   (when (and team (not (sql-null? team))) (prune! conn team)))
 
+;; a plugin's delete never reaches the repository's hook (see the delete hook below), so the
+;; plugin calls this. `kg-forget!` stays private: a caller holding a raw id is a caller that
+;; has taken the encoded format apart somewhere else, and would be one line from forgetting
+;; the wrong documents.
+(define (kg-source-forget! conn source doc-id)
+  (kg-forget! conn (kg-source-id source doc-id)))
+
 ;; objects whose CURRENT version has text in the index but no extraction for
 ;; that version — never-extracted and re-written-since both, keyed to the version
 ;;
@@ -170,36 +181,89 @@
 ;; documents waiting behind it. What remains is the residual the sibling lister
 ;; also carries — an unreadable document still occupies a slot — and it is
 ;; bounded by the same batch.
+;; is the CURRENT version of this id already extracted? Used by the lister for a source's ids,
+;; where there is no repository row to join against.
+(define (kg-extracted-version? conn object-id version-id)
+  (and (query-maybe-value conn
+         "SELECT 1 FROM kg_extractions WHERE object_id = ? AND version_id = ?"
+         object-id version-id)
+       #t))
+
+;; TWO ARMS, ONE BUDGET. The repository is the first authority on "may read" and a registered
+;; plugin source is the second (domain/kg/sources.rkt). `lim` is shared rather than handed to
+;; each, because the workflow fans `kg_extract` over whatever comes back and LIST-BATCH is what
+;; bounds a run.
 (define (kg-list-unextracted conn p #:limit [lim 40])
   (require-perm conn p "files:read")
-  (define rows (query-rows conn
-    (string-append
-     "SELECT o.id FROM repo_objects o "
-     "JOIN repo_text t ON t.object_id = o.id AND t.version_id = o.current_version_id "
-     "LEFT JOIN kg_extractions x ON x.object_id = o.id AND x.version_id = o.current_version_id "
-     "WHERE o.team_id = ? AND o.deleted_at IS NULL AND x.object_id IS NULL AND t.content <> '' "
-     "AND " REPO-NOT-DERIVED " "
-     "ORDER BY o.updated_at ASC LIMIT ?")
-    (principal-team-id p) lim))
-  (for/list ([r (in-list rows)]
-             #:when (repo-readable? conn p (vector-ref r 0)))
-    (vector-ref r 0)))
+  (define team (principal-team-id p))
+  (define repo-ids
+    (for/list ([r (in-list (query-rows conn
+                (string-append
+                 "SELECT o.id FROM repo_objects o "
+                 "JOIN repo_text t ON t.object_id = o.id AND t.version_id = o.current_version_id "
+                 "LEFT JOIN kg_extractions x ON x.object_id = o.id AND x.version_id = o.current_version_id "
+                 "WHERE o.team_id = ? AND o.deleted_at IS NULL AND x.object_id IS NULL AND t.content <> '' "
+                 "AND " REPO-NOT-DERIVED " "
+                 "ORDER BY o.updated_at ASC LIMIT ?")
+                team lim))]
+               #:when (repo-readable? conn p (vector-ref r 0)))
+      (vector-ref r 0)))
+  (define left (max 0 (- lim (length repo-ids))))
+  (append
+   repo-ids
+   (cond
+     [(or (not team) (zero? left)) '()]
+     [else
+      ;; sources in name order, so the answer does not depend on which plugin loaded first
+      ;;
+      ;; `let-values` IS NOT DECORATION. A `for/fold` with two accumulators answers TWO values,
+      ;; so it cannot sit where one list is expected: without this wrapper the module compiles
+      ;; and the call fails at run time with "expected 1 value, received 2".
+      (let-values ([(acc _left)
+                    (for/fold ([acc '()] [left left])
+                              ([name (in-list (extraction-sources))] #:break (zero? left))
+                      (define offered
+                        (for/list ([doc-id (in-list (source-list name conn p team left))]
+                                   ;; #235's lesson applied to a source: filter with the
+                                   ;; authority about to be cited, so a source that offers
+                                   ;; something the caller cannot read cannot fail the run.
+                                   #:when (source-see name conn p team doc-id)
+                                   [v (in-value (source-version name conn p team doc-id))]
+                                   #:when (and v (not (kg-extracted-version? conn (kg-source-id name doc-id) v))))
+                          (kg-source-id name doc-id)))
+                      (define taken (if (> (length offered) left) (take offered left) offered))
+                      (values (append acc taken) (- left (length taken))))])
+        acc)])))
 
 ;; ---- read path: the mention rule ---------------------------------------------------------
-(define (readable-object conn p object-id)
-  (with-handlers ([exn:fail:forbidden? (lambda (_) #f)]) (repo-get conn p object-id)))
+;; THE ONE PLACE an object id becomes "a document this caller may read", for both arms.
+;; `team` is the team the question is about: the mention's own team when a citation is being
+;; weighed, the caller's team when a bare id is being resolved.
+;;
+;; A source id whose source is no longer registered, or whose name does not parse, answers #f,
+;; so the mention is dropped exactly as a deleted document's is. That is the fail-closed
+;; direction and the same outcome as `repo-get` answering #f for a miss.
+(define (kg-visible-object conn p object-id team)
+  (cond
+    [(kg-source-id? object-id)
+     (define parts (kg-source-id-split object-id))
+     (and parts (source-see (car parts) conn p team (cdr parts)))]
+    [else
+     (with-handlers ([exn:fail:forbidden? (lambda (_) #f)]) (repo-get conn p object-id))]))
 
 ;; the mentions of an entity or relation the caller may see, with the source key
 (define (mentions-for conn p #:entity [eid #f] #:relation [rid #f])
   (define rows
     (query-rows conn
-      (string-append "SELECT m.id, m.object_id, m.version_id, m.snippet, m.extracted_at FROM kg_mentions m "
+      (string-append "SELECT m.id, m.object_id, m.version_id, m.snippet, m.extracted_at, m.team_id "
+                     "FROM kg_mentions m "
                      (if eid "WHERE m.entity_id = ? " "WHERE m.relation_id = ? ")
                      "ORDER BY m.extracted_at DESC, m.id")
       (or eid rid)))
   (define seen (make-hash))
   (for*/list ([r (in-list rows)]
-              [o (in-value (hash-ref! seen (vector-ref r 1) (lambda () (readable-object conn p (vector-ref r 1)))))]
+              [o (in-value (hash-ref! seen (vector-ref r 1)
+                                      (lambda () (kg-visible-object conn p (vector-ref r 1) (vector-ref r 5)))))]
               #:when o)
     (hasheq 'id (vector-ref r 0) 'object_id (vector-ref r 1) 'version_id (vector-ref r 2)
             'key (hash-ref o 'key) 'snippet (vector-ref r 3) 'extracted_at (format "~a" (vector-ref r 4)))))
@@ -309,7 +373,11 @@
 ;; yet" otherwise, and those have different remedies (CLS-27's line).
 (define (kg-entities-on conn p object-id)
   (require-perm conn p "files:read")
-  (define o (readable-object conn p object-id))
+  (define team (principal-team-id p))
+  ;; the CALLER's team here, where `mentions-for` uses the MENTION's. Not an oversight: a
+  ;; citation asks "may this caller read the document THAT mention was recorded for", while
+  ;; this read starts from a bare id, so the caller's own team is the only one being asked about.
+  (define o (kg-visible-object conn p object-id team))
   (and o
        (let ()
          (define rows
@@ -318,14 +386,20 @@
                             "JOIN kg_entities e ON e.id = m.entity_id "
                             "WHERE m.object_id = ? AND e.team_id = ? "
                             "GROUP BY e.id, e.type, e.name ORDER BY e.name, e.id")
-             object-id (principal-team-id p)))
+             object-id team))
          (define extracted?
-           (and (query-maybe-value conn
-                  (string-append "SELECT 1 FROM kg_extractions x JOIN repo_objects o "
-                                 "ON o.id = x.object_id AND x.version_id = o.current_version_id "
-                                 "WHERE x.object_id = ?")
-                  object-id)
-                #t))
+           (cond
+             [(kg-source-id? object-id)
+              (define parts (kg-source-id-split object-id))
+              (define v (and parts (source-version (car parts) conn p team (cdr parts))))
+              (and v (kg-extracted-version? conn object-id v) #t)]
+             [else
+              (and (query-maybe-value conn
+                     (string-append "SELECT 1 FROM kg_extractions x JOIN repo_objects o "
+                                    "ON o.id = x.object_id AND x.version_id = o.current_version_id "
+                                    "WHERE x.object_id = ?")
+                     object-id)
+                   #t)]))
          (hasheq 'object_id object-id
                  'extracted extracted?
                  'entities (for/list ([r (in-list rows)])

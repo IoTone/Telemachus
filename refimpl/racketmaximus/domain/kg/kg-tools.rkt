@@ -30,7 +30,10 @@
          "../repo/extract.rkt"
          "../repo/doc-tools.rkt"          ; current-doc-chat
          "../ai/roles.rkt"                ; the team's utility executor
-         "kg.rkt")
+         "kg.rkt"
+         ;; the plugin-source seam: an id from a registered source is read, versioned and
+         ;; texted through that source rather than through the repository
+         "sources.rkt")
 
 (provide validate-extraction extract-knowledge LIST-BATCH)
 
@@ -133,6 +136,39 @@
 (define (extract-one conn p args)
   (require-perm conn p "chat:use")
   (define id (let ([v (hash-ref args 'object "")]) (if (string? v) v (format "~a" v))))
+  ;; AN ID FROM A PLUGIN SOURCE TAKES THIS ARM AND NEVER TOUCHES THE REPOSITORY. Two things are
+  ;; ordered deliberately: the readability ask comes BEFORE the model call, so a caller who may
+  ;; not read the document cannot spend the team's tokens to be told so afterwards; and a
+  ;; source that cannot name a version is a refusal rather than a write, because a
+  ;; `kg_extractions` row keyed on a version nothing can compare against would list the
+  ;; document for ever.
+  (cond
+    [(kg-source-id? id)
+     (define parts (kg-source-id-split id))
+     (define team (principal-team-id p))
+     ;; refused and missing are ONE answer, as they are for a repository document (KG-3)
+     (define seen (and parts (source-see (car parts) conn p team (cdr parts))))
+     (unless seen (error 'kg_extract "no such document: ~a" id))
+     (define v (source-version (car parts) conn p team (cdr parts)))
+     (unless v (error 'kg_extract "~a: the source cannot name this document's version" (car parts)))
+     (define stext (or (source-text (car parts) conn p team (cdr parts)) ""))
+     (cond
+       [(string=? (string-trim stext) "")
+        (kg-mark-extracted! conn team id v 0 0)
+        (format "skipped ~a — the source returned no text for this version" (hash-ref seen 'key))]
+       [else
+        (define-values (extraction tokens)
+          (parameterize ([current-utility-executor (model-role-executor conn team "utility")])
+            (extract-knowledge stext)))
+        (meter! conn p tokens)
+        (kg-upsert! conn team id v extraction)
+        (hasheq 'object_id id 'key (hash-ref seen 'key)
+                'entities (length (hash-ref extraction 'entities '()))
+                'relations (length (hash-ref extraction 'relations '()))
+                'tokens_used tokens)])]
+    [else (extract-one-repo conn p id)]))
+
+(define (extract-one-repo conn p id)
   (define o (repo-get conn p id))
   (unless o (error 'kg_extract "no such document: ~a" id))
   (define text (let ([t (repo-text-for conn id)]) (if (or (not t) (sql-null? t)) "" t)))
