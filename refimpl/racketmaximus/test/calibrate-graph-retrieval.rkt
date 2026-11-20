@@ -184,6 +184,12 @@
       [else
        (when (null? (validate-extraction j doc)) (bump! 'shipped_ok 1))
        (define kept (keep-valid j doc))
+       (when (flag? "--show-dropped")
+         (for ([e (in-list (let ([v (hash-ref j 'entities '())]) (if (list? v) v '())))])
+           (define sn (and (hash? e) (hash-ref e 'snippet #f)))
+           (unless (and (string? sn) (string-contains? doc sn))
+             (printf "    dropped ~s: ~s\n" (and (hash? e) (hash-ref e 'name #f))
+                     (if (string? sn) (substring sn 0 (min 100 (string-length sn))) sn)))))
        (bump! 'entities_seen (count-of j 'entities)) (bump! 'entities_kept (count-of kept 'entities))
        (bump! 'relations_seen (count-of j 'relations)) (bump! 'relations_kept (count-of kept 'relations))
        (values (jsexpr->string kept) tokens)]))
