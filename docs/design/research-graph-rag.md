@@ -339,6 +339,16 @@ The copyright and terms question is the operator's and is stated rather than
 solved: the platform fetches what it is told to, archives what it received, and
 records who asked.
 
+**Built** (RG‑28…34). A team turns it on with `PUT /api/research/refetch
+{"every_seconds": 86400}` and off with `null`; `GET` on the same path reports the
+setting. The interval has a floor of one hour. Each run fetches up to 20 of the
+bookmarks whose last fetch is at least one interval old, stalest first. It waits
+5 seconds between two requests to the same host and sends one host at most 5
+requests per run. Requests are conditional, so an unchanged page answers 304,
+and unchanged bytes write no new version. Each fetch acts as the bookmark's own
+user and is charged to `research.fetches` like a manual one. There is no console
+control yet.
+
 ## RG‑13 — What this design deliberately does not include
 
 - **Web SEARCH.** RSCH‑1 put the backend behind a plugin-registered tool because

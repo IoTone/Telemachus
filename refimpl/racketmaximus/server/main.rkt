@@ -67,6 +67,8 @@
          (only-in "../domain/feeds/adapter-discord.rkt" install-discord-adapter!)
          (only-in "../domain/feeds/adapter-alerts.rkt" install-alerts-adapter!)
          (only-in "../domain/feeds/feeds.rkt" POLL-KIND feed-by-id)
+         ;; RG-12: the job kind a team's re-fetch schedule fires.
+         (only-in "../domain/research/refetch.rkt" REFETCH-KIND refetch-run!)
          ;; #66: the external anchor, emitted on the reaper seam
          (only-in "../domain/audit/anchor.rkt" anchor-emit!)
          (only-in "../domain/authz/signing.rkt" anchor-signing-enabled?)
@@ -395,6 +397,7 @@
    'research-list ep-research-list 'research-create ep-research-create
    'research-get ep-research-get 'research-delete ep-research-delete
    'research-fetch ep-research-fetch 'research-entities ep-research-entities 'research-notes ep-research-notes
+   'research-refetch-get ep-research-refetch-get 'research-refetch-put ep-research-refetch-put
    ;; #65: a region a person marked. LAY-5's spans are where a machine says it
    ;; read something; these are what somebody said about a place.
    'repo-form-fields ep-repo-form-fields
@@ -1249,6 +1252,12 @@
       (cond
         [(not (feed-by-id conn fid)) (hasheq 'skipped "the feed was deleted")]
         [else (poll-feed! conn fid)])))
+  ;; RG-12/RG-28: the payload is empty on purpose. The team is the job's own and
+  ;; the interval is read from the team's setting at run time, so a schedule
+  ;; somebody made by hand with this kind can do nothing a configured one cannot,
+  ;; and on a team that never turned re-fetching on it reports that and stops.
+  (register-job-kind! REFETCH-KIND
+    (lambda (conn p payload) (refetch-run! conn (principal-team-id p))))
   (register-job-kind! "beta_judge"    ; vet a beta prospect with the LLM, store the verdict
     (lambda (conn p payload)
       (define pid (format "~a" (hash-ref payload 'prospect_id "")))
