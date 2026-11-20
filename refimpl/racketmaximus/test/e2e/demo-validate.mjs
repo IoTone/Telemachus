@@ -1002,6 +1002,15 @@ try {
   ok('clicking a node opens that note',
     (await page.innerHTML('#app')).includes('G hub') ||
     (await page.innerHTML('#app')).includes('G spoke'));
+  // the tidying lists, over the same notes: the card opens with both lists and
+  // closes again, under the console's content security policy
+  await page.evaluate(() => { noteViewClose(); tidyOpen(); });
+  await page.waitForSelector('#ntidy', { timeout: 10000 });
+  ok('the tidying card draws both of its lists',
+    await page.evaluate(() => document.querySelectorAll('#ntidy h4').length === 2));
+  await page.evaluate(() => tidyClose());
+  ok('…and closing it takes the card away',
+    await until(page, () => !document.getElementById('ntidy')));
   // A FIXTURE THAT CHANGES GLOBAL STATE BREAKS A DISTANT BLOCK, and §3c5 above
   // paid that twice already: close the card, close the graph, and take the four
   // notes away, or every later block that counts notes reads this one's fixture.

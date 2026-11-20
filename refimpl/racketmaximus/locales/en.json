@@ -1415,6 +1415,58 @@
       "text": "The whole team",
       "hash": "7a2af95ed2a8f712ab55b77ffc343b85a7132c39"
     },
+    "ui.ntidy": {
+      "text": "Tidy up",
+      "hash": "41ad80b52855132a8a81055f55c9aeea56bd6c7d"
+    },
+    "ui.ntidyambiguous": {
+      "text": "two notes share that title",
+      "hash": "07527681fcb352cef3fff274fcae76a513f54f82"
+    },
+    "ui.ntidybroken": {
+      "text": "Links that go nowhere ({n})",
+      "hash": "cb115461bd5af9860fbd7aeb1541f640725d5e00"
+    },
+    "ui.ntidybrokenhint": {
+      "text": "each is a note, then the target it names; fix the link or write the note it is waiting for",
+      "hash": "c4c7b43346118330ec3ab680b713ee3b493a9261"
+    },
+    "ui.ntidyhide": {
+      "text": "Hide the lists",
+      "hash": "1cab4e6e70785130fb03a9e6d9209aeb96593877"
+    },
+    "ui.ntidyhint": {
+      "text": "notes that are linked to no other note, and links whose target is not there",
+      "hash": "ab272500c7f7a9d90c6de2a9587ca22f2db3de3b"
+    },
+    "ui.ntidymissing": {
+      "text": "no note or source by that name",
+      "hash": "1535405b43dce5ce22bbcfca5b05b1fbba0e79cd"
+    },
+    "ui.ntidymore": {
+      "text": "Showing the first {n}.",
+      "hash": "eb0cd6d3f4f4c69f504e9a5b0394c07da83117c4"
+    },
+    "ui.ntidynone": {
+      "text": "Nothing here.",
+      "hash": "7f420221dbfdcd3437ad530576a73fed5bb53844"
+    },
+    "ui.ntidyshow": {
+      "text": "Tidy up",
+      "hash": "41ad80b52855132a8a81055f55c9aeea56bd6c7d"
+    },
+    "ui.ntidytrunc": {
+      "text": "This team has more links than one read covers, so notes without links are not listed and the list below may be short.",
+      "hash": "976aac208708f5052f472beffec5162cc9f8891b"
+    },
+    "ui.ntidyunlinked": {
+      "text": "Not linked to any note ({n})",
+      "hash": "8572a86eb85070e670f37ccf0a5557a70c8b5d2d"
+    },
+    "ui.ntidyunlinkedhint": {
+      "text": "these link to no note and no note links to them",
+      "hash": "071009cbb972d44d9fc113d0543d86e9b4319d9c"
+    },
     "ui.featallow": {
       "text": "Allow",
       "hash": "3ad0e3698278f45b2af94445396e9865f213f617"
@@ -1926,6 +1978,10 @@
     "doc.route.get.api.notes.graph": {
       "text": "The team's note graph, as nodes and edges (#247). `?note=<id>` is the DEFAULT view and the one the console asks for: that note's neighbourhood, `?depth=` hops out (1-3, clamped), undirected because what links here is half of what a reader wants. With no `?note=` it answers the whole team, isolated notes included. The node set is capped: `truncated` says some were left out and `reason` says which bound was reached (`cap` for a team larger than the picture, `neighbourhood` for a walk that filled it, `scan` for the link window). A target that resolves to no note is a node of its own carrying the text its author typed, so a note nobody has written yet is visible as the thing several notes point at; a target two notes share resolves to neither, so it is only counted, in `ambiguous`. An edge whose other end the caller may not read is simply absent, exactly as it is on the links read. The notes graph is the team's own authored links and is NOT joined to the knowledge graph.",
       "hash": "94b578b072ed353d9a0e6f6b6b965904d995a113"
+    },
+    "doc.route.get.api.notes.tidy": {
+      "text": "Two lists for keeping a team's notes connected. `unlinked` is the notes that link to no note and that no note links to; `broken` is the links whose target resolves to nothing, each with the note that carries it and a `reason` of `missing` or `ambiguous`. Both are resolved for the caller, as the links panel does, so a link to a note the caller may not read is reported as `missing` and a link from one counts for nothing. A link to a document or a bookmark does not take a note off the unlinked list. Each list holds at most 100 entries and the `_total` beside it says how many there are. When the team has more links than one read scans, `truncated` is true, `unlinked` is null and `broken` may be short.",
+      "hash": "37d55d803a28f670197b724373a372ea5506a5fa"
     },
     "doc.tool.doc_set_type.review": {
       "text": "The review id, for provenance",

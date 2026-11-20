@@ -171,13 +171,15 @@ async function notesView(){
   // edges do: a fourth sequential await is 300ms a call, and the picture is
   // computed from the response rather than fetched a second time. Closed, it
   // costs no request at all.
-  const [r, tg, mem, lk, fo, gr] = await Promise.all([
+  const [r, tg, mem, lk, fo, gr, td] = await Promise.all([
     api('/api/notes'+notesQuery()),
     api('/api/note-tags'),
     api('/api/members'),
     S.noteShow ? api('/api/notes/'+encodeURIComponent(S.noteShow)+'/links') : Promise.resolve(null),
     focus ? api('/api/notes/'+encodeURIComponent(focus)) : Promise.resolve(null),
-    S.graphOpen ? api('/api/notes/graph'+graphQuery()) : Promise.resolve(null)
+    S.graphOpen ? api('/api/notes/graph'+graphQuery()) : Promise.resolve(null),
+    // the tidying lists ride the same round, and cost nothing while closed
+    S.tidyOpen ? api('/api/notes/tidy') : Promise.resolve(null)
   ]);
   const edges = (lk && lk.ok) ? lk.json : null;
   const focused = (fo && fo.ok) ? fo.json : null;
@@ -228,11 +230,20 @@ async function notesView(){
   // the graph sits under the card it is about and above the listing: it is a
   // picture OF a note when one is focused, and a map of the team when not
   const G = (gr && gr.ok) ? gr.json : null;
-  const graph = G
-    ? noteGraphCard(G, (G.nodes||[]).filter(n=>n.focus).map(n=>n.title)[0] || '')
-    : `<div class="row" style="margin-top:10px"><div style="flex:0 0 auto">
+  // closed, the graph and the tidying lists are one row of two buttons; open,
+  // each is a card under the note card and its button is gone from the row
+  const T = (td && td.ok) ? td.json : null;
+  const graphBtn = G ? '' : `<div style="flex:0 0 auto">
         <button class="btn sm ghost" data-h-click="${H(()=>graphOpen(S.noteShow||null))}"
-          title="${t('ngraphhint')}">${t('ngraphshow')}</button></div></div>`;
+          title="${t('ngraphhint')}">${t('ngraphshow')}</button></div>`;
+  const tidyBtn = T ? '' : `<div style="flex:0 0 auto">
+        <button class="btn sm ghost" data-h-click="${H(()=>tidyOpen())}"
+          title="${t('ntidyhint')}">${t('ntidyshow')}</button></div>`;
+  const tools = (graphBtn || tidyBtn)
+    ? `<div class="row" style="margin-top:10px;gap:8px">${graphBtn}${tidyBtn}<div style="flex:1"></div></div>`
+    : '';
+  const graph = (G ? noteGraphCard(G, (G.nodes||[]).filter(n=>n.focus).map(n=>n.title)[0] || '') : '')
+    + (T ? noteTidyCard(T) : '') + tools;
   return `<h2>${t('notes')}</h2>${card}${graph}${orgImportStrip()}${filter}${list}`;
 }
 

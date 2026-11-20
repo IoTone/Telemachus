@@ -3420,6 +3420,24 @@ assert "graph: a nonsense depth is clamped, not refused" \
 assert "graph: …and so is a negative one"             \
   "$(curl -s "$B/api/notes/graph?note=$GHID&depth=-1" -H "Authorization: Bearer $OP")" '"depth":1'
 
+# The tidying lists, over the notes this block just made. The route is above
+# `/api/notes/:id` for the graph's reason, and the first assertion says so.
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"Tidy loner 7731","body":"links to nothing"}' >/dev/null
+curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"Tidy dangling 7731","format":"org","body":"[[Tidy nowhere 7731]]"}' >/dev/null
+TD="$(curl -s "$B/api/notes/tidy" -H "Authorization: Bearer $OP")"
+assert "tidy: /api/notes/tidy is the lists and not a note id" "$TD" '"unlinked":'
+refute "tidy: …so it is not answered as a missing note"       "$TD" 'not found'
+assert "tidy: a link to nothing is listed with its target"    "$TD" '"target":"Tidy nowhere 7731"'
+assert "tidy: …and with why"                                  "$TD" '"reason":"missing"'
+TDU="$(printf '%s' "$TD" | python3 -c 'import sys,json; print("|".join(n["title"] for n in json.load(sys.stdin)["unlinked"]))')"
+TDB="$(printf '%s' "$TD" | python3 -c 'import sys,json; print("|".join(n["title"] for n in json.load(sys.stdin)["broken"]))')"
+assert "tidy: a note with no links is on the unlinked list"   "$TDU" 'Tidy loner 7731'
+refute "tidy: …and a note another note links to is not"       "$TDU" 'Graph hub'
+assert "tidy: the note carrying the dead link is named"       "$TDB" 'Tidy dangling 7731'
+assert "tidy: nothing was cut on a team this size"            "$TD" '"truncated":false'
+
 # ORG-8 through the drawing — an unresolved target is a NODE, carrying the text
 # its author typed, so "several notes point at a note nobody has written" is
 # visible. That is org-roam's and Obsidian's own behaviour.

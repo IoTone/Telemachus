@@ -1869,6 +1869,25 @@
   (check-equal? (remove* keys shipped) '()
                 "a ui.ngraph* string nothing asks for means a label was typed in place"))
 
+(test-case "every ui.ntidy* string the tidying card shows is in the catalogs, both ways"
+  ;; both directions, as for the graph: a label typed in place leaves the scan,
+  ;; so the catalog's own keys must each be asked for too
+  (define src (string-append (file->string (build-path console-dir "23-notetidy.js"))
+                             "\n"
+                             (file->string (build-path console-dir "03-tabs.js"))))
+  (define keys
+    (remove-duplicates
+     (map cadr (regexp-match* #px"'(ntidy[a-z]*)'" src #:match-select values))))
+  (check-equal? (length keys) 13 "every label the card draws comes from the catalog")
+  (define en (file->string (build-path console-dir "../ui-strings.json")))
+  (for ([k (in-list keys)])
+    (check-true (and (regexp-match? (regexp (string-append "\"ui\\." (regexp-quote k) "\"")) en) #t)
+                (format "ui.~a is missing from static/ui-strings.json" k)))
+  (define shipped
+    (map cadr (regexp-match* #px"\"ui[.](ntidy[a-z]*)\"" en #:match-select values)))
+  (check-equal? (remove* keys shipped) '()
+                "a ui.ntidy* string nothing asks for means a label was typed in place"))
+
 (test-case "every class the graph draws has a rule in the shell"
   ;; #178's lesson: a class that matches no rule fails nothing and ships a bare
   ;; user-agent element. The six buttons on the Workers card were like that for
