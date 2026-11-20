@@ -2914,9 +2914,8 @@ RESEARCH_TEST_URL=https://example.com/ bash test/server-smoke.sh   # …plus the
   `(require (file "/abs/path.rkt"))`. Second appearance.
 
 **Not built at THIS slice, deliberately**: slice 2's distillation (built the
-next day — the section below), RG‑12's scheduled re-fetch and its per-host
-courtesy delay (off unless configured, and the `etag`/`last_modified` columns are
-already stored for it), a console screen, and everything below RG‑14 — which is a
+next day — the section below), RG‑12's scheduled re-fetch (built later — see
+"Bookmarks re-fetched on a timer"), a console screen, and everything below RG‑14 — which is a
 product question, not a technical one, and nothing should start on a guess.
 
 ## The distillation, and the deadlock it found (RG‑24…27, issue #191 slice 2)
@@ -3010,6 +3009,44 @@ raco test test/flow-tests.rkt                                          # 34 case
   were patched into `locales/ja.json` TEXTUALLY, beside `doc.perm.research:use`
   — 16 added lines, no reordering.
 
+
+## Bookmarks re-fetched on a timer (RG‑12, RG‑28…34, issue #191)
+
+`domain/research/refetch.rkt`; `#:scheduled?` on `research-fetch!`;
+`GET`/`PUT /api/research/refetch`; job kind `research.refetch`. **No migration,
+no new permission, no environment variable, no console control.**
+
+```sh
+raco test test/research-refetch-tests.rkt test/research-tests.rkt   # 15 + 18 cases, ten controls
+bash test/server-smoke.sh                                           # the "refetch:" block, 15 assertions
+```
+
+- **Off until a team turns it on.** `PUT /api/research/refetch {"every_seconds": n}`
+  needs `jobs:schedule`; `null` turns it off; an absent field is a 400, not "off".
+  Reading the setting needs `research:use`.
+- **The setting is an `instance_settings` document (`research-refetch:<team>`) that
+  owns one `job_schedules` row**, FEED‑21's shape. `enabled` is read from the
+  schedule row, so a schedule deleted from the schedules plane reports off.
+- **The job's payload is empty.** The team is the job's own and the interval is
+  read from the setting at run time, so a hand-made schedule of this kind on a
+  team that never turned it on reports "not configured" and fetches nothing.
+- **The bounds are constants in `refetch.rkt`**: one-hour floor, 20 per run, 5
+  seconds between requests to one host, 5 requests per host per run. Deferred
+  bookmarks stay the stalest, so the next run takes them first.
+- **`#:scheduled? #t` changes two things in `research-fetch!` and nothing else**:
+  the request is conditional when the archive exists, and unchanged bytes write
+  no new version. A manual fetch is unchanged and still writes a version row.
+- **A 304 is a success only when a condition was sent.** `record-research-fetch!`
+  takes `#:not-modified?` from the caller and does not infer it from the status.
+- **Each fetch acts as the bookmark's own user** (`research-member?`, then
+  `user-principal`). A bookmark whose user has left is skipped and counted as
+  `no_user`.
+- **A refused budget stops the run** (`stopped: "quota"`); nothing is sent for the
+  bookmark that was refused.
+- **The fetch seam takes `(url)` or `(url headers)`**, chosen by arity, so the
+  older one-argument test seams still work.
+- **Tests pass a clock that never moves** (`#:clock`), so the full host delay is
+  always owed and the `#:sleep` seam records it without waiting.
 
 ## The Research tab: what a bookmark said, drawn (RG-9, #191 slice 3)
 

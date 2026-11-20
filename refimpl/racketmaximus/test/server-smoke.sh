@@ -4174,6 +4174,44 @@ assert "research: a bookmark can be forgotten" \
 assert "research: …and forgetting it twice is a 404 rather than a second success" \
   "$(curl -s -X DELETE $B/api/research/$RSID -H "Authorization: Bearer $OP")" 'no such bookmark'
 
+# RG-12: re-fetching on a timer. OFF unless a team turns it on, and turning it on
+# is a steward's act. What a RUN does is test/research-refetch-tests.rkt's, for
+# the reason given below: no socket this suite can open is one a research fetch
+# may reach. Asserted with a MEMBER as well as the operator, because the operator
+# passes every team-tier permission and would pass against a server checking none.
+RF=$(curl -s $B/api/research/refetch -H "Authorization: Bearer $OP")
+assert "refetch: off unless configured" "$RF" '"enabled":false'
+assert "refetch: …and the floor is reported, so nobody learns it from a refusal" "$RF" '"min_seconds":3600'
+refute "refetch: …with no interval claimed while it is off" "$RF" '"every_seconds"'
+assert "refetch: the route is not read as a bookmark id" "$RF" '"host_delay_seconds"'
+assert "refetch: a member may read the setting" \
+  "$(curl -s $B/api/research/refetch -H "Authorization: Bearer $CAROL")" '"enabled":false'
+assert "refetch: …and may not turn it on" \
+  "$(curl -s -X PUT $B/api/research/refetch -H "Authorization: Bearer $CAROL" -H 'Content-Type: application/json' \
+       -d '{"every_seconds":86400}')" 'Forbidden: jobs:schedule'
+assert "refetch: a viewer may not read it" \
+  "$(curl -s $B/api/research/refetch -H "Authorization: Bearer $VERA")" 'Forbidden: research:use'
+assert "refetch: an interval under an hour is refused by name" \
+  "$(curl -s -X PUT $B/api/research/refetch -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+       -d '{"every_seconds":600}')" 'at least 3600'
+assert "refetch: a body that forgot the field is not read as off" \
+  "$(curl -s -X PUT $B/api/research/refetch -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+       -d '{}')" 'every_seconds` is required'
+RFON=$(curl -s -X PUT $B/api/research/refetch -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+       -d '{"every_seconds":86400}')
+assert "refetch: the operator turns it on" "$RFON" '"enabled":true'
+assert "refetch: …at the interval asked for" "$RFON" '"every_seconds":86400'
+assert "refetch: …and it is an ordinary schedule of the platform's own kind" \
+  "$(curl -s $B/api/schedules -H "Authorization: Bearer $OP")" '"kind":"research.refetch"'
+assert "refetch: the member now sees it on" \
+  "$(curl -s $B/api/research/refetch -H "Authorization: Bearer $CAROL")" '"enabled":true'
+# …and off again, or a timer is left behind for every later block.
+RFOFF=$(curl -s -X PUT $B/api/research/refetch -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+       -d '{"every_seconds":null}')
+assert "refetch: null turns it off" "$RFOFF" '"enabled":false'
+refute "refetch: …and the schedule goes with it" \
+  "$(curl -s $B/api/schedules -H "Authorization: Bearer $OP")" '"kind":"research.refetch"'
+
 # THE ARCHIVE ITSELF CANNOT BE DRIVEN OVER HTTP IN CI, AND THAT IS THE POLICY
 # WORKING RATHER THAN A GAP TO PAPER OVER. `'untrusted` refuses every address a
 # test can listen on — loopback, private, link-local — and the allowlist does not

@@ -59,7 +59,8 @@
 (provide RESEARCH-MAX-NOTE RESEARCH-MAX-URL
          canonical-url research-problem research-key
          research-create! research-list research-get research-by-id research-by-url research-delete!
-         research-fetch! record-research-fetch! RESEARCH-DIM)
+         research-fetch! record-research-fetch! RESEARCH-DIM
+         research-member?)
 
 ;; A fetch failure is somebody else's server's words about a URL a member chose,
 ;; so the column is sealed under the CONTENT switch (RG-3, #83 r4's reason) and
@@ -296,6 +297,11 @@
   (define r (query-maybe-row conn (string-append SELECT "WHERE s.id = ?") id))
   (and r (row->source r)))
 
+;; Exported under a name that says whose rule it is: the scheduled re-fetch
+;; (RG-28) asks it before acting as a bookmark's user, and a second copy of the
+;; membership query there would be the one that forgot `status = 'active'`.
+(define (research-member? conn team user) (active-member? conn team user))
+
 (define (active-member? conn team user)
   (and (string? user)
        (not (string=? user ""))
@@ -341,7 +347,8 @@
 (define (record-research-fetch! conn id #:status [status #f] #:error [error #f]
                                 #:content-type [content-type #f] #:sha256 [sha #f]
                                 #:bytes [nbytes #f] #:etag [etag #f] #:last-modified [lm #f]
-                                #:object [object #f] #:key [key #f])
+                                #:object [object #f] #:key [key #f]
+                                #:not-modified? [not-modified? #f])
   (query-exec conn (string-append "UPDATE research_sources SET fetched_epoch = ?, last_status = ?, "
                                   "last_error = ?, fetches = fetches + 1 WHERE id = ?")
               (now) (or status sql-null)
@@ -351,7 +358,11 @@
   ;; of failures — which is the figure somebody wants when a bookmark has been
   ;; quietly 404ing for a month. FEED's own rule, and the test has to AGE the row
   ;; to see it, because the column is seconds.
-  (when (and status (>= status 200) (< status 300))
+  ;; A 304 to a conditional request is the source saying the page is there and
+  ;; is the one already archived, so "it last worked at" moves (RG-30). The
+  ;; caller says so; it is not inferred from the number, because a 304 nobody
+  ;; asked for is a source misbehaving and must stay a failure.
+  (when (or not-modified? (and status (>= status 200) (< status 300)))
     (query-exec conn "UPDATE research_sources SET last_ok_epoch = ? WHERE id = ?" (now) id))
   ;; Column by column, each under its own `when`. One UPDATE built with a
   ;; conditional clause list and a fixed argument list is how a clause and its
@@ -383,7 +394,19 @@
 ;; the real fetcher, so no production caller chooses.
 (define RESEARCH-DIM "research.fetches")
 
-(define (research-fetch! conn p row #:fetch [do-fetch #f])
+;; `#:scheduled?` is the unattended caller (RG-28…32) and changes two things,
+;; both of them courtesy rather than policy:
+;;
+;;   • the request is CONDITIONAL when there is an archive to be unchanged
+;;     against, from the `etag` and `last_modified` every fetch has stored since
+;;     slice 1, so a stable page costs the source a 304 and no body;
+;;   • bytes identical to the digest already held write NO new version. A person
+;;     pressing Fetch gets a version row saying they looked; a timer writing one
+;;     a day for a page that never changes is a history nobody can read.
+;;
+;; The egress policy, the budget and the order between them are NOT different:
+;; a scheduled fetch is charged per request and before it, exactly as RG-17 says.
+(define (research-fetch! conn p row #:fetch [do-fetch #f] #:scheduled? [scheduled? #f])
   (define id (hash-ref row 'id))
   (define url (hash-ref row 'url))
   ;; THE BUDGET IS ASKED HERE, NOT AT THE TWO ENDPOINTS, and that is FEED-9's
@@ -401,9 +424,21 @@
      (hasheq 'ok #f 'reason "quota" 'quota budget 'status 'null)]
     [else
      (tenant-quota-record! conn p RESEARCH-DIM 1)
-     (research-fetch-now! conn p row id url do-fetch)]))
+     (research-fetch-now! conn p row id url do-fetch scheduled?)]))
 
-(define (research-fetch-now! conn p row id url do-fetch)
+;; Only when the archive is really there (RG-23's join): a 304 against a
+;; document retention has since deleted would leave the bookmark with nothing
+;; behind it and a status saying all is well.
+(define (conditional-headers row)
+  (define etag (field row 'etag))
+  (define lm (field row 'last_modified))
+  (append (if (string? etag) (list (cons "If-None-Match" etag)) '())
+          (if (string? lm) (list (cons "If-Modified-Since" lm)) '())))
+
+(define (research-fetch-now! conn p row id url do-fetch scheduled?)
+  (define archived? (string? (field row 'object_id)))
+  (define request-headers (if (and scheduled? archived?) (conditional-headers row) '()))
+  (define conditional? (pair? request-headers))
   (define outcome
     (with-handlers
       ([exn:fail:egress?
@@ -419,14 +454,21 @@
         (lambda (e) (hasheq 'ok #f 'reason "failed"
                             'error (if (exn? e) (exn-message e) (format "~a" e))))])
       (define-values (status hs body)
-        (if do-fetch
-            (do-fetch url)
+        (cond
+          ;; A test's seam takes the URL, and the headers too when it wants to
+          ;; see them. The arity decides, so every one-argument seam is untouched.
+          [(and do-fetch (procedure-arity-includes? do-fetch 2)) (do-fetch url request-headers)]
+          [do-fetch (do-fetch url)]
+          [else
             (fetch url
                    ;; RG-3. Passed EXPLICITLY although it is the fetcher's
                    ;; default, because this is the decision of the slice and a
                    ;; reader must be able to see it made rather than inherited.
-                   #:policy 'untrusted)))
-      (hasheq 'ok (and (>= status 200) (< status 300))
+                   #:policy 'untrusted
+                   #:headers request-headers)]))
+      (hasheq 'ok (or (and (>= status 200) (< status 300))
+                      (and conditional? (= status 304)))
+              'not-modified (and conditional? (= status 304))
               'status status
               'headers hs
               'body body
@@ -441,6 +483,11 @@
      (hasheq 'ok #f
              'reason (hash-ref outcome 'reason "refused")
              'status (or (hash-ref outcome 'status #f) 'null))]
+    [(hash-ref outcome 'not-modified #f)
+     (record-research-fetch! conn id #:status 304 #:error #f #:not-modified? #t)
+     (hasheq 'ok #t 'status 304 'unchanged #t 'stored #f
+             'key (or (field row 'object_key) 'null)
+             'object_id (field row 'object_id))]
     [else
      (define body (hash-ref outcome 'body))
      (define hs (hash-ref outcome 'headers))
@@ -458,7 +505,10 @@
      ;; interesting.
      (define key (or (field row 'object_key) (research-key id url (ext-for ctype))))
      (define unchanged? (equal? digest (field row 'content_sha256)))
+     (define skip-put? (and scheduled? archived? unchanged?))
      (define obj
+       (if skip-put?
+           (hasheq 'id (field row 'object_id))
        (repo-put! conn p #:key key #:port (open-input-bytes body)
                   #:content-type ctype
                   ;; The TITLE rides in the version's filename, which is what
@@ -472,7 +522,7 @@
                   ;; `text/html` SHOULD fire on a page somebody bookmarked;
                   ;; that is the whole point of slice 2's distillation being a
                   ;; workflow. Left #f deliberately rather than by omission.
-                  #:as (hash-ref row 'user_id)))
+                  #:as (hash-ref row 'user_id))))
      (record-research-fetch! conn id
                              #:status (hash-ref outcome 'status)
                              #:error #f
@@ -496,6 +546,7 @@
              ;; archive and the alternative is a gap nobody can distinguish from
              ;; not having looked.
              'unchanged unchanged?
+             'stored (not skip-put?)
              'key key
              'object_id (hash-ref obj 'id)
              'version_id (hash-ref obj 'version_id (hash-ref obj 'id)))]))

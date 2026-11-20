@@ -3,7 +3,8 @@
 ;; server/api/research.rkt — the research archive (#191 slice 1, RG-1/-3/-11).
 
 (provide ep-research-list ep-research-create ep-research-get ep-research-delete
-         ep-research-fetch ep-research-entities ep-research-notes)
+         ep-research-fetch ep-research-entities ep-research-notes
+         ep-research-refetch-get ep-research-refetch-put)
 
 (require db-kit/portable
          web-kit
@@ -17,6 +18,7 @@
          (only-in "../../domain/research/research.rkt"
                   canonical-url research-problem research-create! research-list research-get
                   research-delete! research-fetch!)
+         (only-in "../../domain/research/refetch.rkt" refetch-problem refetch-config refetch-set!)
          "../admission.rkt"
          "../kit.rkt")
 
@@ -60,6 +62,40 @@
     (if row
         (json-response (hasheq 'source_id id 'notes (notes-citing-bookmark db-conn p row)))
         (err "no such bookmark" 404)))))
+
+;; ---- RG-12: re-fetching on a timer ------------------------------------------------
+;; Reading the setting is `research:use`, because a member looking at a bookmark
+;; should be able to see whether it will be read again. TURNING IT ON is
+;; `jobs:schedule`: it makes this instance send requests to other people's sites
+;; unattended and spend the team's `research.fetches` while nobody is watching,
+;; which is a steward's decision and is the permission every other timer here is
+;; behind.
+(define (ep-research-refetch-get req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "research:use")
+    (json-response (refetch-config db-conn (principal-team-id p))))))
+
+(define (ep-research-refetch-put req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "jobs:schedule")
+    (define b (read-json-body req))
+    (define every (hash-ref b 'every_seconds 'missing))
+    (cond
+      ;; An absent key is not "off": a client that forgot the field must not
+      ;; silently stop a team's archive being kept current.
+      [(eq? every 'missing)
+       (err "`every_seconds` is required: a number of seconds, or null to turn re-fetching off" 400)]
+      [(refetch-problem every) => (lambda (m) (err m 400))]
+      [else
+       (define team (principal-team-id p))
+       (define out (refetch-set! db-conn team (principal-user-id p)
+                                 (if (eq? every 'null) #f every)))
+       (audit! db-conn #:action "research.refetch.configured" #:result "ok"
+               #:actor-id (principal-user-id p)
+               #:team-id team
+               #:resource-type "research"
+               #:meta (jsexpr->string (hasheq 'every_seconds every)))
+       (json-response out)]))))
 
 (define (ep-research-get req id)
   (with-auth req (lambda (p)

@@ -5283,6 +5283,14 @@
       "text": "The notes that cite this document with a `[[doc:…]]` link, by its id or its key. Only notes the caller may read are listed, and nothing counts the others.",
       "hash": "bf0a9be6fed6d444907b1847aa22774d98c29966"
     },
+    "doc.route.get.api.research.refetch": {
+      "text": "Whether this team's bookmarks are re-fetched on a timer, and how: `enabled`, and when it is, `every_seconds` with the next and last run. Also the bounds that apply — the shortest interval, how many bookmarks one run fetches, and the delay and cap per host. It is off unless a team turns it on, and `enabled` is read off the schedule that fires it, so it cannot say on with nothing running.",
+      "hash": "549f44da72851d4a2d3b945563f75c4ae54fbd9d"
+    },
+    "doc.route.put.api.research.refetch": {
+      "text": "Turn scheduled re-fetching on, retune it, or turn it off: `every_seconds`, or `null` for off. Each run takes the bookmarks whose last fetch is at least that old, stalest first, up to a fixed number per run. It waits between two requests to the same host and sends one host only a few per run. Requests are conditional, so an unchanged page costs its site a 304, and unchanged bytes write no new version. Every fetch acts as the bookmark's own user, is the same untrusted egress as a manual fetch, and is charged to `research.fetches` before it is sent; a spent budget stops the run. The shortest interval is one hour. `robots.txt` is not consulted.",
+      "hash": "4b5f1bc13d80544284000981da23b9801af44810"
+    },
     "doc.route.get.api.research.id.notes": {
       "text": "The notes that cite this bookmark with a `[[bookmark:…]]` link, by its id or by any URL with the same canonical form. Only notes the caller may read are listed, and nothing counts the others.",
       "hash": "822f3c0fe419804ad017bbd261e87ed0bfd7b731"
