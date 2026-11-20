@@ -168,7 +168,12 @@
                 'tokens_used tokens)])]
     [else (extract-one-repo conn p id)]))
 
+;; the repository arm, split out so the source arm is not two hundred lines of nesting. The
+;; permission is asked AGAIN here rather than only in `extract-one`, because #113's shape in
+;; this tree is a capability one level down that nothing enforces, and this function is
+;; reachable from anywhere in the module.
 (define (extract-one-repo conn p id)
+  (require-perm conn p "chat:use")
   (define o (repo-get conn p id))
   (unless o (error 'kg_extract "no such document: ~a" id))
   (define text (let ([t (repo-text-for conn id)]) (if (or (not t) (sql-null? t)) "" t)))

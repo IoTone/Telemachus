@@ -377,6 +377,62 @@ about and the org gate has no tenant to scope to. Use a job kind (§6) for
 anything that acts. A *recurring* job — "every N minutes" — has no primitive yet;
 `set-reaper!` is the platform's own private seam, not a plugin-facing one.
 
+## 6c. Lend your documents to the knowledge graph
+
+If you keep your own documents in your own tables, the graph cannot see them. It extracts from
+repository documents, so `POST /api/kg/extract` would queue a workflow over an empty set and the
+graph would stay empty with nothing reporting a problem. Register an extraction source and your
+documents are enumerated, extracted, cited, drawn and forgotten exactly as a repository document
+is:
+
+```racket
+(require (only-in "../kg/sources.rkt" register-extraction-source!))
+(require (only-in "../kg/kg.rkt" kg-source-forget!))
+
+(define (init!)
+  (register-extraction-source!
+   "acme"                              ; lowercase, no colon, matches [a-z][a-z0-9._-]{0,63}
+   (hasheq
+    'list    (lambda (conn p team limit) (listof your-doc-id))
+    'see     (lambda (conn p team doc-id) (or (and (may-read? conn p team doc-id) (hasheq 'key "the label a citation shows")) #f))
+    'version (lambda (conn p team doc-id) (or (current-version doc-id) #f))
+    'text    (lambda (conn p team doc-id) (or (extracted-text doc-id) "")))))
+```
+
+Four procedures rather than one because the costs differ. `see` is asked once per mention on
+every graph read, so it must be cheap and must not open a document. `text` is asked once per
+document and only when it is about to be sent to a model.
+
+What to get right:
+
+- **`see` is the security boundary, and it is asked with the team the mention was recorded for**,
+  not the caller's team, so a fact recorded for one team is unreachable from another whatever you
+  answer. A bare id is asked about the caller's own team. Return `#f` for "not readable" rather
+  than raising, and treat `team` = `#f` (an operator principal) as not readable.
+- **The `key` is what a citation shows**, so return something a person recognises. It is only
+  ever asked about a document `see` has just admitted.
+- **`version` is required and must move when the text changes.** A version you cannot name is a
+  refusal, and extraction will not write it. Nothing derived from a clock is right here if the
+  text can change twice in one second; a digest of the text is exact and costs what reading the
+  row costs.
+- **`list` is filtered for you, twice**: by `see`, and by whether that version is already
+  extracted. So it may return documents that are already done. It is asked again with a wider
+  window when a page turns out to be entirely extracted, so returning a stable ordered page is
+  enough and returning the same page for ever costs three calls and stops.
+- **Delete must forget.** A plugin's delete never reaches the repository's delete hook, so call
+  `(kg-source-forget! conn "acme" doc-id)` when the document goes, or its mentions stay and are
+  visible only as untraceable facts.
+- **Do not write the repository's tables and do not build the id yourself.** `kg-source-id` owns
+  the format and the platform is the only other place that takes one apart.
+- **Only the first 12,000 characters are read.** A long document yields a partial graph, and the
+  screen should say which part was read.
+
+You get the four `/api/kg` routes, the shipped `index-knowledge` workflow, the drawing with its
+cap and `truncated` flag, and the citation rule, without writing graph code. You also take on
+this: the graph becomes as readable as your `see` decides, so a plugin whose visibility is
+org-wide lends its facts to every team in the company. That is your rule being honoured, not a
+widening by the platform, and it is why `see` is asked per document with a team.
+
 ## 7. The signup funnel
 
 Separate from the product and skinnable on its own: **Tier A** the built-in themeable

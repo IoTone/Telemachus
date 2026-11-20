@@ -71,7 +71,16 @@
 ;; THE PLUGIN NEVER COMPOSES THIS ID and the platform takes one apart nowhere else, so the
 ;; format has one home. A repository id is a UUIDv4 (`db/id.rkt:18-26`), which is hex and
 ;; dashes, so it cannot begin with the prefix and the two id spaces cannot collide.
-(define (kg-source-id source doc-id) (format "kg-src:~a:~a" source doc-id))
+;; IT VALIDATES, because an id that does not parse does not fail loudly: it makes every mention
+;; written under it invisible on the next read, which is a document that silently contributes
+;; nothing. Registration would have refused this name and the pattern cannot match an empty doc
+;; id, so both are refused here too rather than producing an id that resolves to nothing.
+(define (kg-source-id source doc-id)
+  (unless (and (string? source) (regexp-match? SOURCE-NAME-RX source))
+    (error 'kg-source-id "not a source name this registry accepts: ~s" source))
+  (unless (and (string? doc-id) (not (string=? doc-id "")))
+    (error 'kg-source-id "~a: a document id must be a non-empty string, not ~s" source doc-id))
+  (format "kg-src:~a:~a" source doc-id))
 
 (define (kg-source-id? v) (and (string? v) (regexp-match? KG-SOURCE-ID-RX v) #t))
 

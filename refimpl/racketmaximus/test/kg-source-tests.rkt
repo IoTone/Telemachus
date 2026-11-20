@@ -89,7 +89,13 @@
     (check-false (kg-source-id-split u)))
   ;; and the prefix is not enough on its own
   (for ([bad '("kg-src:" "kg-src:rcnt" "kg-src::doc" "kg-src:Upper:doc" "xkg-src:rcnt:doc" "")])
-    (check-false (kg-source-id? bad))))
+    (check-false (kg-source-id? bad)))
+  ;; building one refuses the two inputs that would produce an id no read can resolve,
+  ;; because an unparseable id is a document that silently contributes nothing
+  (for ([bad '("" "RCNT" "rc nt" "rcnt:sub" 7 #f)])
+    (check-exn #rx"not a source name" (lambda () (kg-source-id bad "d1"))))
+  (for ([bad '("" 7 #f (list 1))])
+    (check-exn #rx"non-empty string" (lambda () (kg-source-id "rcnt" bad)))))
 
 ;; ---- 5. registration ---------------------------------------------------------------------
 (test-case "a name outside the grammar is refused, naming the pattern"
@@ -346,3 +352,51 @@
                  (check-equal? (length (kg-list-unextracted conn alice #:limit 3)) 3)
                  (check-equal? (length (kg-list-unextracted conn alice #:limit 7)) 7)
                  (check-equal? (length (kg-list-unextracted conn alice #:limit 100)) 10))))
+
+;; ---- the drain cannot be starved by an already-extracted page --------------------------------
+(test-case "a page whose contents are all extracted does not starve the documents behind it"
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  ;; three documents, the first two already extracted for the version the source reports
+  (define docs (for/hash ([i (in-range 3)])
+                 (values (format "d~a" i) (hasheq 'version "v1" 'text "Acme Robotics hired."))))
+  (for ([i (in-range 2)])
+    (note-doc! conn tid (kg-source-id "rcnt" (format "d~a" i)) "v1"))
+  (with-source "rcnt"
+               (hasheq 'list (lambda (c p team limit)
+                               (define ks (sort (hash-keys docs) string<?))
+                               (if (> (length ks) limit) (take ks limit) ks))
+                       'see (lambda (c p team doc) (hasheq 'key doc))
+                       'version (lambda (c p team doc) "v1")
+                       'text (lambda (c p team doc) "Acme Robotics hired."))
+               (lambda ()
+                 ;; a window of one would see d0, find it extracted, and answer nothing
+                 (check-equal? (kg-list-unextracted conn alice #:limit 1)
+                               (list (kg-source-id "rcnt" "d2"))))))
+
+;; ---- no source can starve another ----------------------------------------------------------
+(test-case "two registered sources both get served, whatever the name order"
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (define (source-of prefix howmany)
+    (hasheq
+     'list (lambda (c p team limit)
+             (define ids (for/list ([i (in-range howmany)]) (format "~a-~a" prefix i)))
+             (if (> (length ids) limit) (take ids limit) ids))
+     'see (lambda (c p team doc) (hasheq 'key doc))
+     'version (lambda (c p team doc) "v1")
+     'text (lambda (c p team doc) "Acme Robotics hired.")))
+  (register-extraction-source! "aaa" (source-of "a" 20))
+  (register-extraction-source! "zzz" (source-of "z" 20))
+  (dynamic-wind
+   void
+   (lambda ()
+     (define got (kg-list-unextracted conn alice #:limit 4))
+     (check-equal? (length got) 4)
+     (check-true (for/or ([x (in-list got)]) (string-prefix? x "kg-src:zzz:"))
+                 "the later name is served even though the earlier one had enough to fill the batch"))
+   (lambda ()
+     (unregister-extraction-source! "aaa")
+     (unregister-extraction-source! "zzz"))))

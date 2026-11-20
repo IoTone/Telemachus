@@ -142,6 +142,14 @@
 (define (kg-source-forget! conn source doc-id)
   (kg-forget! conn (kg-source-id source doc-id)))
 
+;; is the CURRENT version of this id already extracted? The lister needs this for a source's
+;; ids, where there is no repository row to join against.
+(define (kg-extracted-version? conn object-id version-id)
+  (and (query-maybe-value conn
+         "SELECT 1 FROM kg_extractions WHERE object_id = ? AND version_id = ?"
+         object-id version-id)
+       #t))
+
 ;; objects whose CURRENT version has text in the index but no extraction for
 ;; that version — never-extracted and re-written-since both, keyed to the version
 ;;
@@ -181,13 +189,6 @@
 ;; documents waiting behind it. What remains is the residual the sibling lister
 ;; also carries — an unreadable document still occupies a slot — and it is
 ;; bounded by the same batch.
-;; is the CURRENT version of this id already extracted? Used by the lister for a source's ids,
-;; where there is no repository row to join against.
-(define (kg-extracted-version? conn object-id version-id)
-  (and (query-maybe-value conn
-         "SELECT 1 FROM kg_extractions WHERE object_id = ? AND version_id = ?"
-         object-id version-id)
-       #t))
 
 ;; TWO ARMS, ONE BUDGET. The repository is the first authority on "may read" and a registered
 ;; plugin source is the second (domain/kg/sources.rkt). `lim` is shared rather than handed to
@@ -219,21 +220,47 @@
       ;; `let-values` IS NOT DECORATION. A `for/fold` with two accumulators answers TWO values,
       ;; so it cannot sit where one list is expected: without this wrapper the module compiles
       ;; and the call fails at run time with "expected 1 value, received 2".
+      ;; A FAIR SHARE EACH, not first-come. Handing the whole remaining budget to the first
+      ;; source in name order starves every source after it whenever the first one has that many
+      ;; documents, and a drain stops when the lister answers nothing, so the starved source is
+      ;; never reached at all. Each source therefore gets an equal share of what is left, at
+      ;; least one slot, and the last one gets the remainder.
+      (define names (extraction-sources))
+      (define n (length names))
       (let-values ([(acc _left)
                     (for/fold ([acc '()] [left left])
-                              ([name (in-list (extraction-sources))] #:break (zero? left))
-                      (define offered
-                        (for/list ([doc-id (in-list (source-list name conn p team left))]
-                                   ;; #235's lesson applied to a source: filter with the
-                                   ;; authority about to be cited, so a source that offers
-                                   ;; something the caller cannot read cannot fail the run.
-                                   #:when (source-see name conn p team doc-id)
-                                   [v (in-value (source-version name conn p team doc-id))]
-                                   #:when (and v (not (kg-extracted-version? conn (kg-source-id name doc-id) v))))
-                          (kg-source-id name doc-id)))
-                      (define taken (if (> (length offered) left) (take offered left) offered))
+                              ([name (in-list names)] [i (in-naturals)] #:break (zero? left))
+                      (define remaining (- n i))
+                      (define share (min left (max 1 (ceiling (/ left remaining)))))
+                      (define taken (take-from-source name conn p team share))
                       (values (append acc taken) (- left (length taken))))])
         acc)])))
+
+;; A SOURCE CANNOT FILTER WHAT IS ALREADY EXTRACTED, and the repository arm can: its
+;; `x.object_id IS NULL` is in the SQL. A plugin must not read the graph's own tables, so it
+;; offers a page and the platform filters it, which means a page whose whole contents are
+;; extracted would leave the budget unfilled. A drain runs until it finds nothing, so that
+;; reads as "there is nothing left" and every document behind the page is starved, silently.
+;;
+;; So a short answer asks again with a wider window. Bounded at three rounds, and it stops when
+;; the source answers with fewer documents than it was asked for, which is how a lister says
+;; "that is all of them" without a new word in the contract. A source that answers the same
+;; page for ever costs three calls and stops rather than looping.
+(define (take-from-source name conn p team want)
+  (let loop ([asked (max 1 want)] [round 0])
+    (define raw (source-list name conn p team asked))
+    ;; #235's lesson applied to a source: filter with the authority about to be cited, so a
+    ;; source that offers something the caller cannot read cannot fail the run.
+    (define kept
+      (for/list ([doc-id (in-list raw)]
+                 #:when (source-see name conn p team doc-id)
+                 [v (in-value (source-version name conn p team doc-id))]
+                 #:when (and v (not (kg-extracted-version? conn (kg-source-id name doc-id) v))))
+        (kg-source-id name doc-id)))
+    (cond
+      [(>= (length kept) want) (take kept want)]
+      [(or (>= round 3) (< (length raw) asked)) kept]
+      [else (loop (* asked 4) (add1 round))])))
 
 ;; ---- read path: the mention rule ---------------------------------------------------------
 ;; THE ONE PLACE an object id becomes "a document this caller may read", for both arms.
@@ -260,6 +287,11 @@
                      (if eid "WHERE m.entity_id = ? " "WHERE m.relation_id = ? ")
                      "ORDER BY m.extracted_at DESC, m.id")
       (or eid rid)))
+  ;; THE MEMO IS SOUND BECAUSE ONE OBJECT HAS ONE TEAM. `kg-upsert!` deletes an object's
+  ;; mentions and rewrites them under the team it was handed, and `kg_extractions.object_id` is
+  ;; a primary key, so no object id can carry two teams' mentions. Without that, keying the
+  ;; memo on the object alone would answer the second team's question with the first team's
+  ;; verdict.
   (define seen (make-hash))
   (for*/list ([r (in-list rows)]
               [o (in-value (hash-ref! seen (vector-ref r 1)
