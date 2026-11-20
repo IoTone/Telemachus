@@ -1468,6 +1468,22 @@
       "text": "ほかのノートへのリンクがなく、ほかのノートからもリンクされていません",
       "hash": "071009cbb972d44d9fc113d0543d86e9b4319d9c"
     },
+    "ui.notetpl": {
+      "text": "テンプレート",
+      "hash": "3226ecbe650213a49cd03ae67140750e4f340083"
+    },
+    "ui.notetplblank": {
+      "text": "空のノート",
+      "hash": "540b90529960498b5786c5600b3b015651a85cd6"
+    },
+    "ui.notetplcheck": {
+      "text": "このノートを新しいノートのテンプレートとして使えるようにする",
+      "hash": "b027ed74024ba48db9fb9a603c96f1507c48e987"
+    },
+    "ui.notetplfrom": {
+      "text": "テンプレートから始める",
+      "hash": "61762f37645250c3dd7787dbaac3a2ce82920377"
+    },
     "ui.featallow": {
       "text": "許可する",
       "hash": "3ad0e3698278f45b2af94445396e9865f213f617"
@@ -2105,8 +2121,8 @@
       "hash": "e1c946b49eef17ee9ada6cc049495cf3904562ed"
     },
     "doc.route.post.api.notes": {
-      "text": "公開範囲を指定してノートを作成する。",
-      "hash": "41706c61c8faa1b2f86d5d59a34b621e2571df63"
+      "text": "公開範囲を指定してノートを作成する。 `template: true` を指定すると、そのノートはテンプレートになります。コンソールは新しいノートの出発点としてテンプレートを提示します。それ以外は通常のノートと同じです。",
+      "hash": "84ef14ede610a7b64769a6d9dfc504db87b9787b"
     },
     "doc.tool.doc_set_type.labels": {
       "text": "判断の基準となったラベル集合 — doc_classify に与えたものと同じもの",
@@ -4141,8 +4157,8 @@
       "hash": "694e98ff43653287a34b42e7e75e466a4beb43bd"
     },
     "doc.route.get.api.notes": {
-      "text": "呼び出し元が読めるノートを新しい順に 1 ページ分一覧し、`total`、`limit`、`offset` を併せて返します。`?limit=` の既定値は 50 で、上限は 200、`?offset=` で先へ進みます。`?tag=` は繰り返し指定でき、複数指定した場合は AND になります。`?scope=org` は会社内のすべてのチームにわたります（org_reader にはチーム公開のノートだけが見え、非公開のものは見えません）。`total` はウィンドウの件数で、呼び出し元が読める件数ではないため、ページが短く返ることがあります。",
-      "hash": "2d11e7134ba4c7c060720cde2602c4e84098d79f"
+      "text": "呼び出し元が読めるノートを新しい順に 1 ページ分一覧し、`total`、`limit`、`offset` を併せて返します。`?limit=` の既定値は 50 で、上限は 200、`?offset=` で先へ進みます。`?tag=` は繰り返し指定でき、複数指定した場合は AND になります。`?scope=org` は会社内のすべてのチームにわたります（org_reader にはチーム公開のノートだけが見え、非公開のものは見えません）。`total` はウィンドウの件数で、呼び出し元が読める件数ではないため、ページが短く返ることがあります。 `?template=1` はテンプレートだけを、`?template=0` はテンプレート以外を一覧します。どのノートにも `template` が付きます。",
+      "hash": "c06600e0b68dd08ebbf7543838f40a7d898a2055"
     },
     "doc.tool.create_note.title": {
       "text": "短いノートタイトル",
@@ -4253,8 +4269,8 @@
       "hash": "79b231e2c3b3f86ff407f006b6218a940dcb5f0f"
     },
     "doc.route.put.api.notes.id": {
-      "text": "ノートを更新します。",
-      "hash": "9da1644fbf93af774c049c9a79b4a9d6e310a00e"
+      "text": "ノートを更新します。 `template` (true または false) で、ノートをテンプレートにする、またはテンプレートから外すことができます。省略した場合は何も変わりません。",
+      "hash": "6ef4a89f6f2e15425f9f11e017e5f861de5dfe8e"
     },
     "doc.tool.chat_message.text": {
       "text": "ユーザーが言ったこと",

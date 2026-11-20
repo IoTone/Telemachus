@@ -1888,6 +1888,24 @@
   (check-equal? (remove* keys shipped) '()
                 "a ui.ntidy* string nothing asks for means a label was typed in place"))
 
+(test-case "the template controls take their labels from the catalog, both ways"
+  (define src (file->string (build-path console-dir "03-tabs.js")))
+  (define keys
+    (remove-duplicates
+     (map cadr (regexp-match* #px"'(notetpl[a-z]*)'" src #:match-select values))))
+  (check-equal? (length keys) 4)
+  (define en (file->string (build-path console-dir "../ui-strings.json")))
+  (define shipped
+    (map cadr (regexp-match* #px"\"ui[.](notetpl[a-z]*)\"" en #:match-select values)))
+  (check-equal? (sort keys string<?) (sort shipped string<?)))
+
+(test-case "a write sends the template flag, and the form reset clears it"
+  ;; without the first the checkbox does nothing; without the second the next
+  ;; note somebody writes is silently a template too
+  (define src (file->string (build-path console-dir "03-tabs.js")))
+  (check-true (and (regexp-match? #px"b[.]template = tc[.]checked" src) #t))
+  (check-true (and (regexp-match? #px"tc[.]checked = false" src) #t)))
+
 (test-case "every class the graph draws has a rule in the shell"
   ;; #178's lesson: a class that matches no rule fails nothing and ships a bare
   ;; user-agent element. The six buttons on the Workers card were like that for

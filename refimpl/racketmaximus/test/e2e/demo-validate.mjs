@@ -1011,6 +1011,27 @@ try {
   await page.evaluate(() => tidyClose());
   ok('…and closing it takes the card away',
     await until(page, () => !document.getElementById('ntidy')));
+  // templates: a note marked as one is offered on the new-note form, and
+  // picking it fills the body while keeping the title already typed
+  const tplId = await page.evaluate(async () => {
+    const r = await api('/api/notes', { method: 'POST',
+      body: { title: 'E2E template', body: '## Agenda\n\n- item', tags: ['e2e-tpl'], template: true } });
+    return r.json.id;
+  });
+  await page.evaluate(() => renderTab());
+  await page.waitForSelector('#ntfrom', { timeout: 10000 });
+  await page.fill('#nt', 'Typed before picking');
+  await page.selectOption('#ntfrom', tplId);
+  ok('picking a template fills the body',
+    await until(page, () => (document.getElementById('nb') || {}).value === '## Agenda\n\n- item'));
+  ok('…keeps the title already typed',
+    await page.evaluate(() => document.getElementById('nt').value === 'Typed before picking'));
+  ok('…brings the template\'s tags',
+    await page.evaluate(() => (document.getElementById('ntags') || {}).value === 'e2e-tpl'));
+  ok('…and the new note is not itself a template',
+    await page.evaluate(() => document.getElementById('ntpl').checked === false));
+  gIds.tpl = tplId;
+  await page.evaluate(() => { noteFormReset(); edReset('note', '', 'nb'); });
   // A FIXTURE THAT CHANGES GLOBAL STATE BREAKS A DISTANT BLOCK, and §3c5 above
   // paid that twice already: close the card, close the graph, and take the four
   // notes away, or every later block that counts notes reads this one's fixture.

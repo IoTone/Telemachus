@@ -1467,6 +1467,22 @@
       "text": "these link to no note and no note links to them",
       "hash": "071009cbb972d44d9fc113d0543d86e9b4319d9c"
     },
+    "ui.notetpl": {
+      "text": "template",
+      "hash": "3226ecbe650213a49cd03ae67140750e4f340083"
+    },
+    "ui.notetplblank": {
+      "text": "Blank note",
+      "hash": "540b90529960498b5786c5600b3b015651a85cd6"
+    },
+    "ui.notetplcheck": {
+      "text": "Offer this note as a template for new notes",
+      "hash": "b027ed74024ba48db9fb9a603c96f1507c48e987"
+    },
+    "ui.notetplfrom": {
+      "text": "Start from a template",
+      "hash": "61762f37645250c3dd7787dbaac3a2ce82920377"
+    },
     "ui.featallow": {
       "text": "Allow",
       "hash": "3ad0e3698278f45b2af94445396e9865f213f617"
@@ -2104,8 +2120,8 @@
       "hash": "e1c946b49eef17ee9ada6cc049495cf3904562ed"
     },
     "doc.route.post.api.notes": {
-      "text": "Create a note with a visibility.",
-      "hash": "41706c61c8faa1b2f86d5d59a34b621e2571df63"
+      "text": "Create a note with a visibility. `template: true` marks the note as a template, which the console offers as a starting point for a new note; it is otherwise an ordinary note.",
+      "hash": "84ef14ede610a7b64769a6d9dfc504db87b9787b"
     },
     "doc.tool.doc_set_type.labels": {
       "text": "The label set the decision was made against — the same one doc_classify was given",
@@ -4140,8 +4156,8 @@
       "hash": "694e98ff43653287a34b42e7e75e466a4beb43bd"
     },
     "doc.route.get.api.notes": {
-      "text": "List a page of the notes the caller can read, newest first, with `total`, `limit` and `offset`; `?limit=` defaults to 50 and is capped at 200, `?offset=` walks. `?tag=` is repeatable and several are an AND. `?scope=org` spans every team in the company (an org_reader sees team-visible notes, never private ones). `total` counts the window and not what the caller may read, so a page may come back short.",
-      "hash": "2d11e7134ba4c7c060720cde2602c4e84098d79f"
+      "text": "List a page of the notes the caller can read, newest first, with `total`, `limit` and `offset`; `?limit=` defaults to 50 and is capped at 200, `?offset=` walks. `?tag=` is repeatable and several are an AND. `?scope=org` spans every team in the company (an org_reader sees team-visible notes, never private ones). `total` counts the window and not what the caller may read, so a page may come back short. `?template=1` lists templates only and `?template=0` leaves them out; every note carries `template`.",
+      "hash": "c06600e0b68dd08ebbf7543838f40a7d898a2055"
     },
     "doc.tool.create_note.title": {
       "text": "Short note title",
@@ -4252,8 +4268,8 @@
       "hash": "79b231e2c3b3f86ff407f006b6218a940dcb5f0f"
     },
     "doc.route.put.api.notes.id": {
-      "text": "Update a note.",
-      "hash": "9da1644fbf93af774c049c9a79b4a9d6e310a00e"
+      "text": "Update a note. `template` (true or false) marks or unmarks the note as a template; leaving it out changes nothing.",
+      "hash": "6ef4a89f6f2e15425f9f11e017e5f861de5dfe8e"
     },
     "doc.tool.chat_message.text": {
       "text": "What the user said",

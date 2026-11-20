@@ -195,7 +195,26 @@ Each list shows at most 100 entries and says `Showing the first N.` when there
 are more. On a team with more links than one read covers, the card says so, the
 first list is left out and the second may be short.
 
-## Org files in and out
+## Templates
+
+A template is an ordinary note with one box ticked: `Offer this note as a
+template for new notes`, under the visibility field when you create or edit a
+note. It carries a `template` badge in the list.
+
+Once the team has a template you can see, the new-note form shows `Start from a
+template`. Picking one copies its body, its format and its tags into the form.
+A title you have already typed stays, and the new note is not a template unless
+you tick the box yourself.
+
+- The copy is a starting point. Editing a template later changes no note that
+  was made from it.
+- Visibility works as it does for any note, so a private template is offered
+  only to you.
+- An Org template keeps its tags on its own `#+FILETAGS:` line, which comes
+  across with the body.
+- A template is left off both [tidying](#tidying-up) lists, because it is meant
+  to stand alone and its links are placeholders.
+
 
 - **Download .org** writes the saved note as a file, which imports back
   unchanged.
