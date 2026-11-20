@@ -51,6 +51,12 @@ Every step is a scheduler job: durability, cancellation, quota admission and the
 
 `register-blob-store! name (hash 'put! 'get 'delete! 'stat)`. The store is handed a namespace (the org id) and a SHA-256 digest, never a principal — a backend has no authorization to get wrong. `TMACH_BLOB_STORE` selects one.
 
+## The knowledge-graph extraction source
+
+`register-extraction-source! name (hash 'list 'see 'version 'text ['window])`. A plugin that keeps its own documents lends them to the knowledge graph: they are then enumerated, extracted, cited, drawn and forgotten exactly as a repository document is. Four procedures rather than one because the costs differ — `see` is asked once per mention on every graph read, `text` once per document and only when it is about to be sent to a model.
+
+`see` is the security boundary and is asked with the team the mention was RECORDED for, so a fact recorded for one team is unreachable from another whatever the source answers. Return `#f` rather than raising, and treat a `#f` team (an operator principal) as not readable. `version` must move when the text changes, because a version the source cannot name is a refusal. A document is read whole in windows of `window` characters, and `(kg-source-forget! conn name doc-id)` is what a delete calls, because a plugin's delete never reaches the repository's hook.
+
 ## The onboarding provider
 
 `register-onboarding! name experience` contributes a beta funnel experience document (fields, copy, theme, judge prompt). The published one in the database wins over any registered default.

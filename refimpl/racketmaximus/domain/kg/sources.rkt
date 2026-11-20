@@ -28,7 +28,7 @@
 (provide register-extraction-source! unregister-extraction-source! extraction-source
          extraction-sources SOURCE-NAME-PATTERN
          kg-source-id kg-source-id? kg-source-id-split
-         source-list source-see source-version source-text)
+         source-list source-see source-version source-text source-window)
 
 ;; ONE HOME FOR THE GRAMMAR. The name is validated at registration and re-used to parse an
 ;; encoded id, so a name that registration accepts is a name parsing accepts. The colon is
@@ -126,3 +126,14 @@
 (define (source-text name conn p team doc-id)
   (define t (source-call name "text" 'text conn p team doc-id))
   (and (string? t) t))
+
+;; HOW MUCH OF A DOCUMENT GOES INTO ONE MODEL CALL, if the source wants to say. Optional, because
+;; most sources have no reason to: the platform's default is a 7B model's window. It is asked per
+;; document because a source may know that one document is prose and another is a table, and it is
+;; looked up directly rather than through `source-call` so that a source which does not provide it
+;; is silent rather than noisy on stderr for every document.
+(define (source-window name conn p team doc-id default)
+  (define fns (extraction-source name))
+  (define f (and fns (hash-ref fns 'window #f)))
+  (define v (and f (source-call name "window" 'window conn p team doc-id)))
+  (if (and (integer? v) (> v 0)) v default))

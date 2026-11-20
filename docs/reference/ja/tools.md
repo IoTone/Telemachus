@@ -24,8 +24,8 @@ Every tool a workflow step may use, from `define-tool` declarations and plugin r
 | `feed_queue_status` | yes | `files:read` | feeds | キューにある項目を別の状態へ移します：open、claimed、done、dropped のいずれか。 |
 | `get_usage` | yes | `chat:use` | built-in | チームの現在の AI 使用量をクォータと比べて報告する。 |
 | `inbox_raise` | yes | `inbox:write` | inbox | チームの受信箱に項目を登録するか、登録し直します。生きた項目は `(source, key)` ごとにひとつです。同じ revision は証拠だけを更新し、異なる revision は内容を置き換えて、確認済みまたはスヌーズ中の項目を open に戻します。応答の outcome がどちらだったかを示します。 |
-| `kg_extract` | — | `files:read` | built-in | 1つのリポジトリ文書から、エンティティ（人、組織、製品、場所、イベント、概念）とそれらの関係を知識グラフに抽出する。各言及には原文どおりの抜粋が付きます。検証を通らない返答は拒否します。 |
-| `kg_list_unextracted` | — | `files:read` | built-in | テキストがまだ知識グラフに抽出されていない（または上書き後に古くなった）リポジトリ文書を一覧する。オブジェクト ID をバッチ上限まで返します；続けるには index-knowledge ワークフローを再実行してください。 |
+| `kg_extract` | — | `files:read` | built-in | 1つの文書から、エンティティ（人、組織、製品、場所、イベント、概念）とそれらの関係を知識グラフに抽出する。各言及には原文どおりの抜粋が付きます。長い文書はウィンドウに分割して読むため、文書全体が対象になります。検証を通らない返答は拒否します。 |
+| `kg_list_unextracted` | — | `files:read` | built-in | テキストがまだ知識グラフに抽出されていない（または上書き後に古くなった）文書を一覧する。文書はリポジトリのオブジェクト、またはプラグインのソースが知識グラフに提供するものです。ID をバッチ上限まで返します；続けるには index-knowledge ワークフローを再実行してください。 |
 | `kg_query` | yes | `files:read` | built-in | チームの文書がエンティティについて述べていること：その関係と、それに言及する文書を抜粋付きで。名前（またはエンティティ ID）を指定；hops 1 は近傍を、hops 2 はその近傍まで返します。 |
 | `list_notes` | yes | `notes:read` | built-in | 現在のユーザーのメモ（タイトルと表示設定）を一覧表示します。 |
 | `note_autotag` | yes | `notes:write` | built-in | ノートにトピックタグを提案し、ノート自身の言語で追加します。 |
@@ -294,17 +294,17 @@ Permission: `inbox:write` · source: inbox
 
 ## `kg_extract`
 
-1つのリポジトリ文書から、エンティティ（人、組織、製品、場所、イベント、概念）とそれらの関係を知識グラフに抽出する。各言及には原文どおりの抜粋が付きます。検証を通らない返答は拒否します。
+1つの文書から、エンティティ（人、組織、製品、場所、イベント、概念）とそれらの関係を知識グラフに抽出する。各言及には原文どおりの抜粋が付きます。長い文書はウィンドウに分割して読むため、文書全体が対象になります。検証を通らない返答は拒否します。
 
 Permission: `files:read` · source: built-in
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `object` | string | yes | リポジトリオブジェクト ID |
+| `object` | string | yes | 文書 ID（リポジトリのもの、またはプラグインのソースが提供するもの） |
 
 ## `kg_list_unextracted`
 
-テキストがまだ知識グラフに抽出されていない（または上書き後に古くなった）リポジトリ文書を一覧する。オブジェクト ID をバッチ上限まで返します；続けるには index-knowledge ワークフローを再実行してください。
+テキストがまだ知識グラフに抽出されていない（または上書き後に古くなった）文書を一覧する。文書はリポジトリのオブジェクト、またはプラグインのソースが知識グラフに提供するものです。ID をバッチ上限まで返します；続けるには index-knowledge ワークフローを再実行してください。
 
 Permission: `files:read` · source: built-in
 

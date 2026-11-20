@@ -424,8 +424,14 @@ What to get right:
   visible only as untraceable facts.
 - **Do not write the repository's tables and do not build the id yourself.** `kg-source-id` owns
   the format and the platform is the only other place that takes one apart.
-- **Only the first 12,000 characters are read.** A long document yields a partial graph, and the
-  screen should say which part was read.
+- **A document is read whole, in windows.** The window is the size of ONE model call, 12,000
+  characters by default, and a longer document is split at line breaks, each window extracted and
+  validated against its own text, and the results merged into one extraction. So a long
+  specification is covered rather than cut. You may declare your own window with an optional
+  `window` procedure when you know one document is prose and another is a table; the answer
+  reports `windows` and `text_truncated`, so the screen can say what was read.
+- **A window costs a model call.** One document is therefore several calls, bounded per document,
+  and the team's quota is charged per window because that is what was spent.
 
 You get the four `/api/kg` routes, the shipped `index-knowledge` workflow, the drawing with its
 cap and `truncated` flag, and the citation rule, without writing graph code. You also take on

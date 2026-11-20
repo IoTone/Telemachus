@@ -28,7 +28,7 @@
 ;; avoid, which is also why `unregister-extraction-source!` is exported.
 
 (require rackunit db-kit/portable
-         racket/string racket/list racket/file
+         racket/string racket/list racket/file json
          db-kit/migrate
          "../domain/db/migrations.rkt"
          "../domain/db/id.rkt"
@@ -400,3 +400,80 @@
    (lambda ()
      (unregister-extraction-source! "aaa")
      (unregister-extraction-source! "zzz"))))
+
+;; ---- whole documents: the window is a size, not a limit --------------------------------------
+(test-case "window-split covers the document exactly, and never answers an empty window"
+  ;; empty text is refused before this is reached, so the guarantee is about non-empty text
+  (for ([n '(1 2 7 12000)] [text (list "a" "ab\ncd" (make-string 30 #\x) (make-string 3 #\n))])
+    (define ws (window-split text (max 1 n)))
+    (check-equal? (apply string-append ws) text "the windows rejoin to the document")
+    (for ([w (in-list ws)]) (check-true (> (string-length w) 0) "no window is empty")))
+  (define long (string-append (make-string 9000 #\a) "\n" (make-string 9000 #\b)))
+  (check-equal? (map string-length (window-split long 12000)) '(9001 9000)
+                "the cut lands on the line break rather than mid-word")
+  (check-equal? (map string-length (window-split (make-string 20000 #\c) 12000)) '(12000 8000)
+                "with no line break the window is full"))
+
+(test-case "a document longer than one window is read whole, one model call per window"
+  ;; every window must carry the phrase, because a snippet is validated against its OWN window
+  (define text (apply string-append (make-list 400 "Acme Robotics hired Ada Lovelace.\n")))
+  ;; the reply differs per window so the merge has something to dedup
+  (define calls (box 0))
+  (define (reply prompt #:system [s #f])
+    (set-box! calls (add1 (unbox calls)))
+    (values (jsexpr->string
+             (hasheq 'entities (list (hasheq 'type "organization" 'name "Acme Robotics"
+                                             'description "" 'snippet "Acme Robotics"))
+                     'relations '()))
+            5))
+  (define-values (x tokens windows truncated?)
+    (extract-document text #:chat reply #:window 4000))
+  (check-equal? windows 4 "one call per window, not one call per document")
+  (check-equal? (unbox calls) 4)
+  (check-equal? tokens 20 "the token total is every window's")
+  (check-false truncated?)
+  ;; four windows named the same organization, and the graph gets ONE entity
+  (check-equal? (length (hash-ref x 'entities)) 1 "the merge dedups on the same key kg-upsert! uses"))
+
+(test-case "the window bound is reported rather than hidden"
+  (define text (make-string 50000 #\z))
+  (define (reply prompt #:system [s #f])
+    (values (jsexpr->string (hasheq 'entities '() 'relations '())) 1))
+  (define-values (x tokens windows truncated?)
+    (extract-document text #:chat reply #:window 1000 #:max-windows 3))
+  (check-equal? windows 3)
+  (check-true truncated? "a document past the bound says so instead of under-reading silently"))
+
+(test-case "the merge keeps the first snippet and the longest description"
+  (define e1 (hasheq 'type "organization" 'name "Acme Robotics Inc" 'description "a company" 'snippet "first"))
+  (define e2 (hasheq 'type "organization" 'name "ACME robotics" 'description "a much longer description" 'snippet "second"))
+  (define merged (merge-extractions (list (hasheq 'entities (list e1) 'relations '())
+                                          (hasheq 'entities (list e2) 'relations '()))))
+  (check-equal? (length (hash-ref merged 'entities)) 1)
+  (check-equal? (hash-ref (car (hash-ref merged 'entities)) 'snippet) "first")
+  (check-equal? (hash-ref (car (hash-ref merged 'entities)) 'description) "a much longer description"))
+
+(test-case "a source may declare its own window, and anything else falls back to the default"
+  (check-equal? (source-window "nosuch" #f #f #f "d1" 12000) 12000
+                "an unregistered source answers the default rather than raising")
+  (register-extraction-source! "big"
+                               (hasheq 'list (lambda (c p t l) '())
+                                       'see (lambda (c p t d) (hasheq 'key d))
+                                       'version (lambda (c p t d) "v1")
+                                       'text (lambda (c p t d) "x")
+                                       'window (lambda (c p t d) 40000)))
+  (register-extraction-source! "bad"
+                               (hasheq 'list (lambda (c p t l) '())
+                                       'see (lambda (c p t d) (hasheq 'key d))
+                                       'version (lambda (c p t d) "v1")
+                                       'text (lambda (c p t d) "x")
+                                       'window (lambda (c p t d) -5)))
+  (dynamic-wind
+   void
+   (lambda ()
+     (check-equal? (source-window "big" #f #f #f "d1" 12000) 40000)
+     (check-equal? (source-window "bad" #f #f #f "d1" 12000) 12000
+                   "a nonsense window is the default, not a crash"))
+   (lambda ()
+     (unregister-extraction-source! "big")
+     (unregister-extraction-source! "bad"))))

@@ -2136,8 +2136,8 @@
       "hash": "44a8688a8fc73c93211767a7d651d36a57d11c77"
     },
     "doc.workflow.index-knowledge": {
-      "text": "Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run.",
-      "hash": "7c6d3770630d5cb263185cef132426d1bc816c41"
+      "text": "Extract entities and relations from indexed documents into the knowledge graph. A document is a repository object or one a plugin source lends to the graph, and a long one is read in windows so the whole of it is covered. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run.",
+      "hash": "22390f1bd0cbe6523ad5d140f236209a5965ec9d"
     },
     "ui.edit": {
       "text": "Edit",
@@ -2608,8 +2608,8 @@
       "hash": "b5e77c5c02a90c01b16fea8f21a1083425ebe0e0"
     },
     "doc.tool.kg_extract": {
-      "text": "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate.",
-      "hash": "bdd08e5c16c254a3c3febf0e2b56cee8498dd11a"
+      "text": "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows so the whole of it is covered. Refuses a reply that does not validate.",
+      "hash": "51bead7d0e2f87d8d6332ce8cbfc4d4df7602c7d"
     },
     "ui.rs_newversion": {
       "text": "Stored as a new version.",
@@ -4656,8 +4656,8 @@
       "hash": "825ce9e97dc41179ec167b83be91179b5dacd316"
     },
     "doc.tool.kg_extract.object": {
-      "text": "The repository object id",
-      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+      "text": "The document id, from the repository or from a plugin source",
+      "hash": "f4ca362e8e7cdd9ed46c809925463ddd810d1e86"
     },
     "ui.wkretireconfirm": {
       "text": "Retire {name}? Its worker token is revoked for good and any job it is holding goes back to the queue. To take it out of rotation for a while, drain it instead.",
@@ -4840,8 +4840,8 @@
       "hash": "ad48c089a09318e7fc58a39441e92d393cb6874d"
     },
     "doc.tool.kg_list_unextracted": {
-      "text": "List repository documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the index-knowledge workflow again to continue.",
-      "hash": "8d56c90624c7d25ffa9d65eca11819dee24f2292"
+      "text": "List the documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). A document is a repository object or one a plugin source lends to the graph. Returns ids, capped at a batch; run the index-knowledge workflow again to continue.",
+      "hash": "acbd4f243312a37fc24235040ced3d44676b903f"
     },
     "ui.searchph": {
       "text": "notes, documents, files, translations…",

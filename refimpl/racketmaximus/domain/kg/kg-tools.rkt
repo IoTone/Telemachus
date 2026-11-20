@@ -35,18 +35,29 @@
          ;; texted through that source rather than through the repository
          "sources.rkt")
 
-(provide validate-extraction extract-knowledge LIST-BATCH)
+(provide validate-extraction extract-knowledge extract-document window-split merge-extractions
+         LIST-BATCH EXTRACT-TEXT-CAP EXTRACT-MAX-WINDOWS)
 
 (define LIST-BATCH 40)
-;; a 7B model's window; the first ~12k characters of a document carry its named things
+;; THE SIZE OF ONE MODEL CALL, NOT THE SIZE OF ONE DOCUMENT. It was both until 2026-11-19: a
+;; document longer than this was cut here and everything past the cut never entered the graph.
+;; That does not read as "we did not read it", it reads as "the graph disagrees with the
+;; document", and the facts that go missing are exactly the ones in the back half — annexes,
+;; specification tables, the second half of a filing. `extract-document` below keeps this as the
+;; window and reads the whole document.
 (define EXTRACT-TEXT-CAP 12000)
+;; HOW MANY WINDOWS ONE DOCUMENT MAY COST, because each window is a metered model call and the
+;; ceiling has to be a number somebody chose rather than whatever a large document happens to
+;; imply. 24 windows is about 288k characters at the default size. When a document exceeds it the
+;; read is marked truncated, so the answer says so instead of quietly under-reading.
+(define EXTRACT-MAX-WINDOWS 24)
 
 (define-tool kg_list_unextracted
-  #:description "List repository documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the index-knowledge workflow again to continue.")
+  #:description "List the documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). A document is a repository object or one a plugin source lends to the graph. Returns ids, capped at a batch; run the index-knowledge workflow again to continue.")
 
 (define-tool kg_extract
-  #:description "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate."
-  (object string #:description "The repository object id"))
+  #:description "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows so the whole of it is covered. Refuses a reply that does not validate."
+  (object string #:description "The document id, from the repository or from a plugin source"))
 
 (define-tool kg_query
   #:description "What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too."
@@ -115,10 +126,91 @@
                   [(not (string-contains? text sn)) (bad! "relations[~a]: snippet is not verbatim from the document" i)])])))
      (reverse problems)]))
 
-;; text -> (values extraction tokens), or raises. Pure of the repository.
-(define (extract-knowledge text #:chat [chat (current-doc-chat)])
+;; ---- whole documents: windows, and the merge that makes them one extraction --------------
+;; A snippet must be verbatim in the text it was drawn from, so each window is validated
+;; against ITS OWN text rather than against the document. That is what keeps validation honest
+;; and it is why the merge below has to dedup rather than concatenate: the same organization is
+;; named in several windows, with a different snippet each time.
+
+;; split text into windows of at most `n` characters, cutting at a line break when one is far
+;; enough into the window and at the full length otherwise, so a window is never empty and the
+;; loop always makes progress
+(define (window-split text n)
+  (define size (max 1 (if (exact-integer? n) n (inexact->exact (truncate n)))))
+  (let loop ([s text] [acc '()])
+    (cond
+      [(<= (string-length s) size) (reverse (cons s acc))]
+      [else
+       (define head (substring s 0 size))
+       (define min-keep (quotient size 2))
+       ;; scanning downward, so the FIRST match is the rightmost newline. `for/first` answers #f
+       ;; when there is none, which a document with no line breaks at all hits.
+       (define nl (for/first ([i (in-range (sub1 (string-length head)) 0 -1)]
+                              #:when (char=? (string-ref head i) #\newline))
+                     i))
+       (define cut (if (and nl (> nl min-keep)) (add1 nl) (string-length head)))
+       (loop (substring s cut) (cons (substring s 0 cut) acc))])))
+
+;; one extraction from several: entities dedup on the same key `kg-upsert!` uses, and a relation
+;; survives only if both its ends were named, which every per-window validation already made
+;; true inside its own window.
+(define (merge-extractions xs)
+  (define ents (make-hash))          ; name_norm -> entity
+  (define ent-order '())
+  (define rels (make-hash))          ; subject|predicate|object -> relation
+  (define rel-order '())
+  (for ([x (in-list xs)])
+    (for ([e (in-list (hash-ref x 'entities '()))])
+      (define nm (normalize-name (hash-ref e 'name)))
+      (cond
+        [(hash-ref ents nm #f)
+         ;; the first snippet wins because it is the earliest place in the document that names
+         ;; the thing, and a longer description wins because it says more
+         => (lambda (old)
+              (define new-d (hash-ref e 'description ""))
+              (when (> (string-length new-d) (string-length (hash-ref old 'description "")))
+                (hash-set! ents nm (hash-set old 'description new-d))))]
+        [else (hash-set! ents nm e) (set! ent-order (cons nm ent-order))]))
+    (for ([r (in-list (hash-ref x 'relations '()))])
+      (define k (string-append (normalize-name (hash-ref r 'subject)) "|"
+                               (normalize-predicate (hash-ref r 'predicate)) "|"
+                               (normalize-name (hash-ref r 'object))))
+      (unless (hash-ref rels k #f)
+        (hash-set! rels k r)
+        (set! rel-order (cons k rel-order)))))
+  (hasheq 'entities (for/list ([nm (in-list (reverse ent-order))]) (hash-ref ents nm))
+          'relations (for/list ([k (in-list (reverse rel-order))]) (hash-ref rels k))))
+
+;; text -> (values extraction tokens windows truncated?), or raises. Pure of the repository.
+;;
+;; THE DOCUMENT IS READ WHOLE. It is split into windows of `#:window` characters, each is
+;; extracted and validated against itself, and the results are merged into ONE extraction. That
+;; one merged value is the same single `kg-upsert!` a one-window document produces, because that
+;; write replaces every mention of the object and its version rather than appending. So nothing
+;; about the store, the version rule, the mention rule or the supersede rule changes here.
+;;
+;; `#:max-windows` bounds the cost, and `truncated?` is how a read says it stopped early.
+(define (extract-document text
+                          #:chat [chat (current-doc-chat)]
+                          #:window [window EXTRACT-TEXT-CAP]
+                          #:max-windows [max-windows EXTRACT-MAX-WINDOWS])
   (when (string=? (string-trim text) "") (error 'kg_extract "nothing to extract from — the document has no text"))
-  (define capped (if (> (string-length text) EXTRACT-TEXT-CAP) (substring text 0 EXTRACT-TEXT-CAP) text))
+  (define all (window-split text window))
+  (define kept (if (> (length all) max-windows) (take all max-windows) all))
+  (define results '())
+  (define tokens 0)
+  (for ([w (in-list kept)])
+    ;; the cap is the window here, so a window is never itself cut
+    (define-values (x t) (extract-knowledge w #:chat chat #:cap (max EXTRACT-TEXT-CAP (string-length w))))
+    (set! results (cons x results))
+    (set! tokens (+ tokens t)))
+  (values (merge-extractions (reverse results)) tokens (length kept) (> (length all) (length kept))))
+
+;; one window -> (values extraction tokens), or raises. `#:cap` is the truncation length, which
+;; `extract-document` passes as the window so a window is read whole.
+(define (extract-knowledge text #:chat [chat (current-doc-chat)] #:cap [cap EXTRACT-TEXT-CAP])
+  (when (string=? (string-trim text) "") (error 'kg_extract "nothing to extract from — the document has no text"))
+  (define capped (if (> (string-length text) cap) (substring text 0 cap) text))
   (define-values (reply tokens) (chat (jsexpr->string (hasheq 'document capped)) #:system EXTRACT-SYSTEM))
   (define j (outer-json (format "~a" reply)))
   (define problems (validate-extraction j capped))
@@ -126,8 +218,10 @@
     (error 'kg_extract "extraction refused: ~a" (string-join problems "; ")))
   (values j tokens))
 
-(define (meter! conn p tokens)
-  (tenant-quota-record! conn p "ai.requests" 1)
+;; a whole document is several model calls, so the request count is the window count and the
+;; team's budget sees what it actually spent
+(define (meter! conn p tokens [requests 1])
+  (for ([_ (in-range (max 1 requests))]) (tenant-quota-record! conn p "ai.requests" 1))
   (tenant-quota-record! conn p "ai.tokens.total" tokens))
 
 (define (list-unextracted conn p args)
@@ -157,15 +251,21 @@
         (kg-mark-extracted! conn team id v 0 0)
         (format "skipped ~a — the source returned no text for this version" (hash-ref seen 'key))]
        [else
-        (define-values (extraction tokens)
+        ;; the source may say how much goes into one model call; the document is still read
+        ;; WHOLE, in windows of that size, because a document longer than one window used to be
+        ;; cut and the facts past the cut never entered the graph
+        (define window (source-window (car parts) conn p team (cdr parts) EXTRACT-TEXT-CAP))
+        (define-values (extraction tokens windows truncated?)
           (parameterize ([current-utility-executor (model-role-executor conn team "utility")])
-            (extract-knowledge stext)))
-        (meter! conn p tokens)
+            (extract-document stext #:window window)))
+        (meter! conn p tokens windows)
         (kg-upsert! conn team id v extraction)
         (hasheq 'object_id id 'key (hash-ref seen 'key)
                 'entities (length (hash-ref extraction 'entities '()))
                 'relations (length (hash-ref extraction 'relations '()))
-                'tokens_used tokens)])]
+                'tokens_used tokens
+                'windows windows
+                'text_truncated truncated?)])]
     [else (extract-one-repo conn p id)]))
 
 ;; the repository arm, split out so the source arm is not two hundred lines of nesting. The
@@ -184,15 +284,19 @@
      (kg-mark-extracted! conn (hash-ref o 'team_id) id (hash-ref o 'version_id) 0 0)
      (format "skipped ~a — no extracted text (run index-documents first)" (hash-ref o 'key))]
     [else
-     (define-values (extraction tokens)
+     ;; the repository arm reads a long document whole too, for the same reason and with the
+     ;; same bound
+     (define-values (extraction tokens windows truncated?)
        (parameterize ([current-utility-executor (model-role-executor conn (hash-ref o 'team_id) "utility")])   ; KG-7
-         (extract-knowledge text)))
-     (meter! conn p tokens)
+         (extract-document text)))
+     (meter! conn p tokens windows)
      (kg-upsert! conn (hash-ref o 'team_id) id (hash-ref o 'version_id) extraction)
      (hasheq 'object_id id 'key (hash-ref o 'key)
              'entities (length (hash-ref extraction 'entities '()))
              'relations (length (hash-ref extraction 'relations '()))
-             'tokens_used tokens)]))
+             'tokens_used tokens
+             'windows windows
+             'text_truncated truncated?)]))
 
 ;; the agent's answer: plain text with citations, because that is what a model
 ;; can read back and what a person can check
