@@ -3014,7 +3014,10 @@ raco test test/flow-tests.rkt                                          # 34 case
 
 `domain/research/refetch.rkt`; `#:scheduled?` on `research-fetch!`;
 `GET`/`PUT /api/research/refetch`; job kind `research.refetch`. **No migration,
-no new permission, no environment variable, no console control.**
+no new permission, no environment variable.** The console control is the
+"Keep bookmarks current" card on the Research tab (`rsKeepCard` in
+`22-research.js`): the select is live for `jobs:schedule` and disabled
+otherwise, and a change swaps the card, not the tab.
 
 ```sh
 raco test test/research-refetch-tests.rkt test/research-tests.rkt   # 15 + 18 cases, ten controls

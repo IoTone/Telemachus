@@ -19,7 +19,7 @@
 S.rs = { sel: null, ent: null, hops: 1 };
 
 async function researchView(){
-  const r = await api('/api/research');
+  const [r, kr] = await Promise.all([api('/api/research'), api('/api/research/refetch')]);
   if(!r.ok) return `<h2>${t('research')}</h2><div class="card"><p class="muted">${esc(r.json.error||'unavailable')}</p></div>`;
   const src = r.json.sources || [];
   const rows = src.map(s => `<tr>
@@ -52,7 +52,60 @@ async function researchView(){
         ? `<table style="margin-top:10px"><thead><tr><th>${t('rs_page')}</th><th>${t('rs_state')}</th><th>${t('rs_lastok')}</th><th>${t('rs_notes')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
         : `<p class="muted" style="margin-top:10px">${t('rs_none')}</p>`}
     </div>
+    ${kr.ok ? rsKeepCard(kr.json) : ''}
     <div id="rsdetail">${S.rs.sel ? await rsDetailHtml(S.rs.sel) : ''}</div>`;
+}
+
+// ---------- keeping bookmarks current (RG-12) ----------
+//
+// The timer has been settable over HTTP since RG-12 and nothing a person could
+// press reached it. Reading the setting needs `research:use`; changing it needs
+// `jobs:schedule`, so a member sees the state and an admin gets the control.
+// The intervals offered are the ones at or above the floor the SERVER reports,
+// and a stored interval that is not one of them is shown as itself rather than
+// rounded to the nearest choice.
+const RS_KEEP = [[3600, 'rs_keephour'], [21600, 'rs_keepsix'], [86400, 'rs_keepday'], [604800, 'rs_keepweek']];
+
+function rsKeepCard(c){
+  const can = canPerm('jobs:schedule');
+  const cur = c.enabled ? c.every_seconds : 0;
+  const offered = RS_KEEP.filter(o => o[0] >= (c.min_seconds || 0));
+  const opt = (v, label) => `<option value="${v}"${v === cur ? ' selected' : ''}>${label}</option>`;
+  const options = opt(0, t('rs_keepoff'))
+    + offered.map(o => opt(o[0], t(o[1]))).join('')
+    + (cur && !offered.some(o => o[0] === cur)
+        ? opt(cur, esc(tRaw('rs_keepother').replace('{n}', cur))) : '');
+  const now = Math.floor(Date.now() / 1000);
+  const next = c.enabled && typeof c.next_run_epoch === 'number'
+    ? `<span class="muted" title="${esc(new Date(c.next_run_epoch * 1000).toLocaleString())}">${
+        esc(tRaw('rs_keepin').replace('{age}', wkAge(c.next_run_epoch - now)))}</span>`
+    : `<span class="muted">–</span>`;
+  return `<div class="card" id="rskeep" style="margin-top:14px">
+    <h3 style="margin:0 0 4px">${t('rs_keep')}</h3>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">${
+      esc(tRaw('rs_keephint').replace('{batch}', c.batch))}</div>
+    <div class="row" style="align-items:end">
+      <div style="flex:1"><label>${t('rs_keepevery')}</label>
+        <select id="rskeepsel"${can ? '' : ' disabled'} data-h-change="${H(el => rsKeepSet(el.value))}">${options}</select></div>
+      <div style="flex:1"><label>${t('rs_keepnext')}</label><div id="rskeepnext">${next}</div></div>
+      <div style="flex:1"><label>${t('rs_keeplast')}</label><div>${
+        jobWhen({ created_epoch: c.enabled ? c.last_run_epoch : null })}</div></div>
+    </div>
+    ${can ? '' : `<div class="muted" style="font-size:12px;margin-top:6px">${t('rs_keepadmin')}</div>`}
+  </div>`;
+}
+
+// A change SWAPS THE CARD, not the tab (NPG-10's rule): the create form above
+// holds a URL somebody may be typing. A refusal repaints the card from the
+// server too, so the select never shows a setting that did not take.
+async function rsKeepSet(v){
+  const n = parseInt(v, 10);
+  const r = await api('/api/research/refetch', { method: 'PUT', body: { every_seconds: n > 0 ? n : null } });
+  toast(r.ok ? tRaw('rs_keepsaved') : (r.json.error || 'error'), r.ok);
+  await cardSwap('rskeep', async () => {
+    const c = r.ok ? r : await api('/api/research/refetch');
+    return c.ok ? rsKeepCard(c.json) : null;
+  });
 }
 
 // ONE send, #174's shape: the flag is the guard and the pending state, and
