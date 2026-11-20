@@ -403,7 +403,8 @@ section:
 ```
 
 Four procedures, and an optional fifth for the window, because the costs differ. `see` is asked
-once for each distinct document on a graph read, so it must be cheap and must not open a document.
+for each distinct document on a graph read, and again for each relation on one entity read, so it
+must be cheap and must not open a document.
 `text` is asked once per document and only when it is about to be sent to a model.
 
 What to get right:
@@ -423,15 +424,17 @@ What to get right:
   window when a page turns out to be entirely extracted, so returning a stable ordered page is
   enough and returning the same page for ever costs three calls and stops.
 - **Delete must forget.** A plugin's delete never reaches the repository's delete hook, so call
-  `(kg-source-forget! conn "acme" doc-id)` when the document goes, or its mentions stay and are
-  visible only as untraceable facts.
+  `(kg-source-forget! conn "acme" doc-id)` when the document goes. What is left behind is not
+  visible, because your `see` refuses a document that no longer exists, so the rows simply become
+  unreachable: the cost is dead rows and a document count that is too high, not a leak.
 - **Do not write the repository's tables and do not build the id yourself.** `kg-source-id` owns
   the format and the platform is the only other place that takes one apart.
 - **A document is read in windows, and the window is a size rather than a limit.** 12,000
   characters by default; a longer document is split at line breaks, each window extracted and
   validated against its own text, and the results merged into one extraction. You may declare your
-  own with an optional `window` procedure, clamped to between 1,000 and 48,000 characters, because
-  the size of one model input is the platform's ceiling and not a plugin's. At most 24 windows are
+  own with an optional `window` procedure, and a value outside 1,000 to 48,000 characters falls
+  back to the default rather than being used, because the size of one model input is the platform's
+  ceiling and not a plugin's. At most 24 windows are
   read per document, and the answer reports `windows` and `text_truncated`, so the screen can say
   what was read and what was not.
 - **A window costs a model call.** One document is therefore several calls, bounded per document,
@@ -449,7 +452,9 @@ visibility rule is yours and the graph's entities belong to a team:
   destroyed: a second team's extraction cannot delete the first team's facts. A team that has not
   extracted the document yet is offered it, so the work is per team rather than per document. An
   extraction that found nothing is recorded for the version rather than for the team, because the
-  same text yields nothing for anybody, and that is what stops it being re-extracted for ever.
+  same text yields nothing for anybody, and that is what stops it being re-extracted for ever. The
+  trade is that a source which returns no text for one team but text for another has recorded that
+  version as empty for everybody, so say what `text` means per team rather than varying it.
 - **The repository comes first in each batch.** A run's list is filled with repository documents
   up to the batch size before any source is asked, so on a team with a large repository backlog
   your documents are reached once that backlog drains. A drain runs until it finds nothing, so
@@ -457,6 +462,10 @@ visibility rule is yours and the graph's entities belong to a team:
 
 Beyond that, the cost is the platform's to bound: each window is a metered model call counted
 against the team's quota, and a document is read in at most 24 of them.
+
+One figure to know about: the console's Knowledge tab reports `unextracted` from the repository
+arm only, so your documents do not inflate a console read with a page of plugin calls. `documents`
+counts what the team holds facts for plus the documents that were found empty.
 
 ## 7. The signup funnel
 

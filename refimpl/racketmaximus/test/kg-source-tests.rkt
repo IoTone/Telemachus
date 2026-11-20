@@ -553,16 +553,24 @@
       (check-equal? (kg-list-unextracted conn alice) (list (kg-source-id "rcnt" "ok-1"))
                     "the empty and non-string ids are dropped rather than raised"))))
 
-(test-case "forgetting through a source this plugin does not own is refused"
+(test-case "forgetting works from a request, and is refused only when another plugin is the caller"
   (define conn (fresh))
-  (register-extraction-source! "theirs"
-    (hasheq 'list (lambda (c p t l) '()) 'see (lambda (c p t d) (hasheq 'key d))
-            'version (lambda (c p t d) "v1") 'text (lambda (c p t d) "x")))
+  ;; registered as a plugin, which is the only time an identity exists
+  (parameterize ([current-plugin 'plugin-a])
+    (register-extraction-source! "theirs"
+      (hasheq 'list (lambda (c p t l) '()) 'see (lambda (c p t d) (hasheq 'key d))
+              'version (lambda (c p t d) "v1") 'text (lambda (c p t d) "x"))))
   (dynamic-wind void
     (lambda ()
+      ;; A DELETE HANDLER RUNS WITH NO PLUGIN IDENTITY, and that is the shape the guide documents.
+      ;; It must work, or the seam's only write hook never does.
+      (check-not-exn (lambda () (kg-source-forget! conn "theirs" "d1")))
+      ;; with an identity bound, a different plugin is refused
       (parameterize ([current-plugin 'plugin-b])
         (check-exn #rx"does not own the extraction source"
-                   (lambda () (kg-source-forget! conn "theirs" "d1")))))
+                   (lambda () (kg-source-forget! conn "theirs" "d1"))))
+      (parameterize ([current-plugin 'plugin-a])
+        (check-not-exn (lambda () (kg-source-forget! conn "theirs" "d1")))))
     (lambda () (unregister-extraction-source! "theirs"))))
 
 (test-case "forgetting a document shared by two teams prunes both teams' orphans"

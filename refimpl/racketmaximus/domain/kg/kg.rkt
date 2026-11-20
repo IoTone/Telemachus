@@ -158,9 +158,13 @@
 ;; has taken the encoded format apart somewhere else, and would be one line from forgetting
 ;; the wrong documents.
 (define (kg-source-forget! conn source doc-id)
-  ;; the ownership rule the registry applies at registration, applied here too: a plugin may not
-  ;; forget another plugin's documents, even though an in-process plugin could run its own DELETE
-  (unless (source-owns? source)
+  ;; THE OWNERSHIP RULE IS ASKED ONLY WHEN THERE IS A PLUGIN TO ASK ABOUT. `current-plugin` is
+  ;; bound while a plugin's `init!` runs and is `#f` everywhere else, so a delete handler would be
+  ;; refused by a strict comparison and the one write hook this seam exists for would never work.
+  ;; Registration still refuses a second plugin claiming a name, which is the rule that matters at
+  ;; load; at request time a caller already holds `conn` and could run its own DELETE, so this is
+  ;; consistency rather than a boundary.
+  (unless (source-forgettable? source)
     (error 'kg-source-forget! "this plugin does not own the extraction source ~s" source))
   (kg-forget! conn (kg-source-id source doc-id)))
 
@@ -227,7 +231,7 @@
 ;; plugin source is the second (domain/kg/sources.rkt). `lim` is shared rather than handed to
 ;; each, because the workflow fans `kg_extract` over whatever comes back and LIST-BATCH is what
 ;; bounds a run.
-(define (kg-list-unextracted conn p #:limit [lim 40])
+(define (kg-list-unextracted conn p #:limit [lim 40] #:sources? [sources? #t])
   (require-perm conn p "files:read")
   (define team (principal-team-id p))
   (define repo-ids
@@ -246,7 +250,7 @@
   (append
    repo-ids
    (cond
-     [(or (not team) (zero? left)) '()]
+     [(or (not sources?) (not team) (zero? left)) '()]
      [else
       ;; sources in name order, so the answer does not depend on which plugin loaded first
       ;;
@@ -280,7 +284,9 @@
 ;; which is how a lister says "that is all of them" without a new word in the contract. A source
 ;; that answers the same page for ever therefore costs three calls and stops.
 (define (take-from-source name conn p team want)
-  (let loop ([asked (max 1 want)] [round 0])
+  ;; THE FIRST ASK IS CLAMPED TOO, because `kg-stats` asks the lister for 1000 and a page of
+  ;; 1000 ids is two plugin calls and two statements each on a console read.
+  (let loop ([asked (min 400 (max 1 want))] [round 0])
     (define raw (source-list name conn p team asked))
     ;; #235's lesson applied to a source: filter with the authority about to be cited, so a
     ;; source that offers something the caller cannot read cannot fail the run.
@@ -292,7 +298,7 @@
         (kg-source-id name doc-id)))
     (cond
       [(>= (length kept) want) (take kept want)]
-      [(or (>= round 2) (< (length raw) asked)) kept]
+      [(or (>= round 2) (< (length raw) asked) (>= asked 400)) kept]
       ;; THREE ASKS AT MOST, and the page never grows past 400 ids, because each id in it costs a
       ;; `see`, a `version` and a statement. Without the ceiling a source that answers the full
       ;; page every time would be asked for 64 times its share in a single lister call.
@@ -559,8 +565,18 @@
   (define team (principal-team-id p))
   (hasheq 'entities (query-value conn "SELECT COUNT(*) FROM kg_entities WHERE team_id = ?" team)
           'relations (query-value conn "SELECT COUNT(*) FROM kg_relations WHERE team_id = ?" team)
-          'documents (query-value conn "SELECT COUNT(*) FROM kg_extractions WHERE team_id = ?" team)
-          'unextracted (length (kg-list-unextracted conn p #:limit 1000))))
+          ;; DOCUMENTS THIS TEAM HOLDS, not marker rows. The marker is one row per object carrying
+          ;; one team, so after two teams extract the same source document it names only the last
+          ;; of them and the other team's count would drop a document it still holds facts for.
+          'documents (query-value conn
+                      (string-append "SELECT COUNT(*) FROM ("
+                                     "SELECT object_id FROM kg_mentions WHERE team_id = ? "
+                                     "UNION SELECT object_id FROM kg_extractions "
+                                     "  WHERE COALESCE(entities, 0) = 0 AND COALESCE(relations, 0) = 0)")
+                      team)
+          ;; the repository arm only: a source's share is not counted here, because answering it
+          ;; would ask every plugin for a page of ids and then two questions per id on a console read
+          'unextracted (length (kg-list-unextracted conn p #:limit 1000 #:sources? #f))))
 
 ;; a deleted document takes its facts with it
 (set-delete-hook! (lambda (conn object-id) (kg-forget! conn object-id)))

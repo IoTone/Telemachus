@@ -28,7 +28,7 @@
 (provide register-extraction-source! unregister-extraction-source! extraction-source
          extraction-sources SOURCE-NAME-PATTERN
          kg-source-id kg-source-id? kg-source-id-split
-         source-list source-see source-version source-text source-window source-owns?)
+         source-list source-see source-version source-text source-window source-forgettable?)
 
 ;; ONE HOME FOR THE GRAMMAR. The name is validated at registration and re-used to parse an
 ;; encoded id, so a name that registration accepts is a name parsing accepts. The colon is
@@ -76,9 +76,11 @@
 (define (extraction-source name) (let ([e (hash-ref *sources* (and (string? name) name) #f)]) (and e (cdr e))))
 (define (extraction-sources) (sort (hash-keys *sources*) string<?))
 (define (source-owner name) (let ([e (hash-ref *sources* (and (string? name) name) #f)]) (and e (car e))))
-;; the rule registration applies, asked as a question so a caller that WRITES on a source's behalf
-;; (forget, window) can apply the same rule rather than trusting the name it was handed
-(define (source-owns? name) (equal? (source-owner name) (current-plugin)))
+;; WHETHER A FORGET IS ALLOWED. `current-plugin` is bound only while a plugin's `init!` runs, and
+;; a delete handler runs long after that, so there the answer is "yes" by construction. The
+;; registry's ownership rule still refuses a second plugin CLAIMING a name at load, which is where
+;; an identity exists to compare; a strict check here would refuse the documented call.
+(define (source-forgettable? name) (let ([me (current-plugin)]) (or (not me) (equal? (source-owner name) me))))
 
 ;; THE PLUGIN NEVER COMPOSES THIS ID and the platform takes one apart nowhere else, so the
 ;; format has one home. A repository id is a UUIDv4 (`db/id.rkt:18-26`), which is hex and

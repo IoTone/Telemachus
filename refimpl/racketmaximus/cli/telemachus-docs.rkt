@@ -971,7 +971,7 @@
    "source answers. Return `#f` rather than raising, and treat a `#f` team (an operator "
    "principal) as not readable. `version` must move when the text changes, because a "
    "version the source cannot name is a refusal. A document is read whole in windows of "
-   "`window` characters, and `(kg-source-forget! conn name doc-id)` is what a delete "
+   "`window` characters up to a per-document limit, and `(kg-source-forget! conn name doc-id)` is what a delete "
    "calls, because a plugin\'s delete never reaches the repository\'s hook.\n\n"
    "## The onboarding provider\n\n"
    "`register-onboarding! name experience` contributes a beta funnel experience "
