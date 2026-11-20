@@ -155,16 +155,25 @@
   (for/sum ([e (in-list (let ([v (hash-ref j 'entities '())]) (if (list? v) v '())))])
     (if (and (hash? e) (string? (hash-ref e 'snippet #f)) (string-contains? text (hash-ref e 'snippet))) 1 0)))
 
-(define (keep-valid j text0)
-  (define text (ws text0))
+;; THE STORED SNIPPET IS THE DOCUMENT'S OWN TEXT, newline and all: the excerpt
+;; is located with any run of whitespace allowed between its words and what is
+;; kept is what the document says there. So what reaches the graph still passes
+;; the shipped character-exact check, which runs after this.
+(define (locate text sn)
+  (define words (string-split sn))
+  (and (pair? words)
+       (let ([m (regexp-match (regexp (string-join (map regexp-quote words) "[ \t\r\n]+")) text)])
+         (and m (car m)))))
+
+(define (keep-valid j text)
   (define ents
     (for/list ([e (in-list (let ([v (hash-ref j 'entities '())]) (if (list? v) v '())))]
                #:when (and (hash? e) (str? (hash-ref e 'name #f)) (str? (hash-ref e 'type #f))
                            (str? (hash-ref e 'snippet #f))
-                           (string-contains? text (ws (hash-ref e 'snippet)))))
+                           (locate text (hash-ref e 'snippet))))
       (hasheq 'type (hash-ref e 'type) 'name (hash-ref e 'name)
               'description (let ([d (hash-ref e 'description "")]) (if (string? d) d ""))
-              'snippet (hash-ref e 'snippet))))
+              'snippet (locate text (hash-ref e 'snippet)))))
   (define names (for/list ([e (in-list ents)]) (normalize-name (hash-ref e 'name))))
   (define rels
     (for/list ([r (in-list (let ([v (hash-ref j 'relations '())]) (if (list? v) v '())))]
@@ -172,9 +181,9 @@
                            (for/and ([k '(subject predicate object snippet)]) (str? (hash-ref r k #f)))
                            (member (normalize-name (hash-ref r 'subject)) names)
                            (member (normalize-name (hash-ref r 'object)) names)
-                           (string-contains? text (ws (hash-ref r 'snippet)))))
+                           (locate text (hash-ref r 'snippet))))
       (hasheq 'subject (hash-ref r 'subject) 'predicate (hash-ref r 'predicate)
-              'object (hash-ref r 'object) 'snippet (hash-ref r 'snippet))))
+              'object (hash-ref r 'object) 'snippet (locate text (hash-ref r 'snippet)))))
   (hasheq 'entities ents 'relations rels))
 
 (define (count-of j k) (let ([v (and (hash? j) (hash-ref j k '()))]) (if (list? v) (length v) 0)))
