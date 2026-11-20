@@ -24,8 +24,8 @@ Every tool a workflow step may use, from `define-tool` declarations and plugin r
 | `feed_queue_status` | yes | `files:read` | feeds | Move a queued item to another status: open, claimed, done or dropped. |
 | `get_usage` | yes | `chat:use` | built-in | Report the team's current AI usage against its quota. |
 | `inbox_raise` | yes | `inbox:write` | inbox | Raise an item into the team's inbox, or re-raise one. One live item exists per (source, key): the same revision only refreshes the evidence, a different revision replaces the content and sends an acknowledged or snoozed item back to open. The answer's outcome says which happened. |
-| `kg_extract` | — | `files:read` | built-in | Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate. |
-| `kg_list_unextracted` | — | `files:read` | built-in | List repository documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the index-knowledge workflow again to continue. |
+| `kg_extract` | — | `files:read` | built-in | Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows of about 12,000 characters, up to a per-document limit that the answer reports. Refuses a reply that does not validate. |
+| `kg_list_unextracted` | — | `files:read` | built-in | List the documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). A document is a repository object or one a plugin source lends to the graph. Returns ids, capped at a batch; run the index-knowledge workflow again to continue. |
 | `kg_query` | yes | `files:read` | built-in | What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too. |
 | `list_notes` | yes | `notes:read` | built-in | List the current user's notes (title and visibility). |
 | `note_autotag` | yes | `notes:write` | built-in | Suggest topic tags for a note and add them to it, in the note's own language. |
@@ -294,17 +294,17 @@ Permission: `inbox:write` · source: inbox
 
 ## `kg_extract`
 
-Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate.
+Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows of about 12,000 characters, up to a per-document limit that the answer reports. Refuses a reply that does not validate.
 
 Permission: `files:read` · source: built-in
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `object` | string | yes | The repository object id |
+| `object` | string | yes | The document id, from the repository or from a plugin source |
 
 ## `kg_list_unextracted`
 
-List repository documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the index-knowledge workflow again to continue.
+List the documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). A document is a repository object or one a plugin source lends to the graph. Returns ids, capped at a batch; run the index-knowledge workflow again to continue.
 
 Permission: `files:read` · source: built-in
 

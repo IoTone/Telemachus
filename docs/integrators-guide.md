@@ -377,6 +377,98 @@ about and the org gate has no tenant to scope to. Use a job kind (§6) for
 anything that acts. A *recurring* job — "every N minutes" — has no primitive yet;
 `set-reaper!` is the platform's own private seam, not a plugin-facing one.
 
+## 6c. Lend your documents to the knowledge graph
+
+If you keep your own documents in your own tables, the graph cannot see them. It extracts from
+repository documents, so `POST /api/kg/extract` would queue a workflow over an empty set and the
+graph would stay empty with nothing reporting a problem. Register an extraction source and your
+documents are enumerated, extracted, cited, drawn and forgotten as a repository document is, with
+two differences that follow from entities being team-scoped and are stated at the end of this
+section:
+
+```racket
+(require (only-in "../kg/sources.rkt" register-extraction-source!))
+(require (only-in "../kg/kg.rkt" kg-source-forget!))
+
+(define (init!)
+  (register-extraction-source!
+   "acme"                              ; lowercase, no colon, matches [a-z][a-z0-9._-]{0,63}
+   (hasheq
+    'list    (lambda (conn p team limit) (my-unextracted-doc-ids conn team limit))
+    'see     (lambda (conn p team doc-id)
+               (and (may-read? conn p team doc-id)
+                    (hasheq 'key "the label a citation shows")))
+    'version (lambda (conn p team doc-id) (or (current-version doc-id) #f))
+    'text    (lambda (conn p team doc-id) (or (extracted-text doc-id) "")))))
+```
+
+Four procedures, and an optional fifth for the window, because the costs differ. `see` is asked
+for each distinct document on a graph read, and again for each relation on one entity read, so it
+must be cheap and must not open a document.
+`text` is asked once per document and only when it is about to be sent to a model.
+
+What to get right:
+
+- **`see` is the security boundary, and it is asked with the team the mention was recorded for**,
+  not the caller's team, so a fact recorded for one team is unreachable from another whatever you
+  answer. A bare id is asked about the caller's own team. Return `#f` for "not readable" rather
+  than raising, and treat `team` = `#f` (an operator principal) as not readable.
+- **The `key` is what a citation shows**, so return something a person recognises. It is only
+  ever asked about a document `see` has just admitted.
+- **`version` is required and must move when the text changes.** A version you cannot name is a
+  refusal, and extraction will not write it. Nothing derived from a clock is right here if the
+  text can change twice in one second; a digest of the text is exact and costs what reading the
+  row costs.
+- **`list` is filtered for you, twice**: by `see`, and by whether that version is already
+  extracted for this team. So it may return documents that are already done. It is asked again with a wider
+  window when a page turns out to be entirely extracted, so returning a stable ordered page is
+  enough and returning the same page for ever costs three calls and stops.
+- **Delete must forget.** A plugin's delete never reaches the repository's delete hook, so call
+  `(kg-source-forget! conn "acme" doc-id)` when the document goes. What is left behind is not
+  visible, because your `see` refuses a document that no longer exists, so the rows simply become
+  unreachable: the cost is dead rows and a document count that is too high, not a leak.
+- **Do not write the repository's tables and do not build the id yourself.** `kg-source-id` owns
+  the format and the platform is the only other place that takes one apart.
+- **A document is read in windows, and the window is a size rather than a limit.** 12,000
+  characters by default; a longer document is split at line breaks, each window extracted and
+  validated against its own text, and the results merged into one extraction. You may declare your
+  own with an optional `window` procedure, and a value outside 1,000 to 48,000 characters falls
+  back to the default rather than being used, because the size of one model input is the platform's
+  ceiling and not a plugin's. At most 24 windows are
+  read per document, and the answer reports `windows` and `text_truncated`, so the screen can say
+  what was read and what was not.
+- **A window costs a model call.** One document is therefore several calls, bounded per document,
+  and the team's quota is charged per window because that is what was spent.
+
+You get the four `/api/kg` routes, the shipped `index-knowledge` workflow, the drawing with its
+cap and `truncated` flag, and the citation rule, without writing graph code.
+
+Two things work differently from a repository document, and both follow from the fact that your
+visibility rule is yours and the graph's entities belong to a team:
+
+- **Each team that may read a document gets its own facts from it.** The graph's entities,
+  relations and mentions are scoped to a team, so a document your `see` admits for two teams is
+  extracted once for each, and each team sees only its own. Nothing is shared and nothing is
+  destroyed: a second team's extraction cannot delete the first team's facts. A team that has not
+  extracted the document yet is offered it, so the work is per team rather than per document. An
+  extraction that found nothing is recorded for the version rather than for the team, because the
+  same text yields nothing for anybody, and that is what stops it being re-extracted for ever. The
+  trade is that a source which returns no text for one team but text for another has recorded that
+  version as empty for everybody, so say what `text` means per team rather than varying it.
+- **The repository comes first in each batch.** A run's list is filled with repository documents
+  up to the batch size before any source is asked, so on a team with a large repository backlog
+  your documents are reached once that backlog drains. A drain runs until it finds nothing, so
+  they are reached; they are not reached first.
+
+Beyond that, the cost is the platform's to bound: each window is a metered model call counted
+against the team's quota, and a document is read in at most 24 of them.
+
+One figure to know about: the console's Knowledge tab reports `unextracted` from the repository
+arm only, so your documents do not inflate a console read with a page of plugin calls. `documents`
+counts what the team holds facts for plus the documents that same team recorded as empty, and it
+drops a document whose empty marker another team overwrote, because there is one marker row per
+document rather than one per team.
+
 ## 7. The signup funnel
 
 Separate from the product and skinnable on its own: **Tier A** the built-in themeable

@@ -19,7 +19,7 @@
 
 (define-workflow index-knowledge
   #:name "Index Knowledge"
-  #:description "Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run."
+  #:description "Extract entities and relations from indexed documents into the knowledge graph. A document is a repository object or one a plugin source lends to the graph, and a long one is read in windows of about 12,000 characters, up to a per-document limit the answer reports. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run."
   #:version 2
   #:max-steps 50
   (step find (tool kg_list_unextracted))
