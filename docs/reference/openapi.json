@@ -2875,6 +2875,24 @@
         "x-tmach-permission-checked": "role"
       }
     },
+    "/api/notes/tidy": {
+      "get": {
+        "description": "Two lists for keeping a team's notes connected. `unlinked` is the notes that link to no note and that no note links to; `broken` is the links whose target resolves to nothing, each with the note that carries it and a `reason` of `missing` or `ambiguous`. Both are resolved for the caller, as the links panel does, so a link to a note the caller may not read is reported as `missing` and a link from one counts for nothing. A link to a document or a bookmark does not take a note off the unlinked list. Each list holds at most 100 entries and the `_total` beside it says how many there are. When the team has more links than one read scans, `truncated` is true, `unlinked` is null and `broken` may be short.",
+        "operationId": "get.api.notes.tidy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notes"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "notes-tidy",
+        "x-tmach-permission": "notes:read",
+        "x-tmach-permission-checked": "role"
+      }
+    },
     "/api/notes/{id}": {
       "delete": {
         "description": "Delete a note.",

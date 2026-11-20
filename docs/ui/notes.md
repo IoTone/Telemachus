@@ -174,6 +174,27 @@ Four things it says when it had to stop:
 `Nothing to draw yet. A [[target]] in a note is what makes an edge.` means
 there are no edges, not that the graph is broken.
 
+## Tidying up
+
+**Tidy up**, beside **Show the graph**, opens two lists for keeping a team's
+notes connected. Each entry is a link that opens the note.
+
+- `Not linked to any note (N)` is the notes that link to no other note and that
+  no other note links to. A link to a document or a bookmark does not count
+  here: it ties a note to its source, not to the rest of the notes.
+- `Links that go nowhere (N)` shows a note, then the target its link names, then
+  why: `no note or source by that name`, or `two notes share that title`. Fix
+  the link, or write the note it is waiting for.
+
+Both lists are worked out for you, the same way the links panel is. A note you
+cannot read is not listed, a link to one reads as going nowhere, and a link from
+one does not count. So a note may be on your list while a colleague, who can see
+a private note that links to it, does not have it on theirs.
+
+Each list shows at most 100 entries and says `Showing the first N.` when there
+are more. On a team with more links than one read covers, the card says so, the
+first list is left out and the second may be short.
+
 ## Org files in and out
 
 - **Download .org** writes the saved note as a file, which imports back

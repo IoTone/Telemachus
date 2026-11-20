@@ -28,6 +28,9 @@
          ;; the graph (#247 / ORG-13…16) — the read, its bounds and the closed
          ;; vocabulary of ways it stops, exported for the endpoint and the gate
          note-graph NOTE-GRAPH-MAX NOTE-GRAPH-DEPTH-MAX NOTE-GRAPH-STOPS
+         ;; the tidying lists: notes with no link either way, and links that
+         ;; point at nothing, for the Notes tab and its endpoint
+         note-tidying NOTE-TIDY-MAX
          ;; the `.org` interchange (#246 slice 3) — the endpoint composes and
          ;; parses through these, and ORG-12's refusal has one spelling
          notes-import org-text-of ORG-TAGS-REFUSAL notes-tags-writable!)
@@ -1146,3 +1149,90 @@
                    #:principal-type "user" #:principal-id target-user
                    #:permission perm #:by (principal-user-id p))
            #t)))
+
+;; ---- the tidying lists ---------------------------------------------------------
+;;
+;; Two lists a person works through to keep a team's notes connected:
+;;
+;;   unlinked  notes that link to no note and that no note links to
+;;   broken    links whose target resolves to nothing (ORG-8), with the note
+;;             that carries each one
+;;
+;; Both are read off the SAME scan the graph makes and resolved through the
+;; reader's own index, so the three surfaces cannot disagree about what a link
+;; reaches. That also settles what a reader is told about a colleague's private
+;; note: nothing. A link to one is reported as `missing`, exactly as the links
+;; panel reports it, and a link FROM one counts for nothing, so a note only a
+;; private note points at is listed as unlinked for everybody else.
+;;
+;; A link to a document or a bookmark does not connect a note to other notes,
+;; so it does not take a note off the unlinked list. One that resolves to
+;; nothing is on the broken list like any other.
+;;
+;; WHEN THE SCAN FILLS, `unlinked` IS WITHDRAWN (the jsexpr null) rather than
+;; answered: a note whose links were past the bound would be listed as having
+;; none. The broken links that were read are still true, so that list stays and
+;; `truncated` says it may be short.
+;;
+;; Each list is cut at NOTE-TIDY-MAX, in the notes listing's own order, and the
+;; `_total` beside it says how many there are.
+(define NOTE-TIDY-MAX 100)
+
+(define (note-tidying conn p)
+  (require-perm conn p "notes:read")
+  (define team (principal-team-id p))
+  (define idx (team-note-index conn p team))
+  (define by-id (cdr idx))
+  (define rows
+    (query-rows conn
+      (string-append "SELECT src_note_id, raw_target, target_fold, label FROM note_links "
+                     "WHERE team_id = ? ORDER BY src_note_id, ord LIMIT ?")
+      team NOTE-GRAPH-SCAN))
+  (define truncated? (>= (length rows) NOTE-GRAPH-SCAN))
+  (define source-of (make-source-resolver conn p team))
+  (define linked (make-hash))
+  (define broken
+    (filter
+     values
+     (for/list ([row (in-list rows)])
+       (define src (hash-ref by-id (vector-ref row 0) #f))
+       (define raw (vector-ref row 1))
+       (cond
+         [(not src) #f]
+         [(typed-target raw)
+          (and (not (source-of raw))
+               (hasheq 'note src 'target raw 'label (vector-ref row 3) 'reason "missing"))]
+         [else
+          (define-values (dst reason) (resolve-target idx raw (vector-ref row 2)))
+          (cond
+            [dst
+             ;; a note that links to itself is still linked to nothing else
+             (unless (equal? (hash-ref dst 'id) (hash-ref src 'id))
+               (hash-set! linked (hash-ref src 'id) #t)
+               (hash-set! linked (hash-ref dst 'id) #t))
+             #f]
+            [else (hasheq 'note src 'target raw 'label (vector-ref row 3)
+                          'reason reason)])]))))
+  (define (by-note-order xs key)
+    (sort xs (lambda (a b) (note-newer? (key a) (key b)))))
+  (define broken-sorted
+    (by-note-order broken (lambda (b) (hash-ref b 'note))))
+  (define unlinked
+    (by-note-order (for/list ([n (in-hash-values by-id)]
+                              #:unless (hash-ref linked (hash-ref n 'id) #f))
+                     n)
+                   values))
+  (define (cut xs) (if (> (length xs) NOTE-TIDY-MAX) (take xs NOTE-TIDY-MAX) xs))
+  (hasheq 'notes (hash-count by-id)
+          'truncated truncated?
+          'unlinked (if truncated?
+                        'null
+                        (for/list ([n (in-list (cut unlinked))])
+                          (hasheq 'note_id (hash-ref n 'id) 'title (hash-ref n 'title))))
+          'unlinked_total (if truncated? 'null (length unlinked))
+          'broken (for/list ([b (in-list (cut broken-sorted))])
+                    (define n (hash-ref b 'note))
+                    (hasheq 'note_id (hash-ref n 'id) 'title (hash-ref n 'title)
+                            'target (hash-ref b 'target) 'label (hash-ref b 'label)
+                            'reason (hash-ref b 'reason)))
+          'broken_total (length broken)))

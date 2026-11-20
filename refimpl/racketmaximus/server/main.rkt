@@ -353,6 +353,7 @@
    'notes-share ep-notes-share 'notes-get ep-notes-get 'notes-update ep-notes-update 'notes-delete ep-notes-delete
    'note-tags ep-note-tags 'notes-autotag ep-notes-autotag 'note-links ep-note-links
    'notes-graph ep-notes-graph
+   'notes-tidy ep-notes-tidy
    'notes-import ep-notes-import
    'ai-echo ep-ai-echo 'ai-chat ep-ai-chat 'ai-chat-stream ep-ai-chat-stream 'agent ep-agent
    'help ep-help

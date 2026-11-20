@@ -9,7 +9,7 @@
 (provide ep-notes-create ep-notes-list ep-documents-create ep-documents-list
          ep-documents-get ep-documents-update ep-documents-delete
          ep-notes-get ep-notes-update ep-notes-delete ep-notes-share
-         ep-note-tags ep-notes-autotag ep-note-links ep-notes-graph ep-notes-import
+         ep-note-tags ep-notes-autotag ep-note-links ep-notes-graph ep-notes-tidy ep-notes-import
          ep-search ep-kg-entities ep-kg-entity ep-kg-graph ep-kg-extract)
 
 (require racket/string
@@ -20,7 +20,7 @@
          (only-in "../../config.rkt" content-encryption-enabled?)
          (only-in "../../domain/notes/notes.rkt"
                   notes-create notes-delete notes-get notes-list notes-count notes-share notes-update
-                  notes-tag-list note-links-of note-backlinks-of note-graph
+                  notes-tag-list note-links-of note-backlinks-of note-graph note-tidying
                   notes-import org-text-of MAX-TAGS)
          (only-in "../../domain/notes/note-tools.rkt" note-autotag!)
          (only-in "../../domain/tools/faults.rkt" exn:fail:misconfigured?)
@@ -235,6 +235,12 @@
     (define out (note-graph db-conn p #:note focus
                             #:depth (if (exact-integer? n) n 1)))
     (if out (json-response out) (err "not found" 404)))))
+
+;; The tidying lists for the Notes tab: notes with no link either way, and
+;; links that point at nothing. The dispatcher has checked `notes:read`, and
+;; `note-tidying` checks it again.
+(define (ep-notes-tidy req)
+  (with-auth req (lambda (p) (json-response (note-tidying db-conn p)))))
 
 (define (ep-notes-update req id)
   (with-auth req (lambda (p)

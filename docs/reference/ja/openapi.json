@@ -2875,6 +2875,24 @@
         "x-tmach-permission-checked": "role"
       }
     },
+    "/api/notes/tidy": {
+      "get": {
+        "description": "チームのノートをつなげておくための 2 つの一覧です。`unlinked` は、どのノートにもリンクせず、どのノートからもリンクされていないノートです。`broken` は行き先が解決できないリンクで、それぞれリンクを持つノートと `reason` (`missing` または `ambiguous`) が付きます。どちらもリンクパネルと同じく呼び出し元の権限で解決されるため、呼び出し元が読めないノートへのリンクは `missing` と報告され、そのようなノートからのリンクは数えられません。ドキュメントやブックマークへのリンクがあっても、ノートは unlinked の一覧から外れません。各一覧は最大 100 件で、隣の `_total` が総数を示します。チームのリンクが 1 回の読み取りで走査できる数を超える場合、`truncated` は true、`unlinked` は null になり、`broken` は一部だけの可能性があります。",
+        "operationId": "get.api.notes.tidy",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "tags": [
+          "notes"
+        ],
+        "x-tmach-auth": "bearer",
+        "x-tmach-handler": "notes-tidy",
+        "x-tmach-permission": "notes:read",
+        "x-tmach-permission-checked": "role"
+      }
+    },
     "/api/notes/{id}": {
       "delete": {
         "description": "ノートを削除します。",
