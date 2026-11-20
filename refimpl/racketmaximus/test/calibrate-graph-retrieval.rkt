@@ -145,12 +145,23 @@
   (and a b (> b a)
        (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr (substring raw a (add1 b))))))
 
-(define (keep-valid j text)
+;; A SNIPPET IS COMPARED WITH WHITESPACE COLLAPSED. These documents are
+;; hard-wrapped, so an excerpt longer than a line crosses a newline in the file
+;; and the model writes a space there. That is still an excerpt of the document;
+;; an exact comparison refuses it. How many were exact is counted beside it.
+(define (ws s) (string-join (string-split s) " "))
+
+(define (exact-entities j text)
+  (for/sum ([e (in-list (let ([v (hash-ref j 'entities '())]) (if (list? v) v '())))])
+    (if (and (hash? e) (string? (hash-ref e 'snippet #f)) (string-contains? text (hash-ref e 'snippet))) 1 0)))
+
+(define (keep-valid j text0)
+  (define text (ws text0))
   (define ents
     (for/list ([e (in-list (let ([v (hash-ref j 'entities '())]) (if (list? v) v '())))]
                #:when (and (hash? e) (str? (hash-ref e 'name #f)) (str? (hash-ref e 'type #f))
                            (str? (hash-ref e 'snippet #f))
-                           (string-contains? text (hash-ref e 'snippet))))
+                           (string-contains? text (ws (hash-ref e 'snippet)))))
       (hasheq 'type (hash-ref e 'type) 'name (hash-ref e 'name)
               'description (let ([d (hash-ref e 'description "")]) (if (string? d) d ""))
               'snippet (hash-ref e 'snippet))))
@@ -161,7 +172,7 @@
                            (for/and ([k '(subject predicate object snippet)]) (str? (hash-ref r k #f)))
                            (member (normalize-name (hash-ref r 'subject)) names)
                            (member (normalize-name (hash-ref r 'object)) names)
-                           (string-contains? text (hash-ref r 'snippet))))
+                           (string-contains? text (ws (hash-ref r 'snippet)))))
       (hasheq 'subject (hash-ref r 'subject) 'predicate (hash-ref r 'predicate)
               'object (hash-ref r 'object) 'snippet (hash-ref r 'snippet))))
   (hasheq 'entities ents 'relations rels))
@@ -187,9 +198,10 @@
        (when (flag? "--show-dropped")
          (for ([e (in-list (let ([v (hash-ref j 'entities '())]) (if (list? v) v '())))])
            (define sn (and (hash? e) (hash-ref e 'snippet #f)))
-           (unless (and (string? sn) (string-contains? doc sn))
+           (unless (and (string? sn) (string-contains? (ws doc) (ws sn)))
              (printf "    dropped ~s: ~s\n" (and (hash? e) (hash-ref e 'name #f))
                      (if (string? sn) (substring sn 0 (min 100 (string-length sn))) sn)))))
+       (bump! 'entities_exact (exact-entities j doc))
        (bump! 'entities_seen (count-of j 'entities)) (bump! 'entities_kept (count-of kept 'entities))
        (bump! 'relations_seen (count-of j 'relations)) (bump! 'relations_kept (count-of kept 'relations))
        (values (jsexpr->string kept) tokens)]))
@@ -199,10 +211,11 @@
   (query-exec conn "DELETE FROM calib_extract WHERE object_id = ?" oid)
   (query-exec conn
     (string-append "INSERT INTO calib_extract (object_id, windows, unreadable, shipped_ok, "
-                   "entities_seen, entities_kept, relations_seen, relations_kept) VALUES (?,?,?,?,?,?,?,?)")
+                   "entities_seen, entities_kept, relations_seen, relations_kept, entities_exact) VALUES (?,?,?,?,?,?,?,?,?)")
     oid (hash-ref stats 'windows 0) (hash-ref stats 'unreadable 0) (hash-ref stats 'shipped_ok 0)
     (hash-ref stats 'entities_seen 0) (hash-ref stats 'entities_kept 0)
-    (hash-ref stats 'relations_seen 0) (hash-ref stats 'relations_kept 0)))
+    (hash-ref stats 'relations_seen 0) (hash-ref stats 'relations_kept 0)
+    (hash-ref stats 'entities_exact 0)))
 
 ;; ---- build ----------------------------------------------------------------------
 
@@ -213,7 +226,7 @@
   (query-exec conn
     (string-append "CREATE TABLE IF NOT EXISTS calib_extract (object_id TEXT PRIMARY KEY, windows INTEGER, "
                    "unreadable INTEGER, shipped_ok INTEGER, entities_seen INTEGER, entities_kept INTEGER, "
-                   "relations_seen INTEGER, relations_kept INTEGER)"))
+                   "relations_seen INTEGER, relations_kept INTEGER, entities_exact INTEGER)"))
   (define files
     (let ([all (corpus-files)] [n (string->number (arg-value "--max-files" "0"))])
       (if (and n (positive? n) (< n (length all))) (take all n) all)))
@@ -266,13 +279,13 @@
              (string-append "SELECT COUNT(*), COALESCE(SUM(windows),0), COALESCE(SUM(unreadable),0), "
                             "COALESCE(SUM(shipped_ok),0), COALESCE(SUM(entities_seen),0), "
                             "COALESCE(SUM(entities_kept),0), COALESCE(SUM(relations_seen),0), "
-                            "COALESCE(SUM(relations_kept),0) FROM calib_extract"))])
+                            "COALESCE(SUM(relations_kept),0), COALESCE(SUM(entities_exact),0) FROM calib_extract"))])
     (when (positive? (vector-ref r 0))
       (printf (string-append "per-item graph step over ~a documents: ~a model replies, ~a unreadable, "
-                             "~a the shipped rule would have accepted; entities kept ~a of ~a, "
-                             "relations kept ~a of ~a\n")
+                             "~a the shipped rule would have accepted; entities kept ~a of ~a "
+                             "(~a with a character-exact snippet), relations kept ~a of ~a\n")
               (vector-ref r 0) (vector-ref r 1) (vector-ref r 2) (vector-ref r 3)
-              (vector-ref r 5) (vector-ref r 4) (vector-ref r 7) (vector-ref r 6))))
+              (vector-ref r 5) (vector-ref r 4) (vector-ref r 8) (vector-ref r 7) (vector-ref r 6))))
   (unless (null? failed)
     (printf "FAILED steps (~a); run --build again to retry them:\n" (length failed))
     (for ([x (in-list (reverse failed))])
