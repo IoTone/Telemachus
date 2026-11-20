@@ -28,7 +28,7 @@
 (provide register-extraction-source! unregister-extraction-source! extraction-source
          extraction-sources SOURCE-NAME-PATTERN
          kg-source-id kg-source-id? kg-source-id-split
-         source-list source-see source-version source-text source-window)
+         source-list source-see source-version source-text source-window source-owns?)
 
 ;; ONE HOME FOR THE GRAMMAR. The name is validated at registration and re-used to parse an
 ;; encoded id, so a name that registration accepts is a name parsing accepts. The colon is
@@ -41,6 +41,14 @@
 ;; which a document id may contain. A scoped flag group is NOT a capture, so the text needs its
 ;; own parentheses around it.
 (define KG-SOURCE-ID-RX (pregexp (format "^kg-src:(~a):((?s:.+))$" SOURCE-NAME-PATTERN)))
+
+;; A DECLARED WINDOW IS CLAMPED, because it is the size of one model input and the platform owns
+;; that ceiling rather than the plugin. The floor exists for the other end: a window of a few
+;; characters makes a window out of a single newline, and a window with no text aborts the document
+;; with "nothing to extract from", which would be false about it. The repository arm has the same
+;; kind of ceiling upstream, at the extractor's own cap.
+(define SOURCE-WINDOW-MIN 1000)
+(define SOURCE-WINDOW-MAX 48000)
 
 (define *sources* (make-hash))            ; name -> (cons owner fns)
 
@@ -67,6 +75,10 @@
 (define (unregister-extraction-source! name) (hash-remove! *sources* name))
 (define (extraction-source name) (let ([e (hash-ref *sources* (and (string? name) name) #f)]) (and e (cdr e))))
 (define (extraction-sources) (sort (hash-keys *sources*) string<?))
+(define (source-owner name) (let ([e (hash-ref *sources* (and (string? name) name) #f)]) (and e (car e))))
+;; the rule registration applies, asked as a question so a caller that WRITES on a source's behalf
+;; (forget, window) can apply the same rule rather than trusting the name it was handed
+(define (source-owns? name) (equal? (source-owner name) (current-plugin)))
 
 ;; THE PLUGIN NEVER COMPOSES THIS ID and the platform takes one apart nowhere else, so the
 ;; format has one home. A repository id is a UUIDv4 (`db/id.rkt:18-26`), which is hex and
@@ -113,7 +125,10 @@
 ;; site has to defend against a plugin returning something else
 (define (source-list name conn p team limit)
   (let ([xs (source-call name "list" 'list conn p team limit)])
-    (if (list? xs) (filter string? xs) '())))
+    ;; AN EMPTY ID IS NOT A DOCUMENT, and an id that cannot be encoded is not one either. Both are
+    ;; dropped here rather than raised later, because a lister that raises takes the whole run down
+    ;; with it, including the repository arm, which is #235's lesson applied to a source.
+    (if (list? xs) (filter (lambda (x) (and (string? x) (not (string=? x "")))) xs) '())))
 
 (define (source-see name conn p team doc-id)
   (define r (source-call name "see" 'see conn p team doc-id))
@@ -136,4 +151,4 @@
   (define fns (extraction-source name))
   (define f (and fns (hash-ref fns 'window #f)))
   (define v (and f (source-call name "window" 'window conn p team doc-id)))
-  (if (and (integer? v) (> v 0)) v default))
+  (if (and (integer? v) (>= v SOURCE-WINDOW-MIN) (<= v SOURCE-WINDOW-MAX)) v default))

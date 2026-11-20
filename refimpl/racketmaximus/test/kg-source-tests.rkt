@@ -477,3 +477,112 @@
    (lambda ()
      (unregister-extraction-source! "big")
      (unregister-extraction-source! "bad"))))
+
+;; ---- one source document, two teams: neither may destroy the other -------------------------
+(test-case "a source document readable by two teams is extracted once for each, and neither loses the other's facts"
+  (define conn (fresh))
+  (define-values (uid1 tid1) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid1 tid1))
+  (define org (query-value conn "SELECT org_id FROM teams WHERE id = ?" tid1))
+  (define tid2 (create-team! conn #:name "second" #:slug "second" #:org org))
+  (define bob-id (create-user! conn #:username "bob" #:password "pw-fixture-3"))
+  (add-member! conn #:user bob-id #:team tid2 #:role "member")
+  (define bob (user-principal conn bob-id tid2))
+  (define tid3 (create-team! conn #:name "third" #:slug "third" #:org org))
+  (define carol-id (create-user! conn #:username "carol" #:password "pw-fixture-4"))
+  (add-member! conn #:user carol-id #:team tid3 #:role "member")
+  (define carol (user-principal conn carol-id tid3))
+  (define id (kg-source-id "rcnt" "shared"))
+  (define empty-id (kg-source-id "rcnt" "empty"))
+  (define (extraction name) (hasheq 'entities (list (hasheq 'type "organization" 'name name 'snippet "x"))
+                                    'relations '()))
+  ;; THE SOURCE MUST BE REGISTERED BEFORE ANY READ, because a mention on a source id is only
+  ;; visible while its source is; that is the fail-closed direction the design wants.
+  (with-source "rcnt"
+    (hasheq 'list (lambda (c p t l) '("shared" "empty"))
+            'see (lambda (c p t d) (hasheq 'key d))
+            'version (lambda (c p t d) "v1")
+            'text (lambda (c p t d) "x"))
+    (lambda ()
+      ;; team one extracts it, then team two extracts the SAME document id at the same version
+      (kg-upsert! conn tid1 id "v1" (extraction "Acme One"))
+      (kg-upsert! conn tid2 id "v1" (extraction "Acme Two"))
+      (check-equal? (map (lambda (e) (hash-ref e 'name)) (kg-find conn alice "Acme")) '("Acme One")
+                    "the second team's write did not delete the first team's facts")
+      (check-equal? (map (lambda (e) (hash-ref e 'name)) (kg-find conn bob "Acme")) '("Acme Two"))
+      ;; and the lister agrees per team, which is the question that decides a re-extraction
+      (check-equal? (kg-list-unextracted conn alice) (list empty-id))
+      (check-equal? (kg-list-unextracted conn bob) (list empty-id))
+      (check-equal? (kg-list-unextracted conn carol) (list id empty-id)
+                    "a team that has not extracted it is still offered it")
+      ;; an extraction that found nothing is the one case the shared marker answers for everyone,
+      ;; because the same text yields nothing for anybody and a per-team retry could never differ
+      (kg-upsert! conn tid1 empty-id "v1" (hasheq 'entities '() 'relations '()))
+      (check-equal? (kg-list-unextracted conn alice) '())
+      (check-equal? (kg-list-unextracted conn bob) '())
+      (check-equal? (kg-list-unextracted conn carol) (list id)
+                    "and the non-empty one is still this team's to do"))))
+
+(test-case "a declared window is clamped to the platform's range in both directions"
+  (register-extraction-source! "wide"
+    (hasheq 'list (lambda (c p t l) '()) 'see (lambda (c p t d) (hasheq 'key d))
+            'version (lambda (c p t d) "v1") 'text (lambda (c p t d) "x")
+            'window (lambda (c p t d) 10000000)))
+  (register-extraction-source! "tiny"
+    (hasheq 'list (lambda (c p t l) '()) 'see (lambda (c p t d) (hasheq 'key d))
+            'version (lambda (c p t d) "v1") 'text (lambda (c p t d) "x")
+            'window (lambda (c p t d) 5)))
+  (dynamic-wind void
+    (lambda ()
+      (check-equal? (source-window "wide" #f #f #f "d" 12000) 12000
+                    "an oversized window is the default, not a ten-megabyte prompt")
+      (check-equal? (source-window "tiny" #f #f #f "d" 12000) 12000
+                    "an undersized window would split mid-sentence, so it is the default too"))
+    (lambda () (unregister-extraction-source! "wide") (unregister-extraction-source! "tiny"))))
+
+(test-case "a junk id from a source cannot fail the lister"
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (with-source "rcnt"
+    (hasheq 'list (lambda (c p t l) (list "" "ok-1" #f 7 ""))
+            'see (lambda (c p t d) (hasheq 'key d))
+            'version (lambda (c p t d) "v1")
+            'text (lambda (c p t d) "x"))
+    (lambda ()
+      (check-equal? (kg-list-unextracted conn alice) (list (kg-source-id "rcnt" "ok-1"))
+                    "the empty and non-string ids are dropped rather than raised"))))
+
+(test-case "forgetting through a source this plugin does not own is refused"
+  (define conn (fresh))
+  (register-extraction-source! "theirs"
+    (hasheq 'list (lambda (c p t l) '()) 'see (lambda (c p t d) (hasheq 'key d))
+            'version (lambda (c p t d) "v1") 'text (lambda (c p t d) "x")))
+  (dynamic-wind void
+    (lambda ()
+      (parameterize ([current-plugin 'plugin-b])
+        (check-exn #rx"does not own the extraction source"
+                   (lambda () (kg-source-forget! conn "theirs" "d1")))))
+    (lambda () (unregister-extraction-source! "theirs"))))
+
+(test-case "forgetting a document shared by two teams prunes both teams' orphans"
+  (define conn (fresh))
+  (define-values (uid1 tid1) (bootstrap! conn #:username "alice"))
+  (define org (query-value conn "SELECT org_id FROM teams WHERE id = ?" tid1))
+  (define tid2 (create-team! conn #:name "second" #:slug "second" #:org org))
+  (define id (kg-source-id "rcnt" "shared2"))
+  (define (extraction name) (hasheq 'entities (list (hasheq 'type "organization" 'name name 'snippet "x"))
+                                    'relations '()))
+  (with-source "rcnt"
+    (hasheq 'list (lambda (c p t l) '()) 'see (lambda (c p t d) (hasheq 'key d))
+            'version (lambda (c p t d) "v1") 'text (lambda (c p t d) "x"))
+    (lambda ()
+      (kg-upsert! conn tid1 id "v1" (extraction "Orphan One"))
+      (kg-upsert! conn tid2 id "v1" (extraction "Orphan Two"))
+      (check-equal? (query-value conn "SELECT COUNT(*) FROM kg_entities WHERE name IN ('Orphan One','Orphan Two')") 2)
+      (parameterize ([current-plugin #f])
+        (kg-source-forget! conn "rcnt" "shared2"))))
+  ;; both teams' entities are gone, not only the one whose mention a LIMIT 1 happened to return
+  (check-equal? (query-value conn "SELECT COUNT(*) FROM kg_entities WHERE team_id IN (?, ?) AND name LIKE 'Orphan%'" tid1 tid2)
+                0
+                "every team that held a fact was pruned"))

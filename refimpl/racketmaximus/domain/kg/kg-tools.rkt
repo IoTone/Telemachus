@@ -36,7 +36,7 @@
          "sources.rkt")
 
 (provide validate-extraction extract-knowledge extract-document window-split merge-extractions
-         LIST-BATCH EXTRACT-TEXT-CAP EXTRACT-MAX-WINDOWS)
+         LIST-BATCH EXTRACT-TEXT-CAP)
 
 (define LIST-BATCH 40)
 ;; THE SIZE OF ONE MODEL CALL, NOT THE SIZE OF ONE DOCUMENT. It was both until 2026-11-19: a
@@ -56,7 +56,7 @@
   #:description "List the documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). A document is a repository object or one a plugin source lends to the graph. Returns ids, capped at a batch; run the index-knowledge workflow again to continue.")
 
 (define-tool kg_extract
-  #:description "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows so the whole of it is covered. Refuses a reply that does not validate."
+  #:description "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows of about 12,000 characters, up to a per-document limit that the answer reports. Refuses a reply that does not validate."
   (object string #:description "The document id, from the repository or from a plugin source"))
 
 (define-tool kg_query
@@ -193,7 +193,12 @@
 (define (extract-document text
                           #:chat [chat (current-doc-chat)]
                           #:window [window EXTRACT-TEXT-CAP]
-                          #:max-windows [max-windows EXTRACT-MAX-WINDOWS])
+                          #:max-windows [max-windows EXTRACT-MAX-WINDOWS]
+                          ;; called with each window's tokens AS THEY ARE SPENT, so a refusal on a
+                          ;; later window cannot lose what the earlier ones cost. The tree already
+                          ;; keeps this rule for translation: a refusal mid-document stores nothing
+                          ;; and what was already spent IS recorded.
+                          #:meter [meter #f])
   (when (string=? (string-trim text) "") (error 'kg_extract "nothing to extract from — the document has no text"))
   (define all (window-split text window))
   (define kept (if (> (length all) max-windows) (take all max-windows) all))
@@ -202,6 +207,7 @@
   (for ([w (in-list kept)])
     ;; the cap is the window here, so a window is never itself cut
     (define-values (x t) (extract-knowledge w #:chat chat #:cap (max EXTRACT-TEXT-CAP (string-length w))))
+    (when meter (meter t))
     (set! results (cons x results))
     (set! tokens (+ tokens t)))
   (values (merge-extractions (reverse results)) tokens (length kept) (> (length all) (length kept))))
@@ -257,8 +263,7 @@
         (define window (source-window (car parts) conn p team (cdr parts) EXTRACT-TEXT-CAP))
         (define-values (extraction tokens windows truncated?)
           (parameterize ([current-utility-executor (model-role-executor conn team "utility")])
-            (extract-document stext #:window window)))
-        (meter! conn p tokens windows)
+            (extract-document stext #:window window #:meter (lambda (t) (meter! conn p t)))))
         (kg-upsert! conn team id v extraction)
         (hasheq 'object_id id 'key (hash-ref seen 'key)
                 'entities (length (hash-ref extraction 'entities '()))
@@ -268,12 +273,10 @@
                 'text_truncated truncated?)])]
     [else (extract-one-repo conn p id)]))
 
-;; the repository arm, split out so the source arm is not two hundred lines of nesting. The
-;; permission is asked AGAIN here rather than only in `extract-one`, because #113's shape in
-;; this tree is a capability one level down that nothing enforces, and this function is
-;; reachable from anywhere in the module.
+;; the repository arm, split out so the source arm is not two hundred lines of nesting. It is not
+;; exported and its caller `extract-one` asks for `chat:use` before either arm runs, so this is
+;; reached only by a caller that has already passed the permission.
 (define (extract-one-repo conn p id)
-  (require-perm conn p "chat:use")
   (define o (repo-get conn p id))
   (unless o (error 'kg_extract "no such document: ~a" id))
   (define text (let ([t (repo-text-for conn id)]) (if (or (not t) (sql-null? t)) "" t)))
@@ -288,8 +291,7 @@
      ;; same bound
      (define-values (extraction tokens windows truncated?)
        (parameterize ([current-utility-executor (model-role-executor conn (hash-ref o 'team_id) "utility")])   ; KG-7
-         (extract-document text)))
-     (meter! conn p tokens windows)
+         (extract-document text #:meter (lambda (t) (meter! conn p t)))))
      (kg-upsert! conn (hash-ref o 'team_id) id (hash-ref o 'version_id) extraction)
      (hasheq 'object_id id 'key (hash-ref o 'key)
              'entities (length (hash-ref extraction 'entities '()))
