@@ -58,10 +58,10 @@
          "../domain/repo/blobs.rkt"
          (only-in "../domain/repo/repo.rkt" repo-put!)
          (only-in "../domain/repo/extract.rkt" repo-text-upsert!)
-         (only-in "../domain/repo/doc-tools.rkt")
+         (only-in "../domain/repo/doc-tools.rkt" current-doc-chat)
          (only-in "../domain/repo/embed-tools.rkt")
-         (only-in "../domain/kg/kg-tools.rkt")
-         (only-in "../domain/kg/kg.rkt" normalize-name)
+         (only-in "../domain/kg/kg-tools.rkt" extract-document validate-extraction)
+         (only-in "../domain/kg/kg.rkt" normalize-name kg-upsert!)
          (only-in "../domain/quota/quota.rkt" set-limit!)
          (only-in "../domain/ai/executor.rkt" embed-exchange embed-model embed-configured?)
          (only-in "../domain/ai/chunksearch.rkt" chunks-nearest)
@@ -123,11 +123,96 @@
 (define (call-tool conn p name args)
   ((tool-handler (tool-by-name name)) conn p args))
 
+;; ---- the graph step, two ways ---------------------------------------------------
+;;
+;; AS SHIPPED, `kg_extract` refuses a whole reply when any one snippet in it is
+;; not verbatim. `--per-item` keeps what validates and drops what does not: an
+;; entity stays when it has a name, a type and a snippet that really is in the
+;; text; a relation stays when both its ends stayed and its own snippet is in
+;; the text. The rule that nothing enters the graph without a verbatim source is
+;; unchanged; what changes is that one bad item no longer costs the other ten.
+;;
+;; It is done by wrapping the CHAT seam, so the windowing, the merge and the
+;; write are the product's own. Each reply is ALSO judged by the shipped
+;; validator and the verdict is recorded, so one run reports how often the
+;; shipped rule would have accepted a window.
+
+(define (str? v) (and (string? v) (not (string=? (string-trim v) ""))))
+
+(define (reply-json raw)
+  (define a (for/first ([i (in-naturals)] [c (in-string raw)] #:when (char=? c #\{)) i))
+  (define b (for/last ([i (in-naturals)] [c (in-string raw)] #:when (char=? c #\})) i))
+  (and a b (> b a)
+       (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr (substring raw a (add1 b))))))
+
+(define (keep-valid j text)
+  (define ents
+    (for/list ([e (in-list (let ([v (hash-ref j 'entities '())]) (if (list? v) v '())))]
+               #:when (and (hash? e) (str? (hash-ref e 'name #f)) (str? (hash-ref e 'type #f))
+                           (str? (hash-ref e 'snippet #f))
+                           (string-contains? text (hash-ref e 'snippet))))
+      (hasheq 'type (hash-ref e 'type) 'name (hash-ref e 'name)
+              'description (let ([d (hash-ref e 'description "")]) (if (string? d) d ""))
+              'snippet (hash-ref e 'snippet))))
+  (define names (for/list ([e (in-list ents)]) (normalize-name (hash-ref e 'name))))
+  (define rels
+    (for/list ([r (in-list (let ([v (hash-ref j 'relations '())]) (if (list? v) v '())))]
+               #:when (and (hash? r)
+                           (for/and ([k '(subject predicate object snippet)]) (str? (hash-ref r k #f)))
+                           (member (normalize-name (hash-ref r 'subject)) names)
+                           (member (normalize-name (hash-ref r 'object)) names)
+                           (string-contains? text (hash-ref r 'snippet))))
+      (hasheq 'subject (hash-ref r 'subject) 'predicate (hash-ref r 'predicate)
+              'object (hash-ref r 'object) 'snippet (hash-ref r 'snippet))))
+  (hasheq 'entities ents 'relations rels))
+
+(define (count-of j k) (let ([v (and (hash? j) (hash-ref j k '()))]) (if (list? v) (length v) 0)))
+
+;; -> a hash of what happened, or raises
+(define (extract-per-item! conn tid oid text window)
+  (define stats (make-hasheq))
+  (define (bump! k n) (hash-update! stats k (lambda (x) (+ x n)) 0))
+  (define real (current-doc-chat))
+  (define (chat prompt #:system [sys #f])
+    (define doc (hash-ref (string->jsexpr prompt) 'document))
+    (define-values (reply tokens) (real prompt #:system sys))
+    (define j (reply-json (format "~a" reply)))
+    (bump! 'windows 1)
+    (cond
+      [(not (hash? j)) (bump! 'unreadable 1)
+                       (values (jsexpr->string (hasheq 'entities '() 'relations '())) tokens)]
+      [else
+       (when (null? (validate-extraction j doc)) (bump! 'shipped_ok 1))
+       (define kept (keep-valid j doc))
+       (bump! 'entities_seen (count-of j 'entities)) (bump! 'entities_kept (count-of kept 'entities))
+       (bump! 'relations_seen (count-of j 'relations)) (bump! 'relations_kept (count-of kept 'relations))
+       (values (jsexpr->string kept) tokens)]))
+  (define-values (extraction _t _w truncated?) (extract-document text #:chat chat #:window window))
+  (define version (query-value conn "SELECT current_version_id FROM repo_objects WHERE id = ?" oid))
+  (kg-upsert! conn tid oid version extraction)
+  (query-exec conn "DELETE FROM calib_extract WHERE object_id = ?" oid)
+  (query-exec conn
+    (string-append "INSERT INTO calib_extract (object_id, windows, unreadable, shipped_ok, "
+                   "entities_seen, entities_kept, relations_seen, relations_kept) VALUES (?,?,?,?,?,?,?,?)")
+    oid (hash-ref stats 'windows 0) (hash-ref stats 'unreadable 0) (hash-ref stats 'shipped_ok 0)
+    (hash-ref stats 'entities_seen 0) (hash-ref stats 'entities_kept 0)
+    (hash-ref stats 'relations_seen 0) (hash-ref stats 'relations_kept 0)))
+
 ;; ---- build ----------------------------------------------------------------------
 
 (define (build! conn p tid)
-  (define files (corpus-files))
-  (printf "corpus: ~a Markdown files under ~a\n" (length files) repo-root)
+  (define per-item? (flag? "--per-item"))
+  (define window-en (string->number (arg-value "--window-en" "12000")))
+  (define window-ja (string->number (arg-value "--window-ja" "12000")))
+  (query-exec conn
+    (string-append "CREATE TABLE IF NOT EXISTS calib_extract (object_id TEXT PRIMARY KEY, windows INTEGER, "
+                   "unreadable INTEGER, shipped_ok INTEGER, entities_seen INTEGER, entities_kept INTEGER, "
+                   "relations_seen INTEGER, relations_kept INTEGER)"))
+  (define files
+    (let ([all (corpus-files)] [n (string->number (arg-value "--max-files" "0"))])
+      (if (and n (positive? n) (< n (length all))) (take all n) all)))
+  (printf "corpus: ~a Markdown files under ~a\ngraph step: ~a, windows of ~a (en) / ~a (ja) characters\n"
+          (length files) repo-root (if per-item? "per item" "as shipped") window-en window-ja)
   (define failed '())
   (for ([f (in-list files)] [i (in-naturals 1)])
     (define text (file->string (build-path repo-root f)))
@@ -157,7 +242,10 @@
     (define k
       (step! "extract"
              (or blank? (query-maybe-value conn "SELECT 1 FROM kg_extractions WHERE object_id = ?" oid))
-             (lambda () (call-tool conn p "kg_extract" (hasheq 'object oid)))))
+             (lambda ()
+               (if per-item?
+                   (extract-per-item! conn tid oid text (if (ja-key? f) window-ja window-en))
+                   (call-tool conn p "kg_extract" (hasheq 'object oid))))))
     (printf "~a/~a  embed ~a  graph ~a  ~as  ~a (~a chars)\n" i (length files) e k
             (~r (/ (- (current-inexact-milliseconds) t0) 1000.0) #:precision 1)
             f (string-length text))
@@ -168,6 +256,17 @@
           (query-value conn "SELECT COUNT(*) FROM kg_extractions")
           (query-value conn "SELECT COUNT(*) FROM kg_entities")
           (query-value conn "SELECT COUNT(*) FROM kg_relations"))
+  (let ([r (query-row conn
+             (string-append "SELECT COUNT(*), COALESCE(SUM(windows),0), COALESCE(SUM(unreadable),0), "
+                            "COALESCE(SUM(shipped_ok),0), COALESCE(SUM(entities_seen),0), "
+                            "COALESCE(SUM(entities_kept),0), COALESCE(SUM(relations_seen),0), "
+                            "COALESCE(SUM(relations_kept),0) FROM calib_extract"))])
+    (when (positive? (vector-ref r 0))
+      (printf (string-append "per-item graph step over ~a documents: ~a model replies, ~a unreadable, "
+                             "~a the shipped rule would have accepted; entities kept ~a of ~a, "
+                             "relations kept ~a of ~a\n")
+              (vector-ref r 0) (vector-ref r 1) (vector-ref r 2) (vector-ref r 3)
+              (vector-ref r 5) (vector-ref r 4) (vector-ref r 7) (vector-ref r 6))))
   (unless (null? failed)
     (printf "FAILED steps (~a); run --build again to retry them:\n" (length failed))
     (for ([x (in-list (reverse failed))])
