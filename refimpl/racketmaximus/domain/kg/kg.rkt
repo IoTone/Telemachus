@@ -176,6 +176,11 @@
 ;; The marker row is shared, so it answers only for the EMPTY case. A text that yields no entities
 ;; yields none for anybody, so treating it as done for every team is both true and what stops a
 ;; per-team re-extraction that could never produce anything and would run for ever.
+;;
+;; THE CAVEAT IS THE PLUGIN'S TO KEEP: `text` is asked with a team, so a source that returns nothing
+;; for one team and text for another has recorded that version as empty for everybody. The guide
+;; says so. Enforcing it here would need a per-team marker, which is a schema change and a
+;; per-team re-extraction of a document that cannot produce anything.
 (define (kg-extracted-for-team? conn object-id version-id team)
   (or (and (query-maybe-value conn
              "SELECT 1 FROM kg_mentions WHERE object_id = ? AND version_id = ? AND team_id = ?"
@@ -565,15 +570,18 @@
   (define team (principal-team-id p))
   (hasheq 'entities (query-value conn "SELECT COUNT(*) FROM kg_entities WHERE team_id = ?" team)
           'relations (query-value conn "SELECT COUNT(*) FROM kg_relations WHERE team_id = ?" team)
-          ;; DOCUMENTS THIS TEAM HOLDS, not marker rows. The marker is one row per object carrying
-          ;; one team, so after two teams extract the same source document it names only the last
-          ;; of them and the other team's count would drop a document it still holds facts for.
+          ;; DOCUMENTS THIS TEAM HOLDS. The first arm is the objects it has mentions for. The
+          ;; second is the ones IT recorded as empty, and it is scoped by team for the same reason
+          ;; the marker cannot be: the marker is one row per object carrying one team, so an
+          ;; unscoped second arm would count another team's empty read and would disclose the
+          ;; existence of a document this caller may not read. The cost is that a team whose marker
+          ;; another team overwrote drops that document from its own figure, which the guide says.
           'documents (query-value conn
                       (string-append "SELECT COUNT(*) FROM ("
                                      "SELECT object_id FROM kg_mentions WHERE team_id = ? "
-                                     "UNION SELECT object_id FROM kg_extractions "
-                                     "  WHERE COALESCE(entities, 0) = 0 AND COALESCE(relations, 0) = 0)")
-                      team)
+                                     "UNION SELECT object_id FROM kg_extractions WHERE team_id = ? "
+                                     "  AND COALESCE(entities, 0) = 0 AND COALESCE(relations, 0) = 0)")
+                      team team)
           ;; the repository arm only: a source's share is not counted here, because answering it
           ;; would ask every plugin for a page of ids and then two questions per id on a console read
           'unextracted (length (kg-list-unextracted conn p #:limit 1000 #:sources? #f))))

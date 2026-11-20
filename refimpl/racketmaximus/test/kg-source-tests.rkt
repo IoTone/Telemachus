@@ -594,3 +594,26 @@
   (check-equal? (query-value conn "SELECT COUNT(*) FROM kg_entities WHERE team_id IN (?, ?) AND name LIKE 'Orphan%'" tid1 tid2)
                 0
                 "every team that held a fact was pruned"))
+
+;; ---- the whitespace tail that used to abort the document ------------------------------------
+(test-case "a document whose tail after the last cut is blank is still read"
+  (define (reply prompt #:system [s #f])
+    (values (jsexpr->string (hasheq 'entities '() 'relations '())) 1))
+  ;; 12,000 characters plus a newline: the split gives (12000 1) and the second window is blank,
+  ;; which used to raise "nothing to extract from" and take the document down with it
+  (define text (string-append (make-string 12000 #\A) "\n"))
+  (define-values (x tokens windows truncated?) (extract-document text #:chat reply))
+  (check-equal? windows 1 "the blank window is dropped rather than sent to the model")
+  (check-equal? tokens 1 "and it is not metered either")
+  (check-false truncated?)
+  ;; a tail of newlines and spaces behaves the same way
+  (define-values (_x2 _t2 w2 _tr2) (extract-document (string-append (make-string 12000 #\B) "\n  \n\n") #:chat reply))
+  (check-equal? w2 1))
+
+(test-case "the merge keeps two entities that share a name but not a type"
+  (define a (hasheq 'type "organization" 'name "Acme" 'description "" 'snippet "x"))
+  (define b (hasheq 'type "product" 'name "Acme" 'description "" 'snippet "x"))
+  (define merged (merge-extractions (list (hasheq 'entities (list a) 'relations '())
+                                          (hasheq 'entities (list b) 'relations '()))))
+  (check-equal? (length (hash-ref merged 'entities)) 2
+                "kg-upsert! would have made two entities, because its key includes the type"))

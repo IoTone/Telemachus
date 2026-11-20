@@ -465,7 +465,9 @@ against the team's quota, and a document is read in at most 24 of them.
 
 One figure to know about: the console's Knowledge tab reports `unextracted` from the repository
 arm only, so your documents do not inflate a console read with a page of plugin calls. `documents`
-counts what the team holds facts for plus the documents that were found empty.
+counts what the team holds facts for plus the documents that same team recorded as empty, and it
+drops a document whose empty marker another team overwrote, because there is one marker row per
+document rather than one per team.
 
 ## 7. The signup funnel
 

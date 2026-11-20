@@ -151,9 +151,10 @@
        (define cut (if (and nl (> nl min-keep)) (add1 nl) (string-length head)))
        (loop (substring s cut) (cons (substring s 0 cut) acc))])))
 
-;; one extraction from several: entities dedup on the same key `kg-upsert!` uses, and a relation
-;; survives only if both its ends were named, which every per-window validation already made
-;; true inside its own window.
+;; one extraction from several: entities dedup on (type, normalized name), which is the key
+;; `entity-id!` looks up, so two windows that describe the same thing as different types stay two
+;; entities exactly as they would have in one window. A relation survives on (subject, predicate,
+;; object) normalized, and both ends were already validated inside their own window.
 (define (merge-extractions xs)
   (define ents (make-hash))          ; name_norm -> entity
   (define ent-order '())
@@ -161,7 +162,7 @@
   (define rel-order '())
   (for ([x (in-list xs)])
     (for ([e (in-list (hash-ref x 'entities '()))])
-      (define nm (normalize-name (hash-ref e 'name)))
+      (define nm (cons (normalize-predicate (hash-ref e 'type "concept")) (normalize-name (hash-ref e 'name))))
       (cond
         [(hash-ref ents nm #f)
          ;; the first snippet wins because it is the earliest place in the document that names
@@ -201,7 +202,18 @@
                           #:meter [meter #f])
   (when (string=? (string-trim text) "") (error 'kg_extract "nothing to extract from — the document has no text"))
   (define all (window-split text window))
-  (define kept (if (> (length all) max-windows) (take all max-windows) all))
+  ;; A WINDOW THAT IS NOTHING BUT WHITESPACE IS DROPPED, and that is a correctness fix rather than
+  ;; tidiness. `window-split` cuts at a newline, so a document whose tail after the last cut is blank
+  ;; produces a whitespace-only window, and `extract-knowledge` refuses such a window by raising
+  ;; "nothing to extract from". The whole-document guard above passes, so the refusal came from
+  ;; inside the loop and took the document down with it: 12,001 characters ending in a newline failed
+  ;; where the same 12,001 without the newline succeeded. Nothing writes a marker on that path, so
+  ;; the lister offered the document again on every run and a drain never finished.
+  ;;
+  ;; Dropping it loses nothing, because a window of whitespace carries nothing to extract, and it
+  ;; saves a metered model call. The guard above already covers the case where every window would go.
+  (define kept0 (for/list ([w (in-list all)] #:unless (string=? (string-trim w) "")) w))
+  (define kept (if (> (length kept0) max-windows) (take kept0 max-windows) kept0))
   (define results '())
   (define tokens 0)
   (for ([w (in-list kept)])
@@ -210,7 +222,9 @@
     (when meter (meter t))
     (set! results (cons x results))
     (set! tokens (+ tokens t)))
-  (values (merge-extractions (reverse results)) tokens (length kept) (> (length all) (length kept))))
+  ;; `truncated?` is about the per-document BOUND, not about a blank window that was dropped: a
+  ;; document read in full and merely ending in blank lines is not truncated.
+  (values (merge-extractions (reverse results)) tokens (length kept) (> (length kept0) (length kept))))
 
 ;; one window -> (values extraction tokens), or raises. `#:cap` is the truncation length, which
 ;; `extract-document` passes as the window so a window is read whole.

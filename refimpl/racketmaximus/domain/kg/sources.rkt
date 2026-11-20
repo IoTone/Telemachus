@@ -8,9 +8,10 @@
 ;; from then on its documents are enumerated, extracted, cited and forgotten exactly as a
 ;; repository document is.
 ;;
-;; FOUR PROCEDURES AND NOT ONE, BECAUSE THE COSTS DIFFER. `see` is asked once per mention on
-;; every graph read; `text` is asked once per document and only when it is about to be sent
-;; to a model. One call that returned the text would decrypt a document to answer a citation,
+;; FOUR PROCEDURES AND NOT ONE, BECAUSE THE COSTS DIFFER. `see` is asked for each distinct document
+;; on a graph read, and again for each relation on one entity read, so a document behind R
+;; relations is asked R+1 times; `text` is asked once per document and only when it is about to be
+;; sent to a model. One call that returned the text would decrypt a document to answer a citation,
 ;; and a graph read with forty mentions would decrypt forty texts.
 ;;
 ;;   #:list    (conn p team limit)      -> (listof doc-id)          enumerate, capped
