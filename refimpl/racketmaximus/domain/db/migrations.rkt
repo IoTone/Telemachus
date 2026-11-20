@@ -2818,6 +2818,19 @@
       (exec* conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_inbound_sha ON inbound_messages (raw_sha256)")
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_inbound_org ON inbound_messages (org_id, received_epoch)"))))
 
+;; A note may be marked as a TEMPLATE: an ordinary note whose body, format and
+;; tags the console copies into a new note. A flag on the note rather than a
+;; table of templates or a reserved tag: a template is edited, shared and made
+;; private with the note tools people already have, and a tag is the team's own
+;; vocabulary, which the platform should not take a word out of.
+;;
+;; INTEGER and not BOOLEAN, because the two dialects spell a boolean
+;; differently. DEFAULT 0, so every note that exists stays an ordinary note.
+(define m-0082-note-template
+  (migration "0082-note-template"
+    (lambda (conn)
+      (exec* conn "ALTER TABLE notes ADD COLUMN is_template INTEGER NOT NULL DEFAULT 0"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2831,4 +2844,5 @@
                              m-0072-mail-verify-tls m-0073-note-format
                              m-0074-note-links m-0075-job-progress m-0076-plugin-seals
                              m-0077-email-contacts m-0078-email-external
-                             m-0079-inbound-mailbox m-0080-dkim m-0081-inbound-messages))
+                             m-0079-inbound-mailbox m-0080-dkim m-0081-inbound-messages
+                             m-0082-note-template))

@@ -171,7 +171,7 @@ async function notesView(){
   // edges do: a fourth sequential await is 300ms a call, and the picture is
   // computed from the response rather than fetched a second time. Closed, it
   // costs no request at all.
-  const [r, tg, mem, lk, fo, gr, td] = await Promise.all([
+  const [r, tg, mem, lk, fo, gr, td, tp] = await Promise.all([
     api('/api/notes'+notesQuery()),
     api('/api/note-tags'),
     api('/api/members'),
@@ -179,8 +179,12 @@ async function notesView(){
     focus ? api('/api/notes/'+encodeURIComponent(focus)) : Promise.resolve(null),
     S.graphOpen ? api('/api/notes/graph'+graphQuery()) : Promise.resolve(null),
     // the tidying lists ride the same round, and cost nothing while closed
-    S.tidyOpen ? api('/api/notes/tidy') : Promise.resolve(null)
+    S.tidyOpen ? api('/api/notes/tidy') : Promise.resolve(null),
+    // the templates the new-note form offers; asked only while that form is
+    // the card on screen
+    focus ? Promise.resolve(null) : api('/api/notes?template=1&limit=200')
   ]);
+  S.noteTemplates = (tp && tp.ok) ? (tp.json.notes || []) : [];
   const edges = (lk && lk.ok) ? lk.json : null;
   const focused = (fo && fo.ok) ? fo.json : null;
   const notes=r.ok?r.json.notes:[];
@@ -190,7 +194,7 @@ async function notesView(){
   const filter = tagFilterStrip(allTags);
   // The draft the form paints from. It was READ in `renderTab` before the old
   // form was replaced; this only supplies a default when there is none.
-  const d = S.noteDraft || { title: '', vis: 'team', tags: '' };
+  const d = S.noteDraft || { title: '', vis: 'team', tags: '', template: false };
   // #180: there was no way to EDIT a note. `PUT /api/notes/:id` has existed
   // since the routes were written and the console called it nowhere — #113's
   // shape on this side of the wire. An editor for a field you can only fill in
@@ -212,15 +216,18 @@ async function notesView(){
       <div class="muted" style="font-size:12px;margin:-2px 0 10px">${t('notelinkhint')}</div>
       ${tagsField(noteDraftTags(d, editing))}
       <label for="nv">${t('visibility')}</label>${visSelect(d.vis)}
+      ${templateCheck(d)}
       <button class="btn" data-h-click="${H((el,ev)=>doSaveNote())}">${t('save')}</button>
       <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>noteEditCancel())}">${t('cancel')}</button>
       ${noteTools('note','nt')}</div>`
     : `<div class="card"><h3>${t('newnote')}</h3>
+      ${templatePicker()}
       <label for="nt">${t('title')}</label><input id="nt" value="${esc(d.title)}">
       <label for="nb">${t('body')}</label>${editorHTML('note', {id:'nb', value:d.body == null ? '' : d.body, formats:NOTE_FORMATS})}
       <div class="muted" style="font-size:12px;margin:-2px 0 10px">${t('notelinkhint')}</div>
       ${tagsField(noteDraftTags(d, null))}
       <label for="nv">${t('visibility')}</label>${visSelect(d.vis)}
+      ${templateCheck(d)}
       <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${t('create')}</button>
       ${noteTools('note','nt')}</div>`;
   // the swap needs the member options without re-reading /api/members, so the
@@ -257,12 +264,12 @@ function notesListHTML(J, opts){
   const list=notes.map(n=>`<div class="note">
       <h4>${esc(n.title)||t('untitled')} <span class="badge" title="${esc(visLabel(n.visibility))}">${esc(visShort(n.visibility))}</span> ${n.owner_user_id===S.me.user_id?`<span class="badge ok">${t('mine')}</span>`:''}</h4>
       <div class="md">${bodyRender(n.body, n.format)}</div>
-      ${noteFormatBadge(n)}${noteTagChips(n)}
+      ${noteFormatBadge(n)}${noteTemplateBadge(n)}${noteTagChips(n)}
       <div class="row" style="margin-top:8px">
         ${canShareNote(n) ? `<div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>` : ''}
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteShow((n.id)))}">${t('view')}</button></div>
-        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags),(n.format)))}">${t('edit')}</button></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility),(n.tags),(n.format),(n.template)))}">${t('edit')}</button></div>
         <div><button class="btn sm ghost"${(S.autoTagging===n.id||n.format==='org')?' disabled':''}
           data-h-click="${H((el,ev)=>doAutoTag((n.id)))}"
           title="${esc(n.format==='org'?tRaw('autotagorg'):tRaw('autotaghint'))}">${S.autoTagging===n.id?t('autotagging'):t('autotag')}</button></div>
@@ -282,9 +289,10 @@ function notesListHTML(J, opts){
 // created under the template's own placeholder. Recorded at `15-editor.js`'s
 // `edSetFormat` as the Notes form's question; this is the answer: the fields
 // live in state and a render paints them, exactly as the body already did.
-function noteDraftSeed(title, vis, tags){
+function noteDraftSeed(title, vis, tags, template){
   S.noteDraft = { title: title == null ? '' : String(title),
-                  vis: vis || 'team', tags: (tags || []).join(', ') };
+                  vis: vis || 'team', tags: (tags || []).join(', '),
+                  template: template === true };
 }
 // The draft keeps the tags as the FIELD holds them — a comma string a person
 // typed. `tagsField` wants the list, and takes the note's own when there is no
@@ -306,6 +314,8 @@ function noteFormReset(){
   if (ti) ti.value = '';
   if (ta) ta.value = '';
   if (vi) vi.value = 'team';
+  const tc = document.getElementById('ntpl');
+  if (tc) tc.checked = false;
   noteDraftSeed('', 'team', []);
 }
 function noteDraftRead(){
@@ -316,8 +326,10 @@ function noteDraftRead(){
   if (S.noteDraftFresh) { S.noteDraftFresh = false; return S.noteDraft; }
   const ti = document.getElementById('nt'), ta = document.getElementById('ntags'),
         vi = document.getElementById('nv'), ea = document.getElementById('nb');
-  if (!ti || !vi) return S.noteDraft || { title: '', vis: 'team', tags: '' };
-  const d = { title: ti.value, vis: vi.value, tags: ta ? ta.value : '' };
+  if (!ti || !vi) return S.noteDraft || { title: '', vis: 'team', tags: '', template: false };
+  const tc = document.getElementById('ntpl');
+  const d = { title: ti.value, vis: vi.value, tags: ta ? ta.value : '',
+              template: tc ? tc.checked : false };
   if (ea) d.body = ea.value;                      // the body is already in S; this keeps them in step
   S.noteDraft = d;
   return d;
@@ -361,6 +373,41 @@ const NOTE_FORMATS = ['markdown', 'org'];
 // ever existed is noise about the default, and this console's own rule
 // (PULL-11e, RED-20) is that a field is worth drawing when it tells a reader
 // something they could not assume.
+// ---- templates ---------------------------------------------------------------
+// A template is an ordinary note with a flag. The new-note form offers the
+// ones the reader can see, and picking one copies its body, format and tags
+// into the form. Nothing links the new note back to the template: it is a
+// starting point, and editing the template later changes no note made from it.
+function noteTemplateBadge(n){
+  return n.template ? `<div style="margin-top:8px"><span class="badge">${t('notetpl')}</span></div>` : '';
+}
+function templateCheck(d){
+  return `<label style="display:flex;align-items:center;gap:8px;margin:0 0 10px">
+      <input type="checkbox" id="ntpl" style="width:auto;margin:0" ${d.template ? 'checked' : ''}>
+      <span>${t('notetplcheck')}</span></label>`;
+}
+function templatePicker(){
+  const ts = S.noteTemplates || [];
+  if (!ts.length) return '';
+  const opts = ts.map(n => `<option value="${esc(n.id)}">${esc(n.title) || t('untitled')}</option>`).join('');
+  return `<label for="ntfrom">${t('notetplfrom')}</label>
+      <select id="ntfrom" data-h-change="${H(el => noteFromTemplate(el.value))}">
+        <option value="">${t('notetplblank')}</option>${opts}</select>`;
+}
+// The title and visibility are whatever the person has already typed; the
+// body, format and tags come from the template. An org template keeps its tags
+// in its own body, so the tags field is left empty for one. The new note is not
+// itself a template unless the person ticks the box.
+function noteFromTemplate(id){
+  const n = (S.noteTemplates || []).find(x => x.id === id);
+  if (!n) return;
+  const d = noteDraftRead();
+  S.noteDraft = { title: d.title, vis: d.vis, body: n.body, template: false,
+                  tags: n.format === 'org' ? '' : (n.tags || []).join(', ') };
+  S.noteDraftFresh = true;
+  edReset('note', n.body, 'nb', n.format);
+  renderTab();
+}
 function noteFormatBadge(n){
   return n.format === 'org' ? `<div style="margin-top:8px"><span class="badge">${t('fmtorg')}</span></div>` : '';
 }
@@ -445,6 +492,8 @@ function noteWriteBody(){
   const b = {title: val('nt'), body: edRead('note'), visibility: val('nv'),
              format: edFormat('note')};
   if (b.format !== 'org') b.tags = readTags();
+  const tc = document.getElementById('ntpl');
+  if (tc) b.template = tc.checked;
   return b;
 }
 // Export and "save to the repository" are the issue's fourth ask and they are
@@ -545,7 +594,7 @@ function noteViewCard(n, edges){
   const mine = n.owner_user_id === S.me.user_id;
   return `<div class="card" id="notecard">
     <h3 style="margin-top:0">${esc(n.title)||t('untitled')}
-      <span class="badge" title="${esc(visLabel(n.visibility))}">${esc(visShort(n.visibility))}</span>${mine?` <span class="badge ok">${t('mine')}</span>`:''}</h3>
+      <span class="badge" title="${esc(visLabel(n.visibility))}">${esc(visShort(n.visibility))}</span>${mine?` <span class="badge ok">${t('mine')}</span>`:''}${n.template?` <span class="badge">${t('notetpl')}</span>`:''}</h3>
     <div class="md">${bodyRender(n.body, n.format, linkResolution(edges))}</div>
     ${noteEdgeList(edges, n.format)}
     <div class="muted" style="font-size:12px;margin-top:10px">
@@ -553,7 +602,7 @@ function noteViewCard(n, edges){
       · <span class="mono">${esc(n.id)}</span></div>
     <div class="row" style="margin-top:10px;gap:8px">
       <div style="flex:0 0 auto"><button class="btn sm"
-        data-h-click="${H(()=>noteEdit(n.id, n.body, n.title, n.visibility, n.tags, n.format))}">${t('edit')}</button></div>
+        data-h-click="${H(()=>noteEdit(n.id, n.body, n.title, n.visibility, n.tags, n.format, n.template))}">${t('edit')}</button></div>
       <div style="flex:0 0 auto"><button class="btn sm ghost"
         data-h-click="${H(()=>graphOpen(n.id))}"
         title="${t('ngraphhint')}">${t('ngraph')}</button></div>
@@ -616,9 +665,9 @@ function noteViewClose(){ S.noteShow=null; renderTab(); }
 // The FORMAT is set here and not re-asserted on every render, for `editorHTML`'s
 // own reason: opening a note is what declares which renderer its body wants, and
 // a format re-read on each pass would undo the toolbar's own switch.
-function noteEdit(id, body, title, vis, tags, format){
+function noteEdit(id, body, title, vis, tags, format, template){
   S.noteEdit=id; S.noteShow=null;
-  noteDraftSeed(title, vis, tags);
+  noteDraftSeed(title, vis, tags, template);
   // THE SEED IS THE SOURCE FOR THE RENDER IT TRIGGERS. `renderTab` reads the
   // form into the draft before replacing it — the seam that keeps a typed title
   // across a toolbar press — and for THIS caller that read is the wrong job: the

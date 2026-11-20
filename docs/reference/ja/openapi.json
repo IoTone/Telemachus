@@ -2775,7 +2775,7 @@
     },
     "/api/notes": {
       "get": {
-        "description": "呼び出し元が読めるノートを新しい順に 1 ページ分一覧し、`total`、`limit`、`offset` を併せて返します。`?limit=` の既定値は 50 で、上限は 200、`?offset=` で先へ進みます。`?tag=` は繰り返し指定でき、複数指定した場合は AND になります。`?scope=org` は会社内のすべてのチームにわたります（org_reader にはチーム公開のノートだけが見え、非公開のものは見えません）。`total` はウィンドウの件数で、呼び出し元が読める件数ではないため、ページが短く返ることがあります。",
+        "description": "呼び出し元が読めるノートを新しい順に 1 ページ分一覧し、`total`、`limit`、`offset` を併せて返します。`?limit=` の既定値は 50 で、上限は 200、`?offset=` で先へ進みます。`?tag=` は繰り返し指定でき、複数指定した場合は AND になります。`?scope=org` は会社内のすべてのチームにわたります（org_reader にはチーム公開のノートだけが見え、非公開のものは見えません）。`total` はウィンドウの件数で、呼び出し元が読める件数ではないため、ページが短く返ることがあります。 `?template=1` はテンプレートだけを、`?template=0` はテンプレート以外を一覧します。どのノートにも `template` が付きます。",
         "operationId": "get.api.notes",
         "security": [
           {
@@ -2791,7 +2791,7 @@
         "x-tmach-permission-checked": "role"
       },
       "post": {
-        "description": "公開範囲を指定してノートを作成する。",
+        "description": "公開範囲を指定してノートを作成する。 `template: true` を指定すると、そのノートはテンプレートになります。コンソールは新しいノートの出発点としてテンプレートを提示します。それ以外は通常のノートと同じです。",
         "operationId": "post.api.notes",
         "requestBody": {
           "content": {
@@ -2810,6 +2810,9 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "template": {
+                    "type": "boolean"
                   },
                   "title": {
                     "type": "string"
@@ -2947,7 +2950,7 @@
         "x-tmach-permission-checked": "resource"
       },
       "put": {
-        "description": "ノートを更新します。",
+        "description": "ノートを更新します。 `template` (true または false) で、ノートをテンプレートにする、またはテンプレートから外すことができます。省略した場合は何も変わりません。",
         "operationId": "put.api.notes.id",
         "parameters": [
           {
@@ -2976,6 +2979,9 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "template": {
+                    "type": "boolean"
                   },
                   "title": {
                     "type": "string"

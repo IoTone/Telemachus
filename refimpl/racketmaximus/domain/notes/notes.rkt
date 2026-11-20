@@ -160,7 +160,7 @@
 
 (define SELECT
   (string-append "SELECT id, team_id, owner_user_id, visibility, title, body, "
-                 "created_at, updated_at, format FROM notes"))
+                 "created_at, updated_at, format, is_template FROM notes"))
 
 (define (row->note r)
   (hasheq 'id (vector-ref r 0) 'team_id (vector-ref r 1) 'owner_user_id (vector-ref r 2)
@@ -170,7 +170,10 @@
           ;; renderer a note wants. RED-20's shape: the field is reported rather
           ;; than inferred, which is also what makes a default of 'markdown'
           ;; honest rather than quiet.
-          'format (vector-ref r 8)))
+          'format (vector-ref r 8)
+          ;; whether the console offers this note as a starting point for a new
+          ;; one. On every read, like the format.
+          'template (equal? (vector-ref r 9) 1)))
 
 ;; MAY THIS CALLER READ THIS NOTE? — one spelling, four askers.
 ;;
@@ -263,7 +266,8 @@
 ;; the composed one being dropped went unnoticed while `body-tags` re-read the
 ;; author's. A fixture whose body has no keyword line is what makes the case real.
 (define (notes-create conn p #:title [title ""] #:body [body ""] #:visibility [vis "team"]
-                      #:tags [tags '()] #:format [fmt "markdown"] #:filetags [filetags #f])
+                      #:tags [tags '()] #:format [fmt "markdown"] #:filetags [filetags #f]
+                      #:template [template #f])
   (require-perm conn p "notes:write")                       ; team-level create
   ;; cleaned BEFORE the note exists, so a malformed tag refuses the whole create
   ;; rather than leaving a note somebody has to notice is untagged (VEC-21's
@@ -295,9 +299,10 @@
   (call-with-transaction conn
     (lambda ()
       (query-exec conn
-        (string-append "INSERT INTO notes (id, team_id, owner_user_id, visibility, title, body, format) "
-                       "VALUES (?, ?, ?, ?, ?, ?, ?)")
-        id (principal-team-id p) (principal-user-id p) vis title body fmt*)
+        (string-append "INSERT INTO notes (id, team_id, owner_user_id, visibility, title, body, format, is_template) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        id (principal-team-id p) (principal-user-id p) vis title body fmt*
+        (if (eq? template #t) 1 0))
       (write-links! conn id (principal-team-id p) body fmt*)))
   (write-tags! conn id (principal-team-id p) clean)
   (with-tags conn (row->note (get-row conn id))))
@@ -320,9 +325,16 @@
 ;; `idx_note_tags_note`, which is not what PERF-5 measured and declined — that
 ;; finding was a `LIKE` with a LEADING wildcard over bodies, which cannot use its
 ;; index at all. Several tags are an AND, one EXISTS each.
-(define (notes-window teams wanted)
+;; `template` narrows the window to templates ('only), to ordinary notes
+;; ('exclude), or not at all (#f). It is in the window so the listing and the
+;; count cannot disagree about it.
+(define (notes-window teams wanted [template #f])
   (values (string-append
            "WHERE team_id IN (" (string-join (for/list ([_ teams]) "?") ",") ") "
+           (case template
+             [(only) "AND is_template = 1 "]
+             [(exclude) "AND is_template = 0 "]
+             [else ""])
            (apply string-append
                   (for/list ([_ wanted])
                     (string-append
@@ -364,13 +376,13 @@
 ;; that is not globally ordered names a different row on every request, so the
 ;; ordering had to become real for the window to mean anything.
 (define (notes-list conn p #:scope [scope 'team] #:tags [want '()]
-                    #:limit [limit #f] #:offset [offset 0])
+                    #:limit [limit #f] #:offset [offset 0] #:template [template #f])
   ;; the team-level read first, like repo-list: a token scoped without notes:read
   ;; is refused here rather than handed an empty list that looks like "no notes"
   (require-perm conn p "notes:read")
   (define teams (scope-teams conn p scope))
   (define wanted (tags-clean want))
-  (define-values (where args) (notes-window teams wanted))
+  (define-values (where args) (notes-window teams wanted template))
   (define rows
     (apply query-rows conn
            (string-append SELECT " " where "ORDER BY created_at DESC, id DESC"
@@ -397,9 +409,9 @@
 ;; back short or even empty — which is honest, since there really are rows there
 ;; and they are not theirs, and it is what lets a numbered pager offer the right
 ;; range at all.
-(define (notes-count conn p #:scope [scope 'team] #:tags [want '()])
+(define (notes-count conn p #:scope [scope 'team] #:tags [want '()] #:template [template #f])
   (require-perm conn p "notes:read")
-  (define-values (where args) (notes-window (scope-teams conn p scope) (tags-clean want)))
+  (define-values (where args) (notes-window (scope-teams conn p scope) (tags-clean want) template))
   (apply query-value conn (string-append "SELECT COUNT(*) FROM notes " where) args))
 
 (define (notes-get conn p id)
@@ -414,7 +426,7 @@
 ;; their own `#f`-is-absent rule, so the endpoint must map a missing JSON key to
 ;; #f and a `[]` to the empty list deliberately.
 (define (notes-update conn p id #:title [title #f] #:body [body #f] #:visibility [vis #f]
-                      #:tags [tags #f] #:format [fmt #f])
+                      #:tags [tags #f] #:format [fmt #f] #:template [template 'unset])
   (define r (get-row conn id))
   (and r (let ([n (row->note r)])
            (require-perm conn p "notes:write" #:resource (note->resource n))
@@ -456,6 +468,11 @@
              (lambda ()
                (when title (query-exec conn "UPDATE notes SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" title id))
                (when vis   (query-exec conn "UPDATE notes SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" vis id))
+               ;; only a real boolean changes the flag, so a request that does
+               ;; not mention it leaves a template a template
+               (when (boolean? template)
+                 (query-exec conn "UPDATE notes SET is_template = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                             (if template 1 0) id))
                ;; THE BODY AND THE FORMAT BOTH DECIDE THE EDGES, so either one
                ;; moving re-extracts, which is ORG-7. The format matters because
                ;; only an org note has links at all, so converting org ->
@@ -536,12 +553,13 @@
   (define by-id (make-hash))
   (for ([r (in-list (query-rows conn
                       (string-append "SELECT id, team_id, owner_user_id, visibility, title, "
-                                     "created_at FROM notes WHERE team_id = ?") team))])
+                                     "created_at, is_template FROM notes WHERE team_id = ?") team))])
     ;; `created_at` is carried for #247's cap, which has to drop notes in SOME
     ;; order and uses the listing's own (NPG-3). The two link readers ignore it.
     (define n (hasheq 'id (vector-ref r 0) 'team_id (vector-ref r 1)
                       'owner_user_id (vector-ref r 2) 'visibility (vector-ref r 3)
-                      'title (vector-ref r 4) 'created_at (vector-ref r 5)))
+                      'title (vector-ref r 4) 'created_at (vector-ref r 5)
+                      'template (equal? (vector-ref r 6) 1)))
     (when (readable-note? conn p n)
       (hash-set! by-id (hash-ref n 'id) n)
       (hash-update! by-fold (fold-key (hash-ref n 'title)) (lambda (xs) (cons n xs)) '())))
@@ -1169,6 +1187,10 @@
 ;; so it does not take a note off the unlinked list. One that resolves to
 ;; nothing is on the broken list like any other.
 ;;
+;; A TEMPLATE IS ON NEITHER LIST. It is meant to stand alone, and the links in
+;; its body are placeholders for the note somebody will write from it. A link
+;; from an ordinary note TO a template still connects that note.
+;;
 ;; WHEN THE SCAN FILLS, `unlinked` IS WITHDRAWN (the jsexpr null) rather than
 ;; answered: a note whose links were past the bound would be listed as having
 ;; none. The broken links that were read are still true, so that list stays and
@@ -1199,6 +1221,7 @@
        (define raw (vector-ref row 1))
        (cond
          [(not src) #f]
+         [(hash-ref src 'template #f) #f]
          [(typed-target raw)
           (and (not (source-of raw))
                (hasheq 'note src 'target raw 'label (vector-ref row 3) 'reason "missing"))]
@@ -1219,7 +1242,8 @@
     (by-note-order broken (lambda (b) (hash-ref b 'note))))
   (define unlinked
     (by-note-order (for/list ([n (in-hash-values by-id)]
-                              #:unless (hash-ref linked (hash-ref n 'id) #f))
+                              #:unless (or (hash-ref linked (hash-ref n 'id) #f)
+                                           (hash-ref n 'template #f)))
                      n)
                    values))
   (define (cut xs) (if (> (length xs) NOTE-TIDY-MAX) (take xs NOTE-TIDY-MAX) xs))

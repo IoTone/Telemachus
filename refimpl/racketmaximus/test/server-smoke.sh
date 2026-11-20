@@ -3438,6 +3438,22 @@ refute "tidy: …and a note another note links to is not"       "$TDU" 'Graph hu
 assert "tidy: the note carrying the dead link is named"       "$TDB" 'Tidy dangling 7731'
 assert "tidy: nothing was cut on a team this size"            "$TD" '"truncated":false'
 
+# Templates: an ordinary note with a flag. The shape check refuses a flag that
+# is not a boolean, and a write that does not mention the flag leaves it alone.
+TP=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $OP" \
+  -d '{"title":"Tpl weekly 7731","body":"## Agenda","template":true}')
+TPID=$(printf '%s' "$TP" | grep -oP '"id":\s*"\K[^"]+')
+assert "template: a note created as one says so"            "$TP" '"template":true'
+assert "template: an ordinary note says it is not"          "$GH" '"template":false'
+TPL="$(curl -s "$B/api/notes?template=1" -H "Authorization: Bearer $OP")"
+assert "template: ?template=1 lists it"                      "$TPL" 'Tpl weekly 7731'
+refute "template: …and lists no ordinary note"               "$TPL" 'Graph hub'
+assert "template: …with a total of one"                      "$TPL" '"total":1'
+refute "template: ?template=0 leaves it out"                 "$(curl -s "$B/api/notes?template=0&limit=200" -H "Authorization: Bearer $OP")" 'Tpl weekly 7731'
+assert "template: renaming it leaves it a template"          "$(curl -s -X PUT $B/api/notes/$TPID -H "Authorization: Bearer $OP" -d '{"title":"Tpl weekly 7731 b"}')" '"template":true'
+assert "template: a flag that is not a boolean is refused"   "$(curl -s -o /dev/null -w '%{http_code}' -X PUT $B/api/notes/$TPID -H "Authorization: Bearer $OP" -d '{"template":"yes"}')" '400'
+assert "template: false unmarks it"                          "$(curl -s -X PUT $B/api/notes/$TPID -H "Authorization: Bearer $OP" -d '{"template":false}')" '"template":false'
+
 # ORG-8 through the drawing — an unresolved target is a NODE, carrying the text
 # its author typed, so "several notes point at a note nobody has written" is
 # visible. That is org-roam's and Obsidian's own behaviour.

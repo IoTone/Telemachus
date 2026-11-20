@@ -2775,7 +2775,7 @@
     },
     "/api/notes": {
       "get": {
-        "description": "List a page of the notes the caller can read, newest first, with `total`, `limit` and `offset`; `?limit=` defaults to 50 and is capped at 200, `?offset=` walks. `?tag=` is repeatable and several are an AND. `?scope=org` spans every team in the company (an org_reader sees team-visible notes, never private ones). `total` counts the window and not what the caller may read, so a page may come back short.",
+        "description": "List a page of the notes the caller can read, newest first, with `total`, `limit` and `offset`; `?limit=` defaults to 50 and is capped at 200, `?offset=` walks. `?tag=` is repeatable and several are an AND. `?scope=org` spans every team in the company (an org_reader sees team-visible notes, never private ones). `total` counts the window and not what the caller may read, so a page may come back short. `?template=1` lists templates only and `?template=0` leaves them out; every note carries `template`.",
         "operationId": "get.api.notes",
         "security": [
           {
@@ -2791,7 +2791,7 @@
         "x-tmach-permission-checked": "role"
       },
       "post": {
-        "description": "Create a note with a visibility.",
+        "description": "Create a note with a visibility. `template: true` marks the note as a template, which the console offers as a starting point for a new note; it is otherwise an ordinary note.",
         "operationId": "post.api.notes",
         "requestBody": {
           "content": {
@@ -2810,6 +2810,9 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "template": {
+                    "type": "boolean"
                   },
                   "title": {
                     "type": "string"
@@ -2947,7 +2950,7 @@
         "x-tmach-permission-checked": "resource"
       },
       "put": {
-        "description": "Update a note.",
+        "description": "Update a note. `template` (true or false) marks or unmarks the note as a template; leaving it out changes nothing.",
         "operationId": "put.api.notes.id",
         "parameters": [
           {
@@ -2976,6 +2979,9 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "template": {
+                    "type": "boolean"
                   },
                   "title": {
                     "type": "string"

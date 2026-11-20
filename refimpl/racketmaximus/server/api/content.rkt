@@ -43,7 +43,8 @@
                                  #:tags (hash-ref b 'tags '())
                                  ;; ORG-1 — absent means Markdown, which is what
                                  ;; every caller written before #246 sends
-                                 #:format (hash-ref b 'format "markdown"))
+                                 #:format (hash-ref b 'format "markdown")
+                                 #:template (eq? (hash-ref b 'template #f) #t))
                    #:code 201))))
 
 ;; #245: `?tag=` is repeatable, so it reads through `query-params` (plural) and
@@ -95,10 +96,15 @@
       (raise-user-error 'notes (format "at most ~a tag filters; ~a given" MAX-TAGS (length tags))))
     (define lim (page-limit req))
     (define off (page-offset req))
+    ;; `?template=1` lists templates only and `?template=0` leaves them out; any
+    ;; other value, or none, lists both
+    (define template
+      (let ([v (query-param req 'template "")])
+        (cond [(string=? v "1") 'only] [(string=? v "0") 'exclude] [else #f])))
     (json-response
      (hasheq 'notes (notes-list db-conn p #:scope scope #:tags tags
-                                #:limit lim #:offset off)
-             'total (notes-count db-conn p #:scope scope #:tags tags)
+                                #:limit lim #:offset off #:template template)
+             'total (notes-count db-conn p #:scope scope #:tags tags #:template template)
              'limit lim
              'offset off)))))
 
@@ -254,7 +260,9 @@
     (define n (notes-update db-conn p id #:title (hash-ref b 'title #f)
                             #:body (hash-ref b 'body #f) #:visibility (hash-ref b 'visibility #f)
                             #:tags (hash-ref b 'tags #f)
-                            #:format (hash-ref b 'format #f)))
+                            #:format (hash-ref b 'format #f)
+                            ;; absent leaves the flag alone; only true or false moves it
+                            #:template (hash-ref b 'template 'unset)))
     (if n (json-response n) (err "not found" 404)))))
 
 ;; TAG-7 — synchronous, and HELP-23 is the reasoning. One note is ONE model call,
