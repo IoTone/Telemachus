@@ -2287,6 +2287,62 @@
       "text": "Index Knowledge has not read this page yet.",
       "hash": "d629bd02d30d4dc30b181bce99a60fce2e5a6ae8"
     },
+    "ui.rs_keep": {
+      "text": "Keep bookmarks current",
+      "hash": "e950c64cdda1fefa0c0b10fa4719eec3b6e0a27b"
+    },
+    "ui.rs_keepadmin": {
+      "text": "A team admin can change this.",
+      "hash": "1bebb0bbe4244ea373325cc0e6270cb01e7d94f2"
+    },
+    "ui.rs_keepday": {
+      "text": "Every day",
+      "hash": "3b2eb5131055ad07ac1d08de2f11f900286a51b5"
+    },
+    "ui.rs_keepevery": {
+      "text": "Fetch again",
+      "hash": "33dbf3c76673ce408569794aff31b81276fd6858"
+    },
+    "ui.rs_keephint": {
+      "text": "Fetch the bookmarks that are most out of date again on a timer, up to {batch} per run. A page that has not changed stores nothing new.",
+      "hash": "6d21ef06be5dfffe60d5a2804090245ce46e1918"
+    },
+    "ui.rs_keephour": {
+      "text": "Every hour",
+      "hash": "6a76cd5e945ef035c8b4a0f1768d59e996231ec5"
+    },
+    "ui.rs_keepin": {
+      "text": "in {age}",
+      "hash": "0b9eb2eace33637addd533d9ba3313a492282e84"
+    },
+    "ui.rs_keeplast": {
+      "text": "Last run",
+      "hash": "333c63a502105eff394bc10bfbbfe001f98b3853"
+    },
+    "ui.rs_keepnext": {
+      "text": "Next run",
+      "hash": "6c03cbdc1101f931a960390ad58a0e14da3b0406"
+    },
+    "ui.rs_keepoff": {
+      "text": "Off",
+      "hash": "e3de5ab0ca4c69dbf00e86d2558843e8d806bb49"
+    },
+    "ui.rs_keepother": {
+      "text": "Every {n} seconds",
+      "hash": "7e56fa445e5f5111600cbc7d6e773aaa6bef688e"
+    },
+    "ui.rs_keepsaved": {
+      "text": "Saved.",
+      "hash": "9d4af6906a17b74308f02cb30d0e914ba0d49d37"
+    },
+    "ui.rs_keepsix": {
+      "text": "Every 6 hours",
+      "hash": "d146d2a201f4ccfb9b3c76e78804dde0391687a3"
+    },
+    "ui.rs_keepweek": {
+      "text": "Every week",
+      "hash": "043058e2050c0345ef7aac78bd9025d3adce099a"
+    },
     "ui.wkmodels": {
       "text": "models",
       "hash": "5ba2688dffd71df813a468578a87c653e1575e1e"

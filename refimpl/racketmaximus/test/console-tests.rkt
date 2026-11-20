@@ -1971,6 +1971,23 @@
     (check-true (and body #t) f)
     (check-false (regexp-match? #rx"renderTab" body) (format "~a must not re-render the tab" f))))
 
+(test-case "the re-fetch timer is set from the Research tab, by somebody allowed to"
+  ;; RG-12 shipped HTTP-only. The control is offered on `jobs:schedule`, which
+  ;; is what the PUT demands; a member sees the state with the select disabled.
+  (define card (fn-body "rsKeepCard"))
+  (define setter (fn-body "rsKeepSet"))
+  (check-true (and card setter #t))
+  (check-true (and (regexp-match? #rx"canPerm[(]'jobs:schedule'[)]" card) #t))
+  (check-true (and (regexp-match? #rx"id=\"rskeep\"" card) #t)
+              "cardSwap replaces outerHTML, so the built card carries the id")
+  ;; Off is `null`, never an absent field: the server refuses an absent one.
+  (check-true (and (regexp-match? #rx"every_seconds: n > 0 [?] n : null" setter) #t))
+  (check-true (and (regexp-match? #rx"cardSwap[(]'rskeep'" setter) #t))
+  (check-false (regexp-match? #rx"renderTab" setter)
+               "a setting change must not throw away a URL being typed")
+  ;; the intervals offered respect the floor the server reports
+  (check-true (and (regexp-match? #rx"c[.]min_seconds" card) #t)))
+
 (test-case "every ui.rs* string the Research tab shows is in the catalogs, both ways"
   (define src (file->string (build-path console-dir "22-research.js")))
   (define keys

@@ -1094,6 +1094,35 @@ try {
   await page.waitForTimeout(600);
   ok('a hops change left the tab alone', await page.evaluate(() => renderSeq) === rseq);
   ok('…so the URL being typed survived', await page.inputValue('#rsurl') === 'https://half-typed.example/');
+  // RG-12 — THE RE-FETCH TIMER IS SET FROM THIS TAB. The operator holds
+  // `jobs:schedule`, so the select is live. Turning it on must show a next run,
+  // must not re-render the tab (the half-typed URL above is still there), and
+  // is turned OFF again so no schedule outlives this block.
+  step('research: the re-fetch timer');
+  ok('the timer card is shown, off, and changeable',
+    await page.evaluate(() => {
+      const s = document.getElementById('rskeepsel');
+      return !!s && s.value === '0' && !s.disabled;
+    }));
+  const kseq = await page.evaluate(() => renderSeq);
+  await page.selectOption('#rskeepsel', '86400');
+  ok('choosing a day turns it on and names the next run',
+    await until(page, () => {
+      const s = document.getElementById('rskeepsel'), n = document.getElementById('rskeepnext');
+      return !!s && s.value === '86400' && !!n && n.textContent.trim() !== '–';
+    }, { timeout: 10000 }));
+  ok('…and the server agrees', await page.evaluate(async () => {
+    const r = await api('/api/research/refetch');
+    return r.ok && r.json.enabled === true && r.json.every_seconds === 86400;
+  }));
+  ok('…without re-rendering the tab', await page.evaluate(() => renderSeq) === kseq);
+  ok('…so the URL being typed is still there', await page.inputValue('#rsurl') === 'https://half-typed.example/');
+  await page.selectOption('#rskeepsel', '0');
+  ok('turning it off removes the schedule',
+    await until(page, async () => {
+      const r = await api('/api/research/refetch');
+      return r.ok && r.json.enabled === false;
+    }, { timeout: 10000 }));
   // #191 — A SOURCE LISTS THE NOTES THAT CITE IT. `fetch: false`, so no network;
   // the note cites the bookmark by a different spelling of its URL.
   step('research: a bookmark shows the notes that cite it');
