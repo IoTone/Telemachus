@@ -3194,6 +3194,39 @@ raco test test/citations-tests.rkt test/help-tests.rkt   # 7 + 27 cases, two con
 - **For now it has one caller.** RG‑6 is still waiting on a recall measurement,
   so this is #110 r4's stated exception: an export with a test behind it.
 
+## Graph expansion was measured and is not built (RG‑35, #191)
+
+`test/calibrate-graph-retrieval.rkt`. Not a suite: it needs a live embedder and
+a live chat model, and the build step takes about an hour.
+
+```sh
+racket test/calibrate-graph-retrieval.rkt --db /path/rg6.db --build --per-item --window-en 6000 --window-ja 1500
+racket test/calibrate-graph-retrieval.rkt --db /path/rg6.db --out result.json
+```
+
+- **Result, 20 Nov 2026**: over 122 documents and 28 questions in two
+  languages, graph-first retrieval was worse than plain at every k, and
+  vector-first expansion was within one or two questions of plain either way.
+  The table is under RG‑6 in `docs/design/research-graph-rag.md`. So RG‑6's
+  retrieval seam is not built, and an answerer over bookmarks should call
+  `repo_retrieve`.
+- **Expanding the candidates and ranking by the same similarity cannot change
+  the answer**: every added chunk scored below the ones already chosen. An
+  expansion only does something if it is given places, which is why the
+  vector-first variant reserves half of k.
+- **`kg_extract` refuses most real model replies.** One snippet that is not
+  character-exact refuses the whole reply, and `qwen2.5:7b` produced one in 361
+  of 388 replies. Most are faithful excerpts that cross a hard-wrapped line.
+  `--per-item` keeps each valid item and stores the document's own text for the
+  snippet. The product still has the all-or-nothing rule.
+- **A 12,000-character window is far past the model's context for Japanese**
+  (about one token per character), so the run used 1,500 for `ja`.
+- `kg-upsert!` now treats a non-string `description` as empty. A model answers
+  `null` there, and it used to reach the INSERT and fail in the driver.
+- The build is resumable: a document with chunks or an extraction marker is
+  skipped. Run it in a staging worktree with its own `--db`, never against the
+  demo.
+
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 
 Built 22 Oct 2026 — the configuration half of the external-feed work, on top of
