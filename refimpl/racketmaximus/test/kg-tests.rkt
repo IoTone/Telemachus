@@ -189,16 +189,31 @@
   (define r2 (parameterize ([current-doc-chat chat]) (define r (flow-run-start! conn alice kgdef)) (drain! conn) (flow-run-get conn alice (hash-ref r 'id))))
   (check-equal? (hash-ref r2 'status) "done")
   (check-equal? (unbox calls) 1 "nothing new, no model call")
-  ;; a refused reply fails the step (after one retry) and stores nothing for that document
+  ;; a reply that cannot be read fails the step (after one retry) and stores nothing for that document
   (repo-put! conn alice #:key "reports/q4.md" #:port (open-input-bytes #"Q4: Initech bought Acme.") #:content-type "text/markdown" #:filename "q4.md")
   (flow-run-start! conn alice (flow-def-by-slug conn alice "index-documents")) (drain! conn)
   (define bad-calls (box 0))
-  (define r3 (parameterize ([current-doc-chat (lambda (p #:system [s #f]) (set-box! bad-calls (add1 (unbox bad-calls))) (values "{\"entities\":[{\"type\":\"organization\",\"name\":\"Initech\",\"snippet\":\"never said\"}],\"relations\":[]}" 1))])
+  (define r3 (parameterize ([current-doc-chat (lambda (p #:system [s #f]) (set-box! bad-calls (add1 (unbox bad-calls))) (values "I could not read that document" 1))])
                (define r (flow-run-start! conn alice kgdef)) (drain! conn) (flow-run-get conn alice (hash-ref r 'id))))
   (check-equal? (hash-ref r3 'status) "error")
-  (check-true (regexp-match? #rx"not verbatim" (hash-ref r3 'error)))
+  (check-true (regexp-match? #rx"not a JSON object" (hash-ref r3 'error)))
   (check-equal? (unbox bad-calls) 2 "retried once")
   (check-equal? (kg-find conn alice "initech") '() "nothing was stored from the refused reply")
+  ;; RG-37: a readable reply from which nothing passes is an ANSWER about this version. The
+  ;; document is marked, the run succeeds, and the next run does not call the model for it.
+  (define none-calls (box 0))
+  (define (none-pass p #:system [s #f])
+    (set-box! none-calls (add1 (unbox none-calls)))
+    (values "{\"entities\":[{\"type\":\"organization\",\"name\":\"Initech\",\"snippet\":\"never said\"}],\"relations\":[]}" 1))
+  (define r4 (parameterize ([current-doc-chat none-pass])
+               (define r (flow-run-start! conn alice kgdef)) (drain! conn) (flow-run-get conn alice (hash-ref r 'id))))
+  (check-equal? (hash-ref r4 'status) "done" "nothing passing is not a failed run")
+  (check-equal? (unbox none-calls) 1 "one call, no retry")
+  (check-equal? (kg-find conn alice "initech") '() "and nothing entered the graph")
+  (define r5 (parameterize ([current-doc-chat none-pass])
+               (define r (flow-run-start! conn alice kgdef)) (drain! conn) (flow-run-get conn alice (hash-ref r 'id))))
+  (check-equal? (hash-ref r5 'status) "done")
+  (check-equal? (unbox none-calls) 1 "the document is not offered again, so the drain ends")
   (disconnect conn))
 
 ;; ---- #235 / #234: what the lister must NOT offer -----------------------------
@@ -360,11 +375,15 @@
   (check-equal? (hash-ref x 'windows_unreadable) 1)
   (check-exn #rx"extraction refused: .*not a JSON object"
              (lambda () (extract-document two #:chat (lambda (p #:system [s #f]) (values "no" 1)) #:window 110)))
-  ;; entities were proposed in every window and none passed: nothing to keep, so it is refused
-  (check-exn #rx"extraction refused: .*not verbatim"
-             (lambda () (extract-document two #:window 110
-                                          #:chat (scripted (extraction #:entities (list (hasheq 'type "person" 'name "Nobody" 'description "" 'snippet "never said"))
-                                                                       #:relations '())))))
+  ;; RG-37: entities were proposed in every window and none passed. The replies were readable,
+  ;; so that is an answer: an empty extraction that says so, not a refusal
+  (let-values ([(x _t w _tr)
+                (extract-document two #:window 110
+                                  #:chat (scripted (extraction #:entities (list (hasheq 'type "person" 'name "Nobody" 'description "" 'snippet "never said"))
+                                                               #:relations '())))])
+    (check-equal? (hash-ref x 'entities) '())
+    (check-equal? (hash-ref x 'nothing_kept) #t)
+    (check-equal? (hash-ref x 'dropped) w "one dropped entity per window"))
   ;; a reply that proposes nothing is an answer, not a failure
   (define-values (empty _t2 _w2 _tr2) (extract-document TEXT #:chat (scripted (hasheq 'entities '() 'relations '()))))
   (check-equal? (hash-ref empty 'entities) '()))
