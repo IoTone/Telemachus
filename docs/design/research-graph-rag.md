@@ -216,6 +216,45 @@ wording stays "this is what it does" until there is a recall number. CHUNK‑10'
 lesson: the parameter that looked like the lever was not, and only the
 measurement said so.
 
+> **MEASURED, 20 Nov 2026 (RG‑35). Graph expansion did not improve recall, and
+> the graph-first form made it worse.** `test/calibrate-graph-retrieval.rkt`,
+> over this project's documentation (122 documents, 2,119 chunks, `bge-m3`), with
+> the 28 calibration questions in both languages, scored at the file level:
+>
+> | | en r@1 | en r@3 | en r@5 | ja r@1 | ja r@3 | ja r@5 |
+> |---|---|---|---|---|---|---|
+> | plain | 14/28 | 18/28 | 23/28 | 18/27 | 23/27 | 23/27 |
+> | graph-first | 9/28 | 15/28 | 17/28 | 15/27 | 19/27 | 20/27 |
+> | graph-first, one hop | 11/28 | 17/28 | 19/28 | 15/27 | 19/27 | 20/27 |
+> | vector-first | 14/28 | 21/28 | 23/28 | 18/27 | 21/27 | 23/27 |
+>
+> - **Graph-first is worse at every k in both languages.** 20 of 28 English
+>   questions name an entity, but the documents that mention those entities
+>   include an answer file for only 11. Restricting the search to them removes
+>   the right document more often than it removes a distractor.
+> - **Vector-first is a wash.** It gains three English questions at k=3 and
+>   loses two Japanese ones, and is identical at k=1 and k=5. One question is
+>   3.6 points, so that is inside the noise.
+> - **So the retrieval seam is not built**, and question answering over
+>   bookmarks should use plain `repo_retrieve` with the shared citation rule
+>   (RG‑10). The graph stays what slice 3 made it: a way to read and navigate.
+>
+> What the run does not settle: the corpus is documentation written by one
+> author, not bookmarked web pages, and the graph came from `qwen2.5:7b`. A
+> corpus with more proper nouns (companies, people, products) is where
+> graph-first has its best case, and `--docs` / `--questions` let one be
+> measured. Plain recall here is lower than CHUNK‑10's figures because this is
+> the repository's retrieval over 122 files, not the help corpus's, which also
+> embeds each chunk's title and heading.
+>
+> **The graph had to be built with a different acceptance rule to be measured
+> at all.** As shipped, `kg_extract` refuses a whole reply when one snippet in
+> it is not character-exact. With the real model that was 361 of 388 replies.
+> The harness kept each item that validated by itself and matched snippets with
+> whitespace collapsed, which kept 1,449 of 1,901 entities; 235 of those were
+> faithful excerpts that crossed a hard-wrapped line. That is a defect in the
+> extractor independent of this result, and it is not fixed here.
+
 ## RG‑7 — The traversal is bounded, and every bound is reported
 
 `kg-neighbourhood` already clamps hops to 2, and that is the right ceiling rather
@@ -434,6 +473,7 @@ still waits on a recall measurement.
    described mechanism and not a demonstrated improvement, and the documentation
    should say exactly that. CHUNK‑10 is the precedent: the hypothesis was sound
    and the measurement disconfirmed it.
+   **Done, 20 Nov 2026 (RG‑35): no improvement.** The figures are under RG‑6.
 
 **Slices 1 and 2 are built, so what #191 asked for first is answered**: a bookmarked URL
 is fetched, archived under its own repository key, re-fetchable into new versions

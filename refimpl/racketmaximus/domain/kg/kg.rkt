@@ -110,7 +110,11 @@
   (for ([e (in-list (hash-ref extraction 'entities '()))])
     (define type (normalize-predicate (hash-ref e 'type "concept")))
     (define name (hash-ref e 'name))
-    (define id (entity-id! conn team (if (string=? type "") "concept" type) name (hash-ref e 'description "")))
+    ;; a model may answer `"description": null`, which reaches here as the jsexpr null and is
+    ;; not a value the driver can store. The description is optional, so anything that is not a
+    ;; string is no description.
+    (define description (let ([d (hash-ref e 'description "")]) (if (string? d) d "")))
+    (define id (entity-id! conn team (if (string=? type "") "concept" type) name description))
     (hash-set! ids (normalize-name name) id)
     (query-exec conn
       "INSERT INTO kg_mentions (id, team_id, entity_id, object_id, version_id, snippet) VALUES (?, ?, ?, ?, ?, ?)"

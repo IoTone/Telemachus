@@ -278,3 +278,18 @@
   (check-equal? (kg-list-unextracted conn alice #:limit 1) (list (hash-ref src 'id))
                 "a window of one still reaches the source")
   (disconnect conn))
+
+(test-case "a description the model answered as JSON null is no description, not a driver error"
+  ;; found against a real model: `"description": null` reached the INSERT as the
+  ;; jsexpr null and the write failed with "cannot convert given value to SQL type"
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (define o (repo-put! conn alice #:key "reports/null.txt"
+                       #:port (open-input-bytes #"Acme Robotics builds drones.")
+                       #:content-type "text/plain" #:filename "null.txt" #:visibility "team"))
+  (kg-upsert! conn tid (hash-ref o 'id) (hash-ref o 'version_id)
+              (hasheq 'entities (list (hasheq 'type "organization" 'name "Acme Robotics"
+                                              'description 'null 'snippet "Acme Robotics builds"))
+                      'relations '()))
+  (check-equal? (query-value conn "SELECT description FROM kg_entities WHERE team_id = ?" tid) ""))
