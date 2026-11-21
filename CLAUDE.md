@@ -3218,14 +3218,53 @@ racket test/calibrate-graph-retrieval.rkt --db /path/rg6.db --out result.json
   character-exact refuses the whole reply, and `qwen2.5:7b` produced one in 361
   of 388 replies. Most are faithful excerpts that cross a hard-wrapped line.
   `--per-item` keeps each valid item and stores the document's own text for the
-  snippet. The product still has the all-or-nothing rule.
+  snippet. The product does the same since RG‑36 (the next section).
 - **A 12,000-character window is far past the model's context for Japanese**
-  (about one token per character), so the run used 1,500 for `ja`.
+  (about one token per character), so the run used 1,500 for `ja`. The default
+  window is now solved from the context and the script (RG‑36).
 - `kg-upsert!` now treats a non-string `description` as empty. A model answers
   `null` there, and it used to reach the INSERT and fail in the driver.
 - The build is resumable: a document with chunks or an extraction marker is
   skipped. Run it in a staging worktree with its own `--db`, never against the
   demo.
+
+## The graph extractor keeps what passes (RG‑36)
+
+`sift-extraction`, `locate-snippet` and `extract-window-chars` in
+`domain/kg/kg-tools.rkt`. **No migration, no route, no permission.**
+
+```sh
+raco test test/kg-tests.rkt test/kg-source-tests.rkt   # the five RG-36 cases, three controls
+```
+
+- **The check is per item.** An entity or relation that fails is dropped and
+  counted; the rest are written. `validate-extraction` is the same rule asked
+  for its problems only.
+- **A snippet matches across whitespace, and the DOCUMENT's text is stored.**
+  `locate-snippet` answers the document's own substring, so a stored snippet is
+  still verbatim. Only whitespace is forgiven; the words are quoted literals.
+- **A relation needs both ends KEPT**, not merely named in the reply.
+- **A document is refused only when nothing can be kept**: no window gave a
+  readable reply, or entities were proposed and none passed. A refusal writes no
+  marker, so the document is offered again. One unreadable window among several
+  is counted in `windows_unreadable` and the document is still written.
+- **A reply with no entities is an answer**, and the document is marked
+  extracted with nothing.
+- **The default window is `extract-window-chars`**: half the model's context for
+  the document, four characters per token for Latin text and one for CJK, capped
+  at `EXTRACT-TEXT-CAP` and floored at 1,000. About 7,200 characters of English
+  and 1,800 of Japanese at a 4,096-token window. An explicit `#:window`, and a
+  plugin source's declared window, are used as given.
+- **English on a default box now costs more model calls** (12,000 became about
+  7,200 per window). The old size was past a 4,096-token window with the reply
+  included.
+- `dropped` and `windows_unreadable` ride on the extraction hash that
+  `extract-document` returns; `kg-upsert!` reads only `entities` and
+  `relations`.
+- A test that depends on a window size passes `#:window`. The default depends on
+  `TMACH_MODEL_CONTEXT` and the text.
+- Not measured yet against a live model with the shipped code. The 20 Nov run
+  used the harness's own per-item step, which is the same rule.
 
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 

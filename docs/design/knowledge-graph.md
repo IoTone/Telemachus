@@ -79,10 +79,11 @@ kg_list_unextracted (≤ 40 objects/run, team-scoped)
   documents is a queue of small jobs, cancellable, not one long one. This is the
   drafting pattern from the Localization Manager, and it earned its place there.
 - **The extractor is a `define-tool`** that asks the model for a strict JSON
-  shape and **refuses anything that does not validate** — a mention whose snippet
-  is not a substring of the source text, an entity with an empty name, a relation
-  to an entity not in the same reply. The Manager's lesson applies unchanged: a
-  bad fact that looks finished is worse than a missing one.
+  shape and **keeps nothing that does not validate** — a mention whose snippet
+  is not in the source text, an entity with an empty name, a relation to an
+  entity that was not kept from the same reply. The Manager's lesson applies
+  unchanged: a bad fact that looks finished is worse than a missing one. Since
+  RG‑36 the rule is applied to each item, not to the reply as a whole.
 - **A new version re-extracts and supersedes.** Mentions are keyed by
   `(object_id, version_id)`; extracting version *n+1* removes version *n*'s
   mentions for that object, and entities left with no mentions are pruned. The
@@ -179,10 +180,17 @@ KnowledgeGraph:
   from a colleague's view of an entity the team can otherwise see. `kg-entity`
   returns `#f` both when an entity does not exist and when the caller can see no
   mention of it; the two are indistinguishable on purpose.
-- **Validation is the provenance**: a snippet must be a verbatim substring of
-  the text given to the model, a relation may only join entities in the same
-  reply, a nameless entity is refused — the whole reply is refused, and the
-  workflow step retries once. The model seam is the document pipeline's
+- **Validation is the provenance**: a stored snippet is a verbatim substring of
+  the text given to the model, a relation may only join entities kept from the
+  same reply, and a nameless entity is dropped. **The rule is applied per item
+  (RG‑36)**: an item that fails is dropped and counted in the tool's `dropped`,
+  and the rest are kept. A snippet is matched with runs of whitespace treated as
+  equal, because a faithful excerpt often crosses a hard-wrapped line, and what
+  is stored is the document's own text at that place. A document is refused, and
+  the workflow step retries once, only when nothing can be kept: no window gave
+  a readable reply, or entities were proposed and none passed. The window is
+  sized from the model's context and the text's script, at most 12,000
+  characters. The model seam is the document pipeline's
   (`current-doc-chat`), so one scripted reply drives every test.
 - **Dedup is `(team, type, normalized name)`** with a small suffix list (inc,
   ltd, gmbh, …); the first spelling seen is the display name; the longest

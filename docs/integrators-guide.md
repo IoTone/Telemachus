@@ -429,9 +429,12 @@ What to get right:
   unreachable: the cost is dead rows and a document count that is too high, not a leak.
 - **Do not write the repository's tables and do not build the id yourself.** `kg-source-id` owns
   the format and the platform is the only other place that takes one apart.
-- **A document is read in windows, and the window is a size rather than a limit.** 12,000
-  characters by default; a longer document is split at line breaks, each window extracted and
-  validated against its own text, and the results merged into one extraction. You may declare your
+- **A document is read in windows, and the window is a size rather than a limit.** By default the
+  size follows the model's context and the text's script, at most 12,000 characters (about 7,200
+  of English and 1,800 of Japanese at a 4,096-token window); a longer document is split at line
+  breaks, each window extracted and checked against its own text, and the results merged into one
+  extraction. An entity or relation whose snippet is not in its window is dropped and counted in
+  `dropped`, and the rest are kept. You may declare your
   own with an optional `window` procedure, and a value outside 1,000 to 48,000 characters falls
   back to the default rather than being used, because the size of one model input is the platform's
   ceiling and not a plugin's. At most 24 windows are

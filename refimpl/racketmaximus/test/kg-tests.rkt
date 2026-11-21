@@ -293,3 +293,98 @@
                                               'description 'null 'snippet "Acme Robotics builds"))
                       'relations '()))
   (check-equal? (query-value conn "SELECT description FROM kg_entities WHERE team_id = ?" tid) ""))
+
+;; ---- RG-36: the rule is applied per item ----------------------------------------------------
+;; Measured with a real model: one snippet that was not character-exact used to refuse the whole
+;; reply, which was 361 of 388 replies. These pin what is kept, what is dropped, and what is stored.
+
+(define WRAPPED "Acme Robotics hired Ada Lovelace as chief\nengineer in 2026.\nAcme Robotics is a customer of Globex Media.")
+
+(define (scripted j) (lambda (p #:system [s #f]) (values (jsexpr->string j) 5)))
+
+(test-case "RG-36: an item that fails is dropped, and the items that pass are kept"
+  (define j (extraction
+             #:entities (list (hasheq 'type "organization" 'name "Acme Robotics" 'description "" 'snippet "Acme Robotics hired Ada Lovelace")
+                              (hasheq 'type "person" 'name "Ada Lovelace" 'description "" 'snippet "Ada Lovelace as chief engineer")
+                              (hasheq 'type "organization" 'name "Initech" 'description "" 'snippet "Initech bought everything"))
+             #:relations (list (hasheq 'subject "Ada Lovelace" 'predicate "works_at" 'object "Acme Robotics" 'snippet "hired Ada Lovelace as chief engineer")
+                               ;; its object was dropped, so it goes with it
+                               (hasheq 'subject "Acme Robotics" 'predicate "bought_by" 'object "Initech" 'snippet "Acme Robotics hired")
+                               ;; both ends are kept and the snippet is invented
+                               (hasheq 'subject "Acme Robotics" 'predicate "sued" 'object "Ada Lovelace" 'snippet "Acme sued Ada"))))
+  (define-values (cleaned problems) (sift-extraction j TEXT))
+  (check-equal? (map (lambda (e) (hash-ref e 'name)) (hash-ref cleaned 'entities)) '("Acme Robotics" "Ada Lovelace"))
+  (check-equal? (map (lambda (r) (hash-ref r 'predicate)) (hash-ref cleaned 'relations)) '("works_at"))
+  (check-equal? (length problems) 3 "one entity and two relations, each named")
+  (check-true (and (ormap (lambda (m) (regexp-match? #rx"Initech.*not verbatim" m)) problems) #t))
+  (check-true (and (ormap (lambda (m) (regexp-match? #rx"object \"Initech\" is not an entity" m)) problems) #t))
+  ;; through the seam, the document is written and the count of what went is reported
+  (define-values (x _t _w _tr) (extract-document TEXT #:chat (scripted j)))
+  (check-equal? (length (hash-ref x 'entities)) 2)
+  (check-equal? (hash-ref x 'dropped) 3)
+  (check-equal? (hash-ref x 'windows_unreadable) 0))
+
+(test-case "RG-36: a snippet across a line break is kept, and what is stored is the document's own text"
+  (define j (extraction))   ; the snippets are written with single spaces; WRAPPED breaks one of them
+  (check-false (string-contains? WRAPPED "Ada Lovelace as chief engineer") "the fixture really does differ")
+  (define-values (cleaned problems) (sift-extraction j WRAPPED))
+  (check-equal? problems '())
+  (for ([it (in-list (append (hash-ref cleaned 'entities) (hash-ref cleaned 'relations)))])
+    (check-true (string-contains? WRAPPED (hash-ref it 'snippet))
+                "every stored snippet is a verbatim substring of the document"))
+  (check-equal? (locate-snippet WRAPPED "Ada Lovelace as chief engineer") "Ada Lovelace as chief\nengineer")
+  ;; whitespace is the only thing forgiven: a changed word is still not in the document
+  (check-false (locate-snippet WRAPPED "Ada Lovelace as chief scientist"))
+  ;; and a snippet is a literal, never a pattern
+  (check-false (locate-snippet "abc" "a.c"))
+  (check-equal? (locate-snippet "cost (USD) is  10" "cost (USD) is 10") "cost (USD) is  10"))
+
+(test-case "RG-36: a description that is not a string is made one before the merge reads its length"
+  (define j (extraction #:entities (list (hasheq 'type "organization" 'name "Acme Robotics" 'description 'null 'snippet "Acme Robotics hired"))
+                        #:relations '()))
+  (define-values (x _t _w _tr) (extract-document (string-append TEXT "\n" TEXT) #:chat (scripted j) #:window 110))
+  (check-equal? (hash-ref (car (hash-ref x 'entities)) 'description) ""))
+
+(test-case "RG-36: one unreadable window does not cost the document; nothing readable still refuses"
+  (define good (jsexpr->string (extraction #:entities (list (hasheq 'type "organization" 'name "Acme Robotics" 'description "" 'snippet "Acme Robotics hired"))
+                                           #:relations '())))
+  (define two (string-append TEXT "\n" TEXT))
+  (define n (box 0))
+  (define (first-bad p #:system [s #f])
+    (set-box! n (add1 (unbox n)))
+    (values (if (= (unbox n) 1) "I could not read that" good) 2))
+  (define-values (x tokens windows _tr) (extract-document two #:chat first-bad #:window 110))
+  (check-equal? windows 2)
+  (check-equal? tokens 4 "both calls are metered, the unreadable one included")
+  (check-equal? (length (hash-ref x 'entities)) 1)
+  (check-equal? (hash-ref x 'windows_unreadable) 1)
+  (check-exn #rx"extraction refused: .*not a JSON object"
+             (lambda () (extract-document two #:chat (lambda (p #:system [s #f]) (values "no" 1)) #:window 110)))
+  ;; entities were proposed in every window and none passed: nothing to keep, so it is refused
+  (check-exn #rx"extraction refused: .*not verbatim"
+             (lambda () (extract-document two #:window 110
+                                          #:chat (scripted (extraction #:entities (list (hasheq 'type "person" 'name "Nobody" 'description "" 'snippet "never said"))
+                                                                       #:relations '())))))
+  ;; a reply that proposes nothing is an answer, not a failure
+  (define-values (empty _t2 _w2 _tr2) (extract-document TEXT #:chat (scripted (hasheq 'entities '() 'relations '()))))
+  (check-equal? (hash-ref empty 'entities) '()))
+
+(test-case "RG-36: the default window follows the model's context and the text's script"
+  (define en (make-string 30000 #\a))
+  (define ja (make-string 30000 #\あ))
+  (define en-4k (extract-window-chars en #:context 4096))
+  (define ja-4k (extract-window-chars ja #:context 4096))
+  (check-true (< 6000 en-4k 7681) (format "English at a 4,096-token window: ~a" en-4k))
+  (check-true (< 1400 ja-4k 1921) (format "Japanese at a 4,096-token window: ~a" ja-4k))
+  (check-equal? (* 4 ja-4k) (- en-4k (remainder en-4k 4)) "one token per character against four")
+  ;; the cap is still the ceiling when the window is large
+  (check-equal? (extract-window-chars en #:context 32768) EXTRACT-TEXT-CAP)
+  (check-true (< (extract-window-chars ja #:context 16384) EXTRACT-TEXT-CAP) "Japanese reaches the cap later")
+  ;; and a tiny context cannot produce a window of a few characters
+  (check-equal? (extract-window-chars ja #:context 512) EXTRACT-WINDOW-MIN)
+  ;; so the same count of characters costs more model calls in Japanese than in English
+  (define calls (box 0))
+  (define (count p #:system [s #f]) (set-box! calls (add1 (unbox calls))) (values "{\"entities\":[],\"relations\":[]}" 1))
+  (define-values (_x _t w-en _tr) (extract-document (make-string 12000 #\a) #:chat count))
+  (define-values (_x2 _t2 w-ja _tr2) (extract-document (make-string 12000 #\あ) #:chat count))
+  (check-true (> w-ja w-en) (format "~a Japanese windows against ~a English" w-ja w-en)))

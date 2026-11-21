@@ -602,12 +602,13 @@
   ;; 12,000 characters plus a newline: the split gives (12000 1) and the second window is blank,
   ;; which used to raise "nothing to extract from" and take the document down with it
   (define text (string-append (make-string 12000 #\A) "\n"))
-  (define-values (x tokens windows truncated?) (extract-document text #:chat reply))
+  ;; the window is named, because this case is about the blank tail and not about the default size
+  (define-values (x tokens windows truncated?) (extract-document text #:chat reply #:window 12000))
   (check-equal? windows 1 "the blank window is dropped rather than sent to the model")
   (check-equal? tokens 1 "and it is not metered either")
   (check-false truncated?)
   ;; a tail of newlines and spaces behaves the same way
-  (define-values (_x2 _t2 w2 _tr2) (extract-document (string-append (make-string 12000 #\B) "\n  \n\n") #:chat reply))
+  (define-values (_x2 _t2 w2 _tr2) (extract-document (string-append (make-string 12000 #\B) "\n  \n\n") #:chat reply #:window 12000))
   (check-equal? w2 1))
 
 (test-case "the merge keeps two entities that share a name but not a type"
