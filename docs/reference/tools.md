@@ -24,7 +24,7 @@ Every tool a workflow step may use, from `define-tool` declarations and plugin r
 | `feed_queue_status` | yes | `files:read` | feeds | Move a queued item to another status: open, claimed, done or dropped. |
 | `get_usage` | yes | `chat:use` | built-in | Report the team's current AI usage against its quota. |
 | `inbox_raise` | yes | `inbox:write` | inbox | Raise an item into the team's inbox, or re-raise one. One live item exists per (source, key): the same revision only refreshes the evidence, a different revision replaces the content and sends an acknowledged or snoozed item back to open. The answer's outcome says which happened. |
-| `kg_extract` | — | `files:read` | built-in | Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows of about 12,000 characters, up to a per-document limit that the answer reports. Refuses a reply that does not validate. |
+| `kg_extract` | — | `files:read` | built-in | Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows sized to the model's context, at most 12,000 characters each, up to a per-document limit that the answer reports. An entity or relation whose snippet is not in the document is dropped and counted; a document from which nothing can be kept is refused. |
 | `kg_list_unextracted` | — | `files:read` | built-in | List the documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). A document is a repository object or one a plugin source lends to the graph. Returns ids, capped at a batch; run the index-knowledge workflow again to continue. |
 | `kg_query` | yes | `files:read` | built-in | What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too. |
 | `list_notes` | yes | `notes:read` | built-in | List the current user's notes (title and visibility). |
@@ -294,7 +294,7 @@ Permission: `inbox:write` · source: inbox
 
 ## `kg_extract`
 
-Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows of about 12,000 characters, up to a per-document limit that the answer reports. Refuses a reply that does not validate.
+Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows sized to the model's context, at most 12,000 characters each, up to a per-document limit that the answer reports. An entity or relation whose snippet is not in the document is dropped and counted; a document from which nothing can be kept is refused.
 
 Permission: `files:read` · source: built-in
 

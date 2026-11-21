@@ -253,7 +253,8 @@ measurement said so.
 > The harness kept each item that validated by itself and matched snippets with
 > whitespace collapsed, which kept 1,449 of 1,901 entities; 235 of those were
 > faithful excerpts that crossed a hard-wrapped line. That is a defect in the
-> extractor independent of this result, and it is not fixed here.
+> extractor independent of this result. It was fixed afterwards as RG‑36: the
+> shipped extractor now keeps each item that passes.
 
 ## RG‑7 — The traversal is bounded, and every bound is reported
 
