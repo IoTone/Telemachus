@@ -3263,8 +3263,18 @@ raco test test/kg-tests.rkt test/kg-source-tests.rkt   # the five RG-36 cases, t
   `relations`.
 - A test that depends on a window size passes `#:window`. The default depends on
   `TMACH_MODEL_CONTEXT` and the text.
-- Not measured yet against a live model with the shipped code. The 20 Nov run
-  used the harness's own per-item step, which is the same rule.
+- **Measured with the shipped code on 21 Nov 2026** (`qwen2.5:7b`, the same 122
+  documents, default windows): 115 documents written, 306 model replies, 8
+  unreadable; 1,325 entities and 170 relations kept, 1,568 items dropped.
+  English: 90 documents, 238 replies. Japanese: 25 documents, 68 replies, one
+  unreadable, so the smaller CJK window works. Recall is unchanged from RG‑35:
+  neither graph variant beats plain retrieval.
+- **Seven documents were refused, and a second run refused the same seven with
+  the same replies.** Five had every snippet missing or wrong, two had a single
+  window that was not JSON. A refusal writes no marker, so each run of **Index
+  Knowledge** pays for them again and they never finish. Not fixed here.
+- Without `--per-item` the harness calls `kg_extract` and prints what the tool
+  kept and dropped (`calib_shipped`).
 
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 
