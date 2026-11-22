@@ -3277,8 +3277,8 @@ raco test test/kg-tests.rkt test/kg-source-tests.rkt   # the five RG-36 cases, t
   neither graph variant beats plain retrieval.
 - **Seven documents were refused, and a second run refused the same seven with
   the same replies.** Five had every snippet missing or wrong, two had a single
-  window that was not JSON. A refusal writes no marker, so each run of **Index
-  Knowledge** pays for them again and they never finish. Not fixed here.
+  window that was not JSON. RG‑37 marks the five as read with nothing in them.
+  The two with no readable reply are still refused, and offered, on every run.
 - Without `--per-item` the harness calls `kg_extract` and prints what the tool
   kept and dropped (`calib_shipped`).
 
