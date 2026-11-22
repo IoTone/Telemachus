@@ -255,6 +255,15 @@ measurement said so.
 > faithful excerpts that crossed a hard-wrapped line. That is a defect in the
 > extractor independent of this result. It was fixed afterwards as RG‑36: the
 > shipped extractor now keeps each item that passes.
+>
+> **The run was repeated with the shipped extractor on 21 Nov 2026.** Same
+> corpus, same models, the tool's default windows. 115 of 122 documents were
+> written from 306 replies; 1,325 entities and 170 relations were kept and 1,568
+> items dropped. Recall did not change the conclusion: at k=5 plain retrieval
+> found 23 of 28 English and 23 of 27 Japanese answers, graph-first 19 and 19,
+> vector-first 22 and 23. Seven documents were refused, and a retry refused the
+> same seven, because the model gives the same reply each time. A refused
+> document has no marker, so it is offered on every run.
 
 ## RG‑7 — The traversal is bounded, and every bound is reported
 

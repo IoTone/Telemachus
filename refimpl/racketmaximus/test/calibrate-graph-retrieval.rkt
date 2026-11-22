@@ -226,6 +226,17 @@
     (hash-ref stats 'relations_seen 0) (hash-ref stats 'relations_kept 0)
     (hash-ref stats 'entities_exact 0)))
 
+;; the shipped tool reports what it kept and what it dropped; keep that per document so a
+;; build can say how the real model fared under the shipped rule (RG-36)
+(define (record-shipped! conn oid r)
+  (when (hash? r)
+    (query-exec conn "DELETE FROM calib_shipped WHERE object_id = ?" oid)
+    (query-exec conn
+      (string-append "INSERT INTO calib_shipped (object_id, windows, unreadable, entities, relations, dropped) "
+                     "VALUES (?,?,?,?,?,?)")
+      oid (hash-ref r 'windows 0) (hash-ref r 'windows_unreadable 0)
+      (hash-ref r 'entities 0) (hash-ref r 'relations 0) (hash-ref r 'dropped 0))))
+
 ;; ---- build ----------------------------------------------------------------------
 
 (define (build! conn p tid)
@@ -236,11 +247,16 @@
     (string-append "CREATE TABLE IF NOT EXISTS calib_extract (object_id TEXT PRIMARY KEY, windows INTEGER, "
                    "unreadable INTEGER, shipped_ok INTEGER, entities_seen INTEGER, entities_kept INTEGER, "
                    "relations_seen INTEGER, relations_kept INTEGER, entities_exact INTEGER)"))
+  (query-exec conn
+    (string-append "CREATE TABLE IF NOT EXISTS calib_shipped (object_id TEXT PRIMARY KEY, windows INTEGER, "
+                   "unreadable INTEGER, entities INTEGER, relations INTEGER, dropped INTEGER)"))
   (define files
     (let ([all (corpus-files)] [n (string->number (arg-value "--max-files" "0"))])
       (if (and n (positive? n) (< n (length all))) (take all n) all)))
-  (printf "corpus: ~a Markdown files under ~a\ngraph step: ~a, windows of ~a (en) / ~a (ja) characters\n"
-          (length files) repo-root (if per-item? "per item" "as shipped") window-en window-ja)
+  (printf "corpus: ~a Markdown files under ~a\ngraph step: ~a\n" (length files) repo-root
+          (if per-item?
+              (format "per item, windows of ~a (en) / ~a (ja) characters" window-en window-ja)
+              "as shipped, the tool's own default window"))
   (define failed '())
   (for ([f (in-list files)] [i (in-naturals 1)])
     (define text (file->string (build-path repo-root f)))
@@ -273,7 +289,7 @@
              (lambda ()
                (if per-item?
                    (extract-per-item! conn tid oid text (if (ja-key? f) window-ja window-en))
-                   (call-tool conn p "kg_extract" (hasheq 'object oid))))))
+                   (record-shipped! conn oid (call-tool conn p "kg_extract" (hasheq 'object oid)))))))
     (printf "~a/~a  embed ~a  graph ~a  ~as  ~a (~a chars)\n" i (length files) e k
             (~r (/ (- (current-inexact-milliseconds) t0) 1000.0) #:precision 1)
             f (string-length text))
@@ -295,6 +311,15 @@
                              "(~a with a character-exact snippet), relations kept ~a of ~a\n")
               (vector-ref r 0) (vector-ref r 1) (vector-ref r 2) (vector-ref r 3)
               (vector-ref r 5) (vector-ref r 4) (vector-ref r 8) (vector-ref r 7) (vector-ref r 6))))
+  (let ([r (query-row conn
+             (string-append "SELECT COUNT(*), COALESCE(SUM(windows),0), COALESCE(SUM(unreadable),0), "
+                            "COALESCE(SUM(entities),0), COALESCE(SUM(relations),0), COALESCE(SUM(dropped),0) "
+                            "FROM calib_shipped"))])
+    (when (positive? (vector-ref r 0))
+      (printf (string-append "shipped graph step over ~a documents: ~a model replies, ~a unreadable; "
+                             "kept ~a entities and ~a relations, dropped ~a items\n")
+              (vector-ref r 0) (vector-ref r 1) (vector-ref r 2)
+              (vector-ref r 3) (vector-ref r 4) (vector-ref r 5))))
   (unless (null? failed)
     (printf "FAILED steps (~a); run --build again to retry them:\n" (length failed))
     (for ([x (in-list (reverse failed))])
