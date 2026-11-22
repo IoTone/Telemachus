@@ -262,8 +262,10 @@ measurement said so.
 > items dropped. Recall did not change the conclusion: at k=5 plain retrieval
 > found 23 of 28 English and 23 of 27 Japanese answers, graph-first 19 and 19,
 > vector-first 22 and 23. Seven documents were refused, and a retry refused the
-> same seven, because the model gives the same reply each time. A refused
-> document has no marker, so it is offered on every run.
+> same seven, because the model gives the same reply each time. Five of them
+> had readable replies with no valid item, and RG‑37 now records those as read
+> with nothing in them. The other two had no readable reply, so they are still
+> refused and offered on every run.
 
 ## RG‑7 — The traversal is bounded, and every bound is reported
 
