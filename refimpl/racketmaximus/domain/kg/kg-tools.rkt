@@ -95,7 +95,7 @@
   #:description "List the documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). A document is a repository object or one a plugin source lends to the graph. Returns ids, capped at a batch; run the index-knowledge workflow again to continue.")
 
 (define-tool kg_extract
-  #:description "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows sized to the model's context, at most 12,000 characters each, up to a per-document limit that the answer reports. An entity or relation whose snippet is not in the document is dropped and counted; a document from which nothing can be kept is refused."
+  #:description "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows sized to the model's context, at most 12,000 characters each, up to a per-document limit that the answer reports. An entity or relation whose snippet is not in the document is dropped and counted; a document where no item passes is recorded as read with nothing in it, and one with no readable reply is refused."
   (object string #:description "The document id, from the repository or from a plugin source"))
 
 (define-tool kg_query
@@ -306,18 +306,25 @@
        (set! results (cons cleaned results))]
       [else (set! unreadable (add1 unreadable))]))
   (define merged (merge-extractions (reverse results)))
-  ;; THE DOCUMENT IS REFUSED WHEN NOTHING CAN BE KEPT FROM IT, and only then. Raising writes no
-  ;; marker, so the document is offered again on the next run, which is right for a reply that
-  ;; was unusable and wrong for one that was merely imperfect.
-  (when (or (null? results)
-            (and (> proposed 0) (null? (hash-ref merged 'entities))))
+  ;; THE DOCUMENT IS REFUSED ONLY WHEN NO WINDOW GAVE A READABLE REPLY (RG-37). Raising writes no
+  ;; marker, so the document is offered again on the next run, which is right when the model
+  ;; said nothing usable at all.
+  ;;
+  ;; A document whose replies WERE readable and from which no entity passed is an answer about
+  ;; this version of the text: it is written with nothing in it and `nothing_kept` says so. It
+  ;; used to be refused, and a model that gives the same reply each time then refused the same
+  ;; documents on every run, so a drain paid for them again and never finished. A new version
+  ;; of the document is unextracted again, as for any other document.
+  (when (null? results)
     (error 'kg_extract "extraction refused: ~a" (string-join (take-at-most problems 8) "; ")))
+  (define nothing-kept (and (> proposed 0) (null? (hash-ref merged 'entities))))
   ;; `truncated?` is about the per-document BOUND, not about a blank window that was dropped: a
   ;; document read in full and merely ending in blank lines is not truncated.
   ;;
   ;; `dropped` and `windows_unreadable` ride on the extraction so the tool's answer can report
   ;; them. `kg-upsert!` reads `entities` and `relations` and nothing else.
-  (values (hash-set (hash-set merged 'dropped (length problems)) 'windows_unreadable unreadable)
+  (values (hash-set (hash-set (hash-set merged 'dropped (length problems)) 'windows_unreadable unreadable)
+                    'nothing_kept nothing-kept)
           tokens (length kept) (> (length kept0) (length kept))))
 
 (define (take-at-most l n) (if (> (length l) n) (take l n) l))
@@ -389,6 +396,7 @@
                 'windows windows
                 'dropped (hash-ref extraction 'dropped 0)
                 'windows_unreadable (hash-ref extraction 'windows_unreadable 0)
+                'nothing_kept (hash-ref extraction 'nothing_kept #f)
                 'text_truncated truncated?)])]
     [else (extract-one-repo conn p id)]))
 
@@ -419,6 +427,7 @@
              'windows windows
              'dropped (hash-ref extraction 'dropped 0)
              'windows_unreadable (hash-ref extraction 'windows_unreadable 0)
+                'nothing_kept (hash-ref extraction 'nothing_kept #f)
              'text_truncated truncated?)]))
 
 ;; the agent's answer: plain text with citations, because that is what a model

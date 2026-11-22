@@ -434,7 +434,8 @@ What to get right:
   of English and 1,800 of Japanese at a 4,096-token window); a longer document is split at line
   breaks, each window extracted and checked against its own text, and the results merged into one
   extraction. An entity or relation whose snippet is not in its window is dropped and counted in
-  `dropped`, and the rest are kept. You may declare your
+  `dropped`, and the rest are kept. When the replies were readable and nothing passed, the
+  document is recorded as read with nothing in it and the answer carries `nothing_kept`. You may declare your
   own with an optional `window` procedure, and a value outside 1,000 to 48,000 characters falls
   back to the default rather than being used, because the size of one model input is the platform's
   ceiling and not a plugin's. At most 24 windows are

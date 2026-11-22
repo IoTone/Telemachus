@@ -3244,10 +3244,16 @@ raco test test/kg-tests.rkt test/kg-source-tests.rkt   # the five RG-36 cases, t
   `locate-snippet` answers the document's own substring, so a stored snippet is
   still verbatim. Only whitespace is forgiven; the words are quoted literals.
 - **A relation needs both ends KEPT**, not merely named in the reply.
-- **A document is refused only when nothing can be kept**: no window gave a
-  readable reply, or entities were proposed and none passed. A refusal writes no
-  marker, so the document is offered again. One unreadable window among several
-  is counted in `windows_unreadable` and the document is still written.
+- **A document is refused only when no window gave a readable reply** (RG‑37).
+  A refusal writes no marker, so the document is offered again. One unreadable
+  window among several is counted in `windows_unreadable` and the document is
+  still written.
+- **Readable replies from which no entity passes are an answer** (RG‑37). The
+  document is marked extracted with nothing, the result carries
+  `nothing_kept: true`, the step succeeds and there is no retry. It used to be
+  refused, and a model that repeats itself then refused the same documents on
+  every run. A new version of the document is unextracted again. The cost: a
+  document that failed this way once is not retried until it changes.
 - **A reply with no entities is an answer**, and the document is marked
   extracted with nothing.
 - **The default window is `extract-window-chars`**: half the model's context for

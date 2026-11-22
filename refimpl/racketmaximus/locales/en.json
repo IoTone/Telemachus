@@ -2136,8 +2136,8 @@
       "hash": "44a8688a8fc73c93211767a7d651d36a57d11c77"
     },
     "doc.workflow.index-knowledge": {
-      "text": "Extract entities and relations from indexed documents into the knowledge graph. A document is a repository object or one a plugin source lends to the graph, and a long one is read in windows sized to the model's context, at most 12,000 characters each, up to a per-document limit the answer reports. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; an entity or relation that does not validate is dropped, and a document from which nothing can be kept is refused. Safe to re-run; processes up to 40 documents per run.",
-      "hash": "f0f9330df420388bb0d11b767f0bf2c7f9c0157f"
+      "text": "Extract entities and relations from indexed documents into the knowledge graph. A document is a repository object or one a plugin source lends to the graph, and a long one is read in windows sized to the model's context, at most 12,000 characters each, up to a per-document limit the answer reports. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; an entity or relation that does not validate is dropped, a document where no item validates is recorded as read with nothing in it, and one with no readable reply is refused. Safe to re-run; processes up to 40 documents per run.",
+      "hash": "64fd95b7e84b03d49a1e567d9bcc69cb41821038"
     },
     "ui.edit": {
       "text": "Edit",
@@ -2664,8 +2664,8 @@
       "hash": "b5e77c5c02a90c01b16fea8f21a1083425ebe0e0"
     },
     "doc.tool.kg_extract": {
-      "text": "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows sized to the model's context, at most 12,000 characters each, up to a per-document limit that the answer reports. An entity or relation whose snippet is not in the document is dropped and counted; a document from which nothing can be kept is refused.",
-      "hash": "cc671078361c4f36693dcf067b49360a36fc2e0c"
+      "text": "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one document into the knowledge graph, every mention with a verbatim snippet. A long document is read in windows sized to the model's context, at most 12,000 characters each, up to a per-document limit that the answer reports. An entity or relation whose snippet is not in the document is dropped and counted; a document where no item passes is recorded as read with nothing in it, and one with no readable reply is refused.",
+      "hash": "972cb68e1fcfb554b6b2cd14371919845516c38b"
     },
     "ui.rs_newversion": {
       "text": "Stored as a new version.",

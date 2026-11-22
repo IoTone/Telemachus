@@ -187,8 +187,10 @@ KnowledgeGraph:
   and the rest are kept. A snippet is matched with runs of whitespace treated as
   equal, because a faithful excerpt often crosses a hard-wrapped line, and what
   is stored is the document's own text at that place. A document is refused, and
-  the workflow step retries once, only when nothing can be kept: no window gave
-  a readable reply, or entities were proposed and none passed. The window is
+  the workflow step retries once, only when no window gave a readable reply. A
+  document whose replies were readable and from which no entity passed is
+  recorded as read with nothing in it (RG‑37), and the tool's `nothing_kept`
+  says so; a new version of the document is read again. The window is
   sized from the model's context and the text's script, at most 12,000
   characters. The model seam is the document pipeline's
   (`current-doc-chat`), so one scripted reply drives every test.
